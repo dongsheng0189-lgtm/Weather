@@ -65,7 +65,7 @@
     <span class="ed-save-status" id="save-status">自動儲存</span>
   </div>
 
-  <input class="ed-title" id="title-input" placeholder="標題..." value="{{ note.title if note else '' }}">
+  <input class="ed-title" id="title-input" placeholder="標題..." value="{{ note.title if note else default_title }}">
 
   {% if note_type in ('todo_note', 'todo_checklist') %}
   <div class="ed-reminder-row">

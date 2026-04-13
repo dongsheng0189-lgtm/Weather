@@ -95,14 +95,17 @@ def new_note():
     note_type = request.args.get("type", "todo_note")
     if note_type not in PRIVATE_NOTE_TYPES:
         note_type = "todo_note"
-    return render_template("mynotes/editor.html", note=None, note_type=note_type)
+    type_label = {"meeting": "會議", "todo_note": "筆記", "todo_checklist": "清單"}.get(note_type, "筆記")
+    today_tw = datetime.now(_TW)
+    default_title = f"{today_tw.month}/{today_tw.day} {type_label}"
+    return render_template("mynotes/editor.html", note=None, note_type=note_type, default_title=default_title)
 
 
 @mynotes_bp.route("/<int:note_id>")
 @login_required
 def view_note(note_id):
     note = _get_my_note(note_id)
-    return render_template("mynotes/editor.html", note=note, note_type=note.note_type)
+    return render_template("mynotes/editor.html", note=note, note_type=note.note_type, default_title="")
 
 
 # ═══ 筆記 CRUD ═════════════════════════════════════════
