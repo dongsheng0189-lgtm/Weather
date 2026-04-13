@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}私人筆記{% endblock %}
 {% block extra_head %}
-<script>window.IDLE_LIMIT_MS = {{ idle_limit_ms }};</script>
+<script>
+window.IDLE_LIMIT_MS = {{ idle_limit_ms }};
+window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000 : 0;
+</script>
+<script src="{{ url_for('static', filename='js/mynotes_privacy.js') }}"></script>
 <style>
 .mn-wrap { max-width: 820px; margin: 1rem auto; padding: 0 .75rem; }
 .mn-search { display: flex; gap: .5rem; align-items: center; background: #fff; border: 1px solid #e0e0e0;

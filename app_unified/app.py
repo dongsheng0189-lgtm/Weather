@@ -12,7 +12,8 @@ logging.basicConfig(
 )
 
 from datetime import timedelta
-from flask import Flask, redirect, url_for, render_template
+from flask import Flask, redirect, url_for, render_template, request, session
+from flask_login import current_user, logout_user
 from config import Config
 from extensions import db, login_manager, limiter, socketio
 from models import User
@@ -21,7 +22,9 @@ from models import User
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=5)
+    # Session 硬性過期：35 分鐘（涵蓋私人筆記筆電 30 分鐘 + 緩衝）
+    # 真正的 idle 強制由 _enforce_session_idle 依路徑判定（5 分鐘 / 30 分鐘）
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=35)
 
     db.init_app(app)
     login_manager.init_app(app)
@@ -265,6 +268,36 @@ def create_app():
     @app.before_request
     def _clear_login_cache():
         flask_g.pop('_login_user', None)
+
+    @app.before_request
+    def _enforce_session_idle():
+        """伺服器端閒置強制登出。
+        路徑判定 max idle：
+        - /mynotes/* 在筆電（非 mobile UA）→ 30 分鐘
+        - 其他（含 /mynotes/* 在手機）→ 5 分鐘
+
+        僅對已登入使用者作用；靜態資源、SW、登出端點略過。
+        """
+        if not current_user.is_authenticated:
+            return
+        p = request.path or ""
+        if (p.startswith("/static/") or p == "/sw.js"
+                or p.startswith("/api/v1/")  # device 相關 endpoint
+                or p == "/auth/logout"):
+            return
+        ua = (request.headers.get("User-Agent") or "").lower()
+        is_mobile = any(k in ua for k in ("iphone", "ipad", "ipod", "android"))
+        is_mynotes_laptop = p.startswith("/mynotes/") and not is_mobile
+        max_idle = 30 * 60 if is_mynotes_laptop else 5 * 60
+        import time
+        now = int(time.time())
+        last = session.get("_last_request_at")
+        if last is not None and now - last > max_idle:
+            logout_user()
+            session.clear()
+            return  # 後續 @login_required 會自動 redirect 到 weather
+        session["_last_request_at"] = now
+        session.permanent = True
 
     from auth.routes import auth_bp
     from face.routes import face_bp
