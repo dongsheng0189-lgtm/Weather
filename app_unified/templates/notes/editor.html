@@ -850,8 +850,32 @@ function toggleChecklistItem(itemId, isChecked, rowEl) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ is_checked: isChecked })
   }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.status === 'ok') {
-      loadChecklistItems();
+    if (d.status !== 'ok') return;
+    // 在原地更新 DOM：避免重新排序造成項目跳動
+    // 排序變動會在下次重新進入頁面時生效
+    if (rowEl) {
+      var textEl = rowEl.querySelector('div[style*="white-space:pre-wrap"]');
+      if (textEl) {
+        if (d.item.is_checked) {
+          textEl.style.textDecoration = 'line-through';
+          textEl.style.color = '#888';
+        } else {
+          textEl.style.textDecoration = '';
+          textEl.style.color = '';
+        }
+      }
+      // 更新「由 X 在 ... 完成」文字（meta 是 content 的最後一個 div）
+      var contentDiv = rowEl.children[1];  // [checkbox, content, actions]
+      if (contentDiv) {
+        var meta = contentDiv.lastElementChild;
+        if (meta && meta.style && meta.style.fontSize) {
+          if (d.item.is_checked && d.item.checked_by_name) {
+            meta.textContent = '✓ 由 ' + d.item.checked_by_name + ' 在 ' + fmtDateTime(d.item.checked_at) + ' 完成';
+          } else {
+            meta.textContent = '';
+          }
+        }
+      }
     }
   });
 }

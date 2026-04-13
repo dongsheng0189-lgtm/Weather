@@ -763,12 +763,12 @@ def update_checklist_item(item_id):
     if not note:
         return jsonify({"status": "error", "message": "無權限"}), 403
     data = request.get_json(silent=True) or {}
-    text_changed = False
+    changed = False
     if "text" in data:
         new_text = (data.get("text") or "").strip()
         if new_text != item.text:
             item.text = new_text
-            text_changed = True
+            changed = True
     if "is_checked" in data:
         is_checked = bool(data.get("is_checked"))
         if is_checked and not item.is_checked:
@@ -776,13 +776,17 @@ def update_checklist_item(item_id):
             item.checked_at = datetime.utcnow()
             item.checked_by = current_user.id
             item.checked_by_name = current_user.username
+            changed = True
         elif not is_checked and item.is_checked:
             item.is_checked = False
             item.checked_at = None
             item.checked_by = None
             item.checked_by_name = None
-    # 文字改動才 bump updated_at（避免打勾就跳到最上面）
-    if text_changed:
+            changed = True
+    # 任何修改（含勾選/取消勾選）都 bump updated_at
+    # → 但前端勾選後不重新 fetch 整個 list，所以當下不會跳；
+    #   下次重進頁面時才會看到該項目排到最上面
+    if changed:
         item.updated_at = datetime.utcnow()
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id
