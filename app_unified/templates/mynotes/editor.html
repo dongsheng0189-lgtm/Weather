@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ note.title if note else '新增' }} - 私人筆記{% endblock %}
 {% block extra_head %}
+<script>window.IDLE_LIMIT_MS = 30 * 60 * 1000;</script>
 <style>
 .ed-wrap { max-width: 820px; margin: 1rem auto; padding: 0 .75rem; }
 .ed-toolbar { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; flex-wrap: wrap; }
@@ -60,9 +61,8 @@
       {% elif note_type == 'todo_note' %}📝 代辦筆記
       {% else %}☑️ 代辦清單{% endif %}
     </span>
-    <button class="btn btn-primary" id="btn-save" onclick="doSave()">儲存</button>
     {% if note %}<button class="btn btn-danger" onclick="doDelete()">刪除</button>{% endif %}
-    <span class="ed-save-status" id="save-status"></span>
+    <span class="ed-save-status" id="save-status">自動儲存</span>
   </div>
 
   <input class="ed-title" id="title-input" placeholder="標題..." value="{{ note.title if note else '' }}">
@@ -129,12 +129,24 @@ function setStatus(msg, color) {
   el.style.color = color || '#666';
 }
 
+var _saveInFlight = null;
 function doSave() {
+  // 若有儲存中的請求，等它完後再發新的，避免競態
+  if (_saveInFlight) return _saveInFlight.then(doSave);
   var title = document.getElementById('title-input').value.trim() || '未命名';
-  var body = { title: title };
-  if (NOTE_TYPE !== 'todo_checklist') {
-    body.content = document.getElementById('content-area').value;
+  // 新筆記若完全空白（無標題 + 無內容 + 無清單 + 無附件）則不自動建立
+  var contentEl = document.getElementById('content-area');
+  var content = contentEl ? contentEl.value : '';
+  if (!NOTE_ID) {
+    var hasTitle = title && title !== '未命名';
+    var hasContent = content && content.trim().length > 0;
+    if (!hasTitle && !hasContent) {
+      // 先不送，等真的有東西再建
+      return Promise.resolve(0);
+    }
   }
+  var body = { title: title };
+  if (NOTE_TYPE !== 'todo_checklist') body.content = content;
   if (NOTE_TYPE === 'todo_note' || NOTE_TYPE === 'todo_checklist') {
     var rd = document.getElementById('reminder-date').value;
     body.reminder_date = rd || null;
@@ -143,7 +155,7 @@ function doSave() {
   var url = NOTE_ID ? ('/mynotes/api/' + NOTE_ID) : '/mynotes/api';
   var method = NOTE_ID ? 'PUT' : 'POST';
   if (!NOTE_ID) body.note_type = NOTE_TYPE;
-  return fetch(url, {
+  _saveInFlight = fetch(url, {
     method: method, headers: {'Content-Type':'application/json'},
     body: JSON.stringify(body)
   }).then(function(r){return r.json();}).then(function(d){
@@ -152,14 +164,58 @@ function doSave() {
         NOTE_ID = d.id;
         history.replaceState(null, '', '/mynotes/' + NOTE_ID);
       }
-      setStatus('✓ 已儲存', '#27ae60');
-      setTimeout(function(){ setStatus(''); }, 1500);
+      setStatus('✓ 已自動儲存', '#27ae60');
+      setTimeout(function(){ setStatus('自動儲存'); }, 1500);
       return NOTE_ID;
     }
     setStatus('儲存失敗：' + (d.message || ''), '#e74c3c');
     throw new Error(d.message || 'save failed');
-  }).catch(function(e){ setStatus('儲存失敗：' + e.message, '#e74c3c'); throw e; });
+  }).catch(function(e){
+    setStatus('儲存失敗：' + e.message, '#e74c3c');
+    throw e;
+  });
+  var p = _saveInFlight;
+  p.finally(function(){ if (_saveInFlight === p) _saveInFlight = null; });
+  return p;
 }
+
+// debounce 自動儲存
+var _autosaveTimer;
+function scheduleAutoSave(delay) {
+  clearTimeout(_autosaveTimer);
+  setStatus('…即將儲存');
+  _autosaveTimer = setTimeout(function(){ doSave().catch(function(){}); }, (delay == null ? 600 : delay));
+}
+
+// beforeunload：若還有 pending 自動儲存，立刻 flush（用 keepalive fetch）
+window.addEventListener('beforeunload', function() {
+  if (_autosaveTimer) {
+    clearTimeout(_autosaveTimer);
+    try {
+      var title = document.getElementById('title-input').value.trim() || '未命名';
+      var body = { title: title };
+      var contentEl = document.getElementById('content-area');
+      if (contentEl) body.content = contentEl.value;
+      var rdEl = document.getElementById('reminder-date');
+      if (rdEl) body.reminder_date = rdEl.value || null;
+      if (!NOTE_ID) body.note_type = NOTE_TYPE;
+      var url = NOTE_ID ? ('/mynotes/api/' + NOTE_ID) : '/mynotes/api';
+      var method = NOTE_ID ? 'PUT' : 'POST';
+      fetch(url, { method: method, headers:{'Content-Type':'application/json'},
+                   body: JSON.stringify(body), keepalive: true });
+    } catch (e) {}
+  }
+});
+
+// 綁定 input 事件做自動儲存
+(function bindAutoSave() {
+  var t = document.getElementById('title-input');
+  if (t) t.addEventListener('input', function(){ scheduleAutoSave(800); });
+  var c = document.getElementById('content-area');
+  if (c) c.addEventListener('input', function(){ scheduleAutoSave(1000); });
+  var rd = document.getElementById('reminder-date');
+  if (rd) rd.addEventListener('change', function(){ scheduleAutoSave(200); });
+})();
 
 function doDelete() {
   if (!NOTE_ID) return;

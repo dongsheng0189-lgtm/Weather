@@ -126,9 +126,11 @@
       navigator.serviceWorker.register('/sw.js').catch(function() {});
     }
 
-    // ── 5 分鐘無操作自動登出 ──
+    // ── 閒置自動登出（預設 5 分鐘；頁面可用 window.IDLE_LIMIT_MS 覆寫） ──
     (function() {
-      var IDLE_LIMIT = 5 * 60 * 1000; // 5 分鐘
+      var IDLE_LIMIT = (typeof window.IDLE_LIMIT_MS === 'number' && window.IDLE_LIMIT_MS > 0)
+        ? window.IDLE_LIMIT_MS
+        : 5 * 60 * 1000;
       var lastActivity = Date.now();
       var kicking = false;
 
