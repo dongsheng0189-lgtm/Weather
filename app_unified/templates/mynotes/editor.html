@@ -61,8 +61,11 @@
       {% elif note_type == 'todo_note' %}📝 代辦筆記
       {% else %}☑️ 代辦清單{% endif %}
     </span>
+    {% if note_type == 'todo_checklist' %}
+      <button class="btn btn-primary" id="btn-save" onclick="doSave()">儲存</button>
+    {% endif %}
     {% if note %}<button class="btn btn-danger" onclick="doDelete()">刪除</button>{% endif %}
-    <span class="ed-save-status" id="save-status">自動儲存</span>
+    <span class="ed-save-status" id="save-status">{% if note_type != 'todo_checklist' %}自動儲存{% endif %}</span>
   </div>
 
   <input class="ed-title" id="title-input" placeholder="標題..." value="{{ note.title if note else default_title }}">
@@ -178,9 +181,10 @@ function doSave() {
   }
   var body = { title: title };
   if (NOTE_TYPE !== 'todo_checklist') body.content = content;
-  if (NOTE_TYPE === 'todo_note' || NOTE_TYPE === 'todo_checklist') {
-    var rd = document.getElementById('reminder-date').value;
-    body.reminder_date = rd || null;
+  // 只有 todo_note 有 note 級別 reminder；checklist 的 reminder 在項目級別
+  if (NOTE_TYPE === 'todo_note') {
+    var rdEl = document.getElementById('reminder-date');
+    if (rdEl) body.reminder_date = rdEl.value || null;
   }
   setStatus('儲存中…');
   var url = NOTE_ID ? ('/mynotes/api/' + NOTE_ID) : '/mynotes/api';
@@ -195,8 +199,8 @@ function doSave() {
         NOTE_ID = d.id;
         history.replaceState(null, '', '/mynotes/' + NOTE_ID);
       }
-      setStatus('✓ 已自動儲存', '#27ae60');
-      setTimeout(function(){ setStatus('自動儲存'); }, 1500);
+      setStatus('✓ 已儲存', '#27ae60');
+      setTimeout(function(){ setStatus(NOTE_TYPE === 'todo_checklist' ? '' : '自動儲存'); }, 1500);
       return NOTE_ID;
     }
     setStatus('儲存失敗：' + (d.message || ''), '#e74c3c');
@@ -219,7 +223,9 @@ function scheduleAutoSave(delay) {
 }
 
 // beforeunload：若還有 pending 自動儲存，立刻 flush（用 keepalive fetch）
+// 清單類型不自動儲存，不需要 flush
 window.addEventListener('beforeunload', function() {
+  if (NOTE_TYPE === 'todo_checklist') return;
   if (_autosaveTimer) {
     clearTimeout(_autosaveTimer);
     try {
@@ -227,8 +233,10 @@ window.addEventListener('beforeunload', function() {
       var body = { title: title };
       var contentEl = document.getElementById('content-area');
       if (contentEl) body.content = contentEl.value;
-      var rdEl = document.getElementById('reminder-date');
-      if (rdEl) body.reminder_date = rdEl.value || null;
+      if (NOTE_TYPE === 'todo_note') {
+        var rdEl = document.getElementById('reminder-date');
+        if (rdEl) body.reminder_date = rdEl.value || null;
+      }
       if (!NOTE_ID) body.note_type = NOTE_TYPE;
       var url = NOTE_ID ? ('/mynotes/api/' + NOTE_ID) : '/mynotes/api';
       var method = NOTE_ID ? 'PUT' : 'POST';
@@ -238,8 +246,9 @@ window.addEventListener('beforeunload', function() {
   }
 });
 
-// 綁定 input 事件做自動儲存
+// 綁定 input 事件做自動儲存（清單類型不自動儲存）
 (function bindAutoSave() {
+  if (NOTE_TYPE === 'todo_checklist') return;
   var t = document.getElementById('title-input');
   if (t) t.addEventListener('input', function(){ scheduleAutoSave(800); });
   var c = document.getElementById('content-area');
