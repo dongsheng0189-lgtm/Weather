@@ -221,6 +221,9 @@ def update_note(note_id):
         n.content = data.get("content") or ""
     if "reminder_date" in data:
         n.reminder_date = _parse_date(data.get("reminder_date"))
+    if "ai_summary" in data:
+        # 僅 meeting 有意義；其他類型也允許寫入但 UI 不顯示
+        n.ai_summary = data.get("ai_summary") or None
     n.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({"status": "ok", "note": _note_json(n)})

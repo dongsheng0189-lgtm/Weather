@@ -38,8 +38,10 @@
 /* AI summary */
 .ai-box { background: #f3e5f5; border: 1px solid #ce93d8; border-radius: 10px; padding: 1rem; margin-top: 1rem; }
 .ai-box h4 { margin-bottom: .5rem; color: #6a1b9a; }
-.ai-output { background: #fff; border-radius: 8px; padding: 1rem; margin-top: .75rem; white-space: pre-wrap; font-size: .92rem; line-height: 1.65; color: #333; }
+.ai-output { background: #fff; border-radius: 8px; padding: 1rem; margin-top: .75rem; white-space: pre-wrap; font-size: .92rem; line-height: 1.65; color: #333; outline: none; border: 1px solid transparent; transition: border-color .15s ease; min-height: 80px; }
+.ai-output:focus { border-color: #ce93d8; box-shadow: 0 0 0 2px rgba(186,104,200,.18); }
 .ai-output.empty { color: #aaa; font-style: italic; }
+.ai-edit-hint { font-size: .75rem; color: #888; margin-top: .35rem; }
 .ai-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; }
 
 /* fullscreen image */
@@ -114,7 +116,8 @@
       <button class="btn btn-secondary" id="btn-share" onclick="downloadSummaryPng()" style="display:none;">⬇️ 下載截圖</button>
       <span id="ai-status" style="font-size:.85rem;color:#666;margin-left:.5rem;"></span>
     </div>
-    <div id="ai-output" class="ai-output {% if not note or not note.ai_summary %}empty{% endif %}">{% if note and note.ai_summary %}{{ note.ai_summary }}{% else %}（尚未產生）{% endif %}</div>
+    <div id="ai-output" class="ai-output {% if not note or not note.ai_summary %}empty{% endif %}" contenteditable="true" spellcheck="false">{% if note and note.ai_summary %}{{ note.ai_summary }}{% else %}（尚未產生）{% endif %}</div>
+    <div class="ai-edit-hint">💡 可直接編輯內容，離開欄位或暫停 1 秒會自動儲存</div>
   </div>
   {% endif %}
 </div>
@@ -640,6 +643,53 @@ function downloadSummaryPng() {
     statusEl.textContent = '截圖失敗：' + e.message;
   });
 }
+
+/* ═══ AI summary inline edit (meeting only) ═══ */
+(function bindAiEdit() {
+  if (NOTE_TYPE !== 'meeting') return;
+  var out = document.getElementById('ai-output');
+  if (!out) return;
+  var aiSaveTimer;
+  var lastSaved = out.textContent;
+
+  function saveAiSummary() {
+    if (!NOTE_ID) return;
+    var current = out.textContent;
+    if (current === lastSaved) return;
+    if (current === '（尚未產生）') return;  // 尚未產生不存
+    var statusEl = document.getElementById('ai-status');
+    statusEl.textContent = '儲存中…';
+    fetch('/mynotes/api/' + NOTE_ID, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ai_summary: current })
+    }).then(function(r){return r.json();}).then(function(d){
+      if (d.status === 'ok') {
+        lastSaved = current;
+        statusEl.textContent = '✓ 已儲存';
+        setTimeout(function(){ statusEl.textContent = ''; }, 1500);
+      } else {
+        statusEl.textContent = '儲存失敗';
+      }
+    }).catch(function(){ statusEl.textContent = '連線錯誤'; });
+  }
+
+  out.addEventListener('input', function(){
+    out.classList.remove('empty');
+    clearTimeout(aiSaveTimer);
+    aiSaveTimer = setTimeout(saveAiSummary, 1000);
+  });
+  out.addEventListener('blur', function(){
+    clearTimeout(aiSaveTimer);
+    saveAiSummary();
+  });
+  // 點到 placeholder 時清空，方便輸入
+  out.addEventListener('focus', function(){
+    if (out.textContent === '（尚未產生）') {
+      out.textContent = '';
+      out.classList.remove('empty');
+    }
+  });
+})();
 
 /* ═══ init ═══ */
 if (NOTE_ID) {
