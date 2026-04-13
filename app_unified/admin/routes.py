@@ -59,8 +59,35 @@ def _call_gemini(prompt: str, max_tokens: int) -> str:
     raise Exception("Gemini API 持續 429，請稍後再試")
 
 
+def _is_output_looping(text: str) -> bool:
+    """偵測 LLM repetition loop：同一行連續出現 ≥ 8 次 或 同句佔輸出 > 40%"""
+    if not text:
+        return False
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 10:
+        return False
+    # 連續重複
+    run = 1
+    for i in range(1, len(lines)):
+        if lines[i] == lines[i - 1]:
+            run += 1
+            if run >= 8:
+                return True
+        else:
+            run = 1
+    # 單一行佔比過高（去掉行首數字/符號後比對）
+    import re
+    norm = [re.sub(r"^[\d\.\-\*\s]+", "", ln) for ln in lines]
+    from collections import Counter
+    c = Counter(norm)
+    most, cnt = c.most_common(1)[0]
+    if most and cnt >= max(8, int(len(lines) * 0.4)):
+        return True
+    return False
+
+
 def call_llm(prompt: str, max_tokens: int = 8192) -> str:
-    """使用 Gemini 2.5 Flash"""
+    """使用 Gemini 2.5 Flash。偵測到 repetition loop 會自動重試一次。"""
     import time
     import logging
     logger = logging.getLogger("call_llm")
@@ -69,6 +96,23 @@ def call_llm(prompt: str, max_tokens: int = 8192) -> str:
     result = _call_gemini(prompt, max_tokens)
     elapsed = time.time() - t0
     logger.warning("=== LLM: Gemini OK, %.1f sec, %d chars ===", elapsed, len(result))
+
+    if _is_output_looping(result):
+        logger.warning("=== LLM: output repetition loop detected, retrying once ===")
+        # 在 prompt 加反重複提示再試一次
+        retry_prompt = prompt + (
+            "\n\n# 再次提醒\n"
+            "請絕對避免在輸出中連續重複同一句話。每個事項只能列出一次。"
+            "若多筆輸入資料描述相同事件，請合併為單一條目。"
+        )
+        t0 = time.time()
+        result2 = _call_gemini(retry_prompt, max_tokens)
+        elapsed = time.time() - t0
+        logger.warning("=== LLM: retry OK, %.1f sec, %d chars ===", elapsed, len(result2))
+        if not _is_output_looping(result2):
+            return result2
+        # 仍 loop：回傳 retry 結果（至少不是第一次的亂碼）並加警示
+        return "⚠️ AI 產生結果異常（偵測到重複迴圈），以下為重試結果，建議再按一次：\n\n" + result2
     return result
 
 
