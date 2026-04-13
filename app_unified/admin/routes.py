@@ -228,10 +228,18 @@ def delete_user(user_id):
     user = User.query.get_or_404(user_id)
     if user.id == current_user.id:
         return jsonify({"status": "error", "message": "不可刪除自己"}), 400
+    from models import NoteLog, NoteAttachment, LoginToken, ChecklistItem, TrustedDevice
     # 筆記保留：確保 author_name 快照已存（顯示為「帳號 (帳號已刪除)」）
     Note.query.filter_by(user_id=user.id, author_name=None).update({"author_name": user.username})
     Note.query.filter_by(user_id=user.id).update({"user_id": None})
     Note.query.filter_by(updated_by=user.id).update({"updated_by": None})
+    Note.query.filter_by(locked_by=user.id).update({"locked_by": None, "locked_at": None})
+    # 清掉 user 相關 FK（對應舊 schema 沒 ON DELETE 的情況也能刪）
+    NoteLog.query.filter_by(user_id=user.id).update({"user_id": None})
+    NoteAttachment.query.filter_by(user_id=user.id).update({"user_id": None})
+    ChecklistItem.query.filter_by(checked_by=user.id).update({"checked_by": None})
+    TrustedDevice.query.filter_by(user_id=user.id).update({"user_id": None})
+    LoginToken.query.filter_by(user_id=user.id).delete()
     _log_user_action("delete", user, detail=f"role={user.role}, store={user.store or '—'}")
     db.session.delete(user)
     db.session.commit()

@@ -155,6 +155,61 @@ def create_app():
                     """))
                 except Exception:
                     pass
+                # note_logs.user_id → ON DELETE SET NULL
+                try:
+                    db.session.execute(db.text("""
+                        DO $$
+                        BEGIN
+                            IF EXISTS (
+                                SELECT 1 FROM information_schema.table_constraints
+                                WHERE table_name='note_logs' AND constraint_name='note_logs_user_id_fkey'
+                            ) THEN
+                                ALTER TABLE note_logs DROP CONSTRAINT note_logs_user_id_fkey;
+                                ALTER TABLE note_logs ADD CONSTRAINT note_logs_user_id_fkey
+                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+                            END IF;
+                        END $$;
+                    """))
+                except Exception:
+                    pass
+                # note_attachments.user_id：允許 NULL + ON DELETE SET NULL
+                try:
+                    db.session.execute(db.text("ALTER TABLE note_attachments ALTER COLUMN user_id DROP NOT NULL"))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text("""
+                        DO $$
+                        BEGIN
+                            IF EXISTS (
+                                SELECT 1 FROM information_schema.table_constraints
+                                WHERE table_name='note_attachments' AND constraint_name='note_attachments_user_id_fkey'
+                            ) THEN
+                                ALTER TABLE note_attachments DROP CONSTRAINT note_attachments_user_id_fkey;
+                                ALTER TABLE note_attachments ADD CONSTRAINT note_attachments_user_id_fkey
+                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+                            END IF;
+                        END $$;
+                    """))
+                except Exception:
+                    pass
+                # login_tokens.user_id → ON DELETE CASCADE（刪使用者連帶清 tokens）
+                try:
+                    db.session.execute(db.text("""
+                        DO $$
+                        BEGIN
+                            IF EXISTS (
+                                SELECT 1 FROM information_schema.table_constraints
+                                WHERE table_name='login_tokens' AND constraint_name='login_tokens_user_id_fkey'
+                            ) THEN
+                                ALTER TABLE login_tokens DROP CONSTRAINT login_tokens_user_id_fkey;
+                                ALTER TABLE login_tokens ADD CONSTRAINT login_tokens_user_id_fkey
+                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+                            END IF;
+                        END $$;
+                    """))
+                except Exception:
+                    pass
                 db.session.commit()
             print("=== db.create_all() OK ===", flush=True)
         except Exception as e:

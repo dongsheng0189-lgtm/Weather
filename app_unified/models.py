@@ -103,7 +103,7 @@ class NoteLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     note_id = db.Column(db.Integer, db.ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
     note_title = db.Column(db.Text, nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action = db.Column(db.Text, nullable=False)   # 'edit' | 'delete'
     diff = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -153,7 +153,7 @@ class NoteAttachment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     note_id = db.Column(db.Integer, db.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False)
     checklist_item_id = db.Column(db.Integer, db.ForeignKey("checklist_items.id", ondelete="CASCADE"), nullable=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     object_key = db.Column(db.Text, nullable=False)
     filename = db.Column(db.Text, nullable=False)
     content_type = db.Column(db.Text, nullable=False)
@@ -170,7 +170,7 @@ class LoginToken(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     token = db.Column(db.Text, unique=True, nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
     used = db.Column(db.Boolean, nullable=False, default=False)
 
