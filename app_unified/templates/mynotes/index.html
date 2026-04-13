@@ -82,13 +82,18 @@ function loadReminders() {
     var box = document.getElementById('mn-reminders-box');
     if (!list || list.length === 0) { box.innerHTML = ''; return; }
     var html = '<div class="mn-reminders"><h4>⏰ 今日提醒（' + list.length + '）</h4><ul>';
-    list.forEach(function(n){
-      var chip = n.overdue
+    list.forEach(function(r){
+      var chip = r.overdue
         ? '<span class="chip overdue">逾期</span>'
         : '<span class="chip">今天</span>';
-      html += '<li>' + chip + '<a href="/mynotes/' + n.id + '">'
-           + (TYPE_META[n.note_type] ? TYPE_META[n.note_type].emoji + ' ' : '')
-           + escapeHtml(n.title) + '</a></li>';
+      var emoji = TYPE_META[r.note_type] ? TYPE_META[r.note_type].emoji + ' ' : '';
+      var display;
+      if (r.kind === 'item') {
+        display = emoji + escapeHtml(r.title) + ' — ' + escapeHtml(r.text);
+      } else {
+        display = emoji + escapeHtml(r.title);
+      }
+      html += '<li>' + chip + '<a href="/mynotes/' + r.note_id + '">' + display + '</a></li>';
     });
     html += '</ul></div>';
     box.innerHTML = html;

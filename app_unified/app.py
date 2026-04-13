@@ -212,6 +212,13 @@ def create_app():
                 except Exception:
                     pass
                 # 私人筆記三張表由 db.create_all() 自動建立（純新增，無需 ALTER）
+                # 但後續新增欄位需 ALTER：
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE private_checklist_items ADD COLUMN IF NOT EXISTS reminder_date DATE"
+                    ))
+                except Exception:
+                    pass
                 # login_tokens.user_id → ON DELETE CASCADE（刪使用者連帶清 tokens）
                 try:
                     db.session.execute(db.text("""

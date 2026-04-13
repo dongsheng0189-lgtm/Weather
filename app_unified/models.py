@@ -251,6 +251,7 @@ class PrivateChecklistItem(db.Model):
     text = db.Column(db.Text, nullable=False, default="")
     is_checked = db.Column(db.Boolean, nullable=False, default=False)
     checked_at = db.Column(db.DateTime, nullable=True)
+    reminder_date = db.Column(db.Date, nullable=True)   # 每個項目獨立提醒日期
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     note = db.relationship("PrivateNote", backref=db.backref(

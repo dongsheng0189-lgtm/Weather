@@ -64,6 +64,7 @@ def _item_json(i: PrivateChecklistItem):
         "text": i.text,
         "is_checked": i.is_checked,
         "checked_at": i.checked_at.isoformat() if i.checked_at else None,
+        "reminder_date": i.reminder_date.isoformat() if i.reminder_date else None,
         "order_index": i.order_index,
         "attachments": [_attachment_json(a) for a in i.attachments],
     }
@@ -125,19 +126,56 @@ def list_notes():
 @mynotes_bp.route("/api/reminders/today", methods=["GET"])
 @login_required
 def reminders_today():
-    """今天（及之前）到期且尚未被修改的代辦，在登入/進頁面時提醒。"""
+    """今天（及之前）到期的提醒。
+    - todo_note：note 級別
+    - todo_checklist：每個項目獨立（只列尚未完成的）
+    """
     today = _today_tw()
-    q = PrivateNote.query.filter(
+    out = []
+
+    # note 級別（僅 todo_note）
+    notes = PrivateNote.query.filter(
         PrivateNote.user_id == current_user.id,
-        PrivateNote.note_type.in_(("todo_note", "todo_checklist")),
+        PrivateNote.note_type == "todo_note",
         PrivateNote.reminder_date.isnot(None),
         PrivateNote.reminder_date <= today,
-    ).order_by(PrivateNote.reminder_date.asc())
-    out = []
-    for n in q.all():
-        nj = _note_json(n)
-        nj["overdue"] = (n.reminder_date < today)
-        out.append(nj)
+    ).order_by(PrivateNote.reminder_date.asc()).all()
+    for n in notes:
+        out.append({
+            "kind": "note",
+            "id": n.id,
+            "note_id": n.id,
+            "note_type": n.note_type,
+            "title": n.title,
+            "text": "",
+            "reminder_date": n.reminder_date.isoformat() if n.reminder_date else None,
+            "overdue": n.reminder_date < today,
+        })
+
+    # item 級別（todo_checklist 的未完成項目）
+    items = (PrivateChecklistItem.query
+             .join(PrivateNote, PrivateChecklistItem.note_id == PrivateNote.id)
+             .filter(
+                 PrivateNote.user_id == current_user.id,
+                 PrivateNote.note_type == "todo_checklist",
+                 PrivateChecklistItem.is_checked.is_(False),
+                 PrivateChecklistItem.reminder_date.isnot(None),
+                 PrivateChecklistItem.reminder_date <= today,
+             ).order_by(PrivateChecklistItem.reminder_date.asc()).all())
+    for i in items:
+        out.append({
+            "kind": "item",
+            "id": i.id,
+            "note_id": i.note_id,
+            "note_type": "todo_checklist",
+            "title": i.note.title,
+            "text": i.text,
+            "reminder_date": i.reminder_date.isoformat() if i.reminder_date else None,
+            "overdue": i.reminder_date < today,
+        })
+
+    # 依逾期優先 + 日期升冪
+    out.sort(key=lambda x: (not x["overdue"], x["reminder_date"] or ""))
     return jsonify(out)
 
 
@@ -236,6 +274,7 @@ def create_item(note_id):
         note_id=n.id,
         order_index=max_order + 1,
         text=text,
+        reminder_date=_parse_date(data.get("reminder_date")),
     )
     db.session.add(item)
     n.updated_at = datetime.utcnow()
@@ -261,6 +300,8 @@ def update_item(item_id):
         elif not is_checked and item.is_checked:
             item.is_checked = False
             item.checked_at = None
+    if "reminder_date" in data:
+        item.reminder_date = _parse_date(data.get("reminder_date"))
     n.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({"status": "ok", "item": _item_json(item)})

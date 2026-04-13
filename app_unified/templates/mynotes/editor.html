@@ -67,11 +67,15 @@
 
   <input class="ed-title" id="title-input" placeholder="標題..." value="{{ note.title if note else default_title }}">
 
-  {% if note_type in ('todo_note', 'todo_checklist') %}
+  {% if note_type == 'todo_note' %}
   <div class="ed-reminder-row">
     <label style="margin:0;">⏰ 提醒日期：</label>
     <input type="date" id="reminder-date" value="{{ note.reminder_date.isoformat() if note and note.reminder_date else '' }}">
-    <button type="button" class="btn btn-secondary" style="font-size:.82rem;padding:.25rem .6rem;" onclick="document.getElementById('reminder-date').value='';">清除</button>
+    <button type="button" class="btn btn-secondary" style="font-size:.82rem;padding:.25rem .6rem;" onclick="document.getElementById('reminder-date').value='';document.getElementById('reminder-date').dispatchEvent(new Event('change'));">清除</button>
+  </div>
+  {% elif note_type == 'todo_checklist' %}
+  <div class="ed-reminder-row" style="color:#888;font-size:.85rem;">
+    ⏰ 提醒日期設定在每個項目（點項目右側 📅）
   </div>
   {% endif %}
 
@@ -321,6 +325,18 @@ function renderChecklist(items) {
     txt.onclick = function(){ editItemText(item); };
     main.appendChild(txt);
 
+    // 提醒日期顯示
+    if (item.reminder_date) {
+      var today = new Date().toISOString().slice(0,10);
+      var rem = document.createElement('div');
+      var overdue = (item.reminder_date < today);
+      var due = (item.reminder_date === today);
+      rem.style.cssText = 'font-size:.78rem;margin-top:.2rem;' +
+        (overdue ? 'color:#c62828;font-weight:700;' : (due ? 'color:#e65100;font-weight:600;' : 'color:#888;'));
+      rem.textContent = '⏰ ' + item.reminder_date + (overdue ? '（逾期）' : (due ? '（今天）' : ''));
+      main.appendChild(rem);
+    }
+
     if (item.attachments && item.attachments.length > 0) {
       var atts = document.createElement('div');
       atts.className = 'cl-atts';
@@ -342,6 +358,11 @@ function renderChecklist(items) {
 
     var ops = document.createElement('div');
     ops.className = 'cl-ops';
+    var reminderBtn = document.createElement('button');
+    reminderBtn.innerHTML = '📅';
+    reminderBtn.title = '設定提醒日期';
+    reminderBtn.onclick = function(){ editItemReminder(item); };
+    ops.appendChild(reminderBtn);
     var addAttBtn = document.createElement('button');
     addAttBtn.innerHTML = '📎';
     addAttBtn.title = '新增附件';
@@ -398,6 +419,24 @@ function editItemText(item) {
   fetch('/mynotes/api/items/' + item.id, {
     method: 'PATCH', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ text: t.trim() })
+  }).then(function(r){return r.json();}).then(function(d){
+    if (d.status === 'ok') refreshChecklist();
+  });
+}
+
+function editItemReminder(item) {
+  var cur = item.reminder_date || '';
+  var t = prompt('設定提醒日期（YYYY-MM-DD），留空則清除：', cur);
+  if (t === null) return;
+  t = t.trim();
+  // 簡易驗證
+  if (t && !/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    alert('格式錯誤，請用 YYYY-MM-DD');
+    return;
+  }
+  fetch('/mynotes/api/items/' + item.id, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ reminder_date: t || null })
   }).then(function(r){return r.json();}).then(function(d){
     if (d.status === 'ok') refreshChecklist();
   });
