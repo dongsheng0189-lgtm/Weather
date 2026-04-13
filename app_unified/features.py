@@ -18,10 +18,10 @@ AVAILABLE_FEATURES = [
     },
     {
         "key": "mynotes",
-        "label": "My Notes（個人）",
+        "label": "私人筆記",
         "emoji": "🗂️",
         "url": "/mynotes/",
-        "enabled": False,  # 待開發
+        "enabled": False,  # 待開發：只有建立者本人看得到
     },
 ]
 
@@ -34,10 +34,16 @@ def feature_meta(key):
 
 
 def user_has_feature(user, key):
-    """檢查使用者是否可進入該模組。super_admin bypass。"""
+    """檢查使用者是否可進入該模組。
+
+    規則（嚴格）：
+    - 種子 admin（username=='admin'）bypass，永遠擁有全部模組
+    - 其他所有人（含 super_admin、admin、user）嚴格依 features[] 判斷
+      → 角色（role）不再自動授予任何模組權限
+    """
     if not user or not user.is_authenticated:
         return False
-    if user.is_super_admin():
+    if user.is_root_admin():
         return True
     return key in user.get_features()
 
@@ -46,7 +52,7 @@ def user_visible_features(user):
     """使用者可看到的模組清單（給導覽列/選單頁用）"""
     if not user or not user.is_authenticated:
         return []
-    if user.is_super_admin():
+    if user.is_root_admin():
         return list(AVAILABLE_FEATURES)
     keys = set(user.get_features())
     return [f for f in AVAILABLE_FEATURES if f["key"] in keys]
