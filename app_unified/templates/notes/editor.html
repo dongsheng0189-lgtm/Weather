@@ -53,9 +53,12 @@
 .att-item video { display: block; max-width: 280px; max-height: 200px; border-radius: 8px; }
 .att-item .att-info { padding: .3rem .5rem; font-size: .75rem; color: #888; }
 .att-item .att-delete { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.fullscreen-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 9999; align-items: center; justify-content: center; cursor: pointer; }
-.fullscreen-overlay.open { display: flex; }
-.fullscreen-overlay img { max-width: 95vw; max-height: 95vh; object-fit: contain; touch-action: pinch-zoom; }
+.fullscreen-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95); z-index: 9999; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.fullscreen-overlay.open { display: block; }
+.fullscreen-overlay .fs-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; touch-action: none; }
+.fullscreen-overlay img { max-width: 100vw; max-height: 100vh; object-fit: contain; transform-origin: 0 0; will-change: transform; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
+.fullscreen-overlay .fs-close { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; border: none; font-size: 22px; cursor: pointer; z-index: 2; }
+.fullscreen-overlay .fs-hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.7); font-size: .8rem; background: rgba(0,0,0,.4); padding: .35rem .75rem; border-radius: 12px; pointer-events: none; }
 </style>
 {% endblock %}
 {% block content %}
@@ -170,9 +173,13 @@
   </div>
   {% endif %}
 
-  <!-- 全螢幕預覽 -->
-  <div class="fullscreen-overlay" id="fullscreen-overlay" onclick="closeFullscreen()">
-    <img id="fullscreen-img" src="">
+  <!-- 全螢幕預覽（支援 pinch-zoom / 雙擊縮放 / 拖曳） -->
+  <div class="fullscreen-overlay" id="fullscreen-overlay">
+    <div class="fs-stage" id="fs-stage">
+      <img id="fullscreen-img" src="">
+    </div>
+    <button type="button" class="fs-close" onclick="closeFullscreen()" aria-label="關閉">✕</button>
+    <div class="fs-hint">雙指縮放 · 雙擊放大 · 拖曳移動</div>
   </div>
 </div>
 {% endblock %}
@@ -564,7 +571,152 @@ function addPendingPreview(file) {
   list.appendChild(div);
 }
 
+// ══════════ 全螢幕圖片預覽（pinch-zoom / 雙擊 / 拖曳） ══════════
+var _fsState = { scale: 1, tx: 0, ty: 0, minScale: 1, maxScale: 6 };
+var _fsPointers = {};
+var _fsLastDist = 0;
+var _fsLastCenter = null;
+var _fsLastTap = 0;
+
+function _fsApply() {
+  var img = document.getElementById('fullscreen-img');
+  if (!img) return;
+  img.style.transform = 'translate(' + _fsState.tx + 'px,' + _fsState.ty + 'px) scale(' + _fsState.scale + ')';
+}
+
+function _fsReset() {
+  _fsState.scale = 1; _fsState.tx = 0; _fsState.ty = 0;
+  _fsPointers = {}; _fsLastDist = 0; _fsLastCenter = null;
+  _fsApply();
+}
+
+function _fsClampPan() {
+  var img = document.getElementById('fullscreen-img');
+  if (!img) return;
+  var rect = img.getBoundingClientRect();
+  var vw = window.innerWidth, vh = window.innerHeight;
+  // 圖片尺寸（已含 scale，因為 getBoundingClientRect 回傳實際）
+  var w = rect.width, h = rect.height;
+  var maxX = Math.max(0, (w - vw) / 2);
+  var maxY = Math.max(0, (h - vh) / 2);
+  if (_fsState.tx > maxX) _fsState.tx = maxX;
+  if (_fsState.tx < -maxX) _fsState.tx = -maxX;
+  if (_fsState.ty > maxY) _fsState.ty = maxY;
+  if (_fsState.ty < -maxY) _fsState.ty = -maxY;
+}
+
+function _fsOnPointerDown(e) {
+  _fsPointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+  var stage = document.getElementById('fs-stage');
+  if (stage && stage.setPointerCapture) { try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
+  var ids = Object.keys(_fsPointers);
+  if (ids.length === 2) {
+    var p1 = _fsPointers[ids[0]], p2 = _fsPointers[ids[1]];
+    _fsLastDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    _fsLastCenter = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+  }
+  e.preventDefault();
+}
+
+function _fsOnPointerMove(e) {
+  if (!_fsPointers[e.pointerId]) return;
+  var prev = _fsPointers[e.pointerId];
+  _fsPointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+  var ids = Object.keys(_fsPointers);
+  if (ids.length === 2) {
+    var p1 = _fsPointers[ids[0]], p2 = _fsPointers[ids[1]];
+    var dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (_fsLastDist > 0) {
+      var ratio = dist / _fsLastDist;
+      var newScale = Math.max(_fsState.minScale, Math.min(_fsState.maxScale, _fsState.scale * ratio));
+      // 以雙指中點為縮放原點
+      var cx = (p1.x + p2.x) / 2, cy = (p1.y + p2.y) / 2;
+      var dx = cx - window.innerWidth / 2 - _fsState.tx;
+      var dy = cy - window.innerHeight / 2 - _fsState.ty;
+      var k = newScale / _fsState.scale;
+      _fsState.tx -= dx * (k - 1);
+      _fsState.ty -= dy * (k - 1);
+      _fsState.scale = newScale;
+    }
+    _fsLastDist = dist;
+    _fsApply();
+  } else if (ids.length === 1 && _fsState.scale > 1) {
+    _fsState.tx += e.clientX - prev.x;
+    _fsState.ty += e.clientY - prev.y;
+    _fsClampPan();
+    _fsApply();
+  }
+  e.preventDefault();
+}
+
+function _fsOnPointerUp(e) {
+  delete _fsPointers[e.pointerId];
+  var ids = Object.keys(_fsPointers);
+  if (ids.length < 2) _fsLastDist = 0;
+  if (ids.length === 0 && _fsState.scale <= 1.01) {
+    // 歸位
+    _fsState.scale = 1; _fsState.tx = 0; _fsState.ty = 0;
+    _fsApply();
+  } else if (ids.length === 0) {
+    _fsClampPan();
+    _fsApply();
+  }
+}
+
+function _fsOnDblClick(e) {
+  if (_fsState.scale > 1.01) {
+    _fsState.scale = 1; _fsState.tx = 0; _fsState.ty = 0;
+  } else {
+    _fsState.scale = 2.5;
+    var dx = (e.clientX || window.innerWidth / 2) - window.innerWidth / 2;
+    var dy = (e.clientY || window.innerHeight / 2) - window.innerHeight / 2;
+    _fsState.tx = -dx * 1.5;
+    _fsState.ty = -dy * 1.5;
+    _fsClampPan();
+  }
+  _fsApply();
+}
+
+function _fsOnWheel(e) {
+  e.preventDefault();
+  var delta = -e.deltaY * 0.002;
+  var newScale = Math.max(_fsState.minScale, Math.min(_fsState.maxScale, _fsState.scale * (1 + delta)));
+  var dx = e.clientX - window.innerWidth / 2 - _fsState.tx;
+  var dy = e.clientY - window.innerHeight / 2 - _fsState.ty;
+  var k = newScale / _fsState.scale;
+  _fsState.tx -= dx * (k - 1);
+  _fsState.ty -= dy * (k - 1);
+  _fsState.scale = newScale;
+  if (_fsState.scale <= 1.01) { _fsState.scale = 1; _fsState.tx = 0; _fsState.ty = 0; }
+  else _fsClampPan();
+  _fsApply();
+}
+
+function _fsInit() {
+  var stage = document.getElementById('fs-stage');
+  if (!stage || stage._fsBound) return;
+  stage._fsBound = true;
+  stage.addEventListener('pointerdown', _fsOnPointerDown);
+  stage.addEventListener('pointermove', _fsOnPointerMove);
+  stage.addEventListener('pointerup', _fsOnPointerUp);
+  stage.addEventListener('pointercancel', _fsOnPointerUp);
+  stage.addEventListener('dblclick', _fsOnDblClick);
+  stage.addEventListener('wheel', _fsOnWheel, { passive: false });
+  // 單擊空白處關閉（非圖片、且沒有放大）
+  stage.addEventListener('click', function(e) {
+    if (_fsState.scale > 1.01) return;
+    var tap = Date.now();
+    if (tap - _fsLastTap < 300) { _fsLastTap = tap; return; }  // 避免與雙擊衝突
+    _fsLastTap = tap;
+    setTimeout(function() {
+      if (Date.now() - _fsLastTap >= 280 && _fsState.scale <= 1.01) closeFullscreen();
+    }, 300);
+  });
+}
+
 function openFullscreen(url) {
+  _fsInit();
+  _fsReset();
   document.getElementById('fullscreen-img').src = url;
   document.getElementById('fullscreen-overlay').classList.add('open');
 }
@@ -572,6 +724,7 @@ function openFullscreen(url) {
 function closeFullscreen() {
   document.getElementById('fullscreen-overlay').classList.remove('open');
   document.getElementById('fullscreen-img').src = '';
+  _fsReset();
 }
 
 if (NOTE_ID && EDITOR_TYPE !== 'checklist') loadAttachments();
