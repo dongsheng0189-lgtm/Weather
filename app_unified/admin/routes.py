@@ -229,57 +229,6 @@ def set_store(user_id):
     return jsonify({"status": "ok", "store": user.store})
 
 
-@admin_bp.route("/ai/store-summary", methods=["POST"])
-@login_required
-def store_summary():
-    require_admin()
-    data = request.get_json(silent=True) or {}
-    store = data.get("store", "all")
-    # admin 不能摘要「全店」
-    if not current_user.is_super_admin() and store == "all":
-        store = current_user.store
-    days = int(data.get("days", 7))
-    since = datetime.utcnow() - timedelta(days=days)
-
-    valid_stores = [s.name for s in Store.query.all()]
-    query = Note.query.filter(Note.updated_at >= since)
-    if store != "all" and store in valid_stores:
-        query = query.filter_by(store=store)
-    notes = query.order_by(Note.store, Note.updated_at.desc()).all()
-
-    if not notes:
-        return jsonify({"status": "ok", "summary": "（近期無筆記）"})
-
-    from notes.routes import MANAGER_PROMPT
-    lines = []
-    for n in notes:
-        store_tag = f"【來源：{n.store}店" if n.store else "【來源：未分店"
-        author = n.author_name or (n.author.username if n.author else "?")
-        date_str = n.updated_at.strftime("%m/%d") if n.updated_at else ""
-        lines.append(f"{store_tag} / {author} / {date_str}】\n{n.title}\n{n.content}")
-
-    store_label = f"「{store}店」" if store != "all" else "全店"
-    notes_content = "\n---\n".join(lines)
-    extra = ""
-    if store == "all":
-        extra = "\n# 額外要求\n請在輸出最前面依「店別」分組，每組內再依上述分類排列。\n"
-    else:
-        extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
-
-    prompt = (
-        MANAGER_PROMPT + extra
-        + f"\n# 待整理筆記（{store_label}近 {days} 天，共 {len(notes)} 筆）\n\n{notes_content}"
-    )
-
-    try:
-        summary = call_llm(prompt, max_tokens=8192)
-        return jsonify({"status": "ok", "summary": summary})
-    except ValueError as e:
-        return jsonify({"status": "error", "message": str(e)}), 503
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
 # ── 使用者操作 Log ────────────────────────────────────────
 
 @admin_bp.route("/user-logs", methods=["GET"])

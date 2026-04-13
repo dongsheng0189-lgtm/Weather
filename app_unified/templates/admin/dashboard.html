@@ -19,7 +19,6 @@ th { background: #f8f9fa; font-weight: 700; }
   th, td { padding: .4rem .5rem; font-size: .82rem; }
 }
 .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.ai-summary-output { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem; margin-top: .75rem; white-space: pre-wrap; font-size: .9rem; line-height: 1.6; max-height: 400px; overflow-y: auto; }
 .store-chip { display:inline-block; padding:.2rem .55rem; border-radius:12px; font-size:.8rem; font-weight:700; color:#fff; cursor:default; }
 #enroll-preview { display:none; flex-direction:column; align-items:center; gap:.5rem; margin-top:.5rem; }
 #enroll-video { width:100%; max-width:320px; border-radius:8px; background:#000; }
@@ -29,30 +28,6 @@ th { background: #f8f9fa; font-weight: 700; }
 {% endblock %}
 {% block content %}
 <h2>管理後台</h2>
-
-<!-- AI 店務摘要 -->
-<div class="card" style="margin-top:1rem;">
-  <h3>🤖 AI 店務摘要</h3>
-  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.75rem;">
-    <select id="ai-store-select" style="font-size:.9rem;padding:.4rem .6rem;border-radius:6px;border:1px solid #ddd;min-height:36px;">
-      {% if current_user.is_super_admin() %}
-      <option value="all">全店</option>
-      {% for s in stores %}
-      <option value="{{ s }}">{{ s }} 店</option>
-      {% endfor %}
-      {% else %}
-      <option value="{{ current_user.store }}">{{ current_user.store }} 店</option>
-      {% endif %}
-    </select>
-    <select id="ai-days-select" style="font-size:.9rem;padding:.4rem .6rem;border-radius:6px;border:1px solid #ddd;min-height:36px;">
-      <option value="1">近 1 天</option>
-      <option value="7" selected>近 1 週</option>
-    </select>
-    <button class="btn btn-primary" onclick="generateSummary()" id="btn-summary">產生摘要</button>
-    <span id="summary-status" style="font-size:.85rem;color:#666;"></span>
-  </div>
-  <div id="ai-summary-output" class="ai-summary-output" style="display:none;"></div>
-</div>
 
 <div class="card" style="margin-top:1rem;">
   <h3>使用者列表</h3>
@@ -305,35 +280,6 @@ async function setStore(id, store) {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ store })
   });
-}
-
-async function generateSummary() {
-  const store = document.getElementById('ai-store-select').value;
-  const days = document.getElementById('ai-days-select').value;
-  const btn = document.getElementById('btn-summary');
-  const statusEl = document.getElementById('summary-status');
-  const outputEl = document.getElementById('ai-summary-output');
-  btn.disabled = true;
-  statusEl.textContent = 'AI 整理中…';
-  outputEl.style.display = 'none';
-  try {
-    const res = await fetch('/admin/ai/store-summary', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ store, days: parseInt(days) })
-    });
-    const data = await res.json();
-    if (data.status === 'ok') {
-      outputEl.textContent = data.summary;
-      outputEl.style.display = 'block';
-      statusEl.textContent = '';
-    } else {
-      statusEl.textContent = data.message || '錯誤';
-    }
-  } catch (e) {
-    statusEl.textContent = '連線錯誤';
-  } finally {
-    btn.disabled = false;
-  }
 }
 
 // 店家管理
