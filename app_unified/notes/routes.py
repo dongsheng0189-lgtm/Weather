@@ -485,17 +485,29 @@ def _format_note_for_ai(n):
     return f"{_note_source_label(n)}\n{n.title}\n{n.content or ''}"
 
 
-def _format_checklist_for_ai(n):
-    """確認表單區塊：標題 + 已完成 / 未完成項目（依新到舊排序）"""
+def _format_checklist_for_ai(n, since=None):
+    """確認表單區塊：標題 + 已完成 / 未完成項目。
+
+    since: datetime（UTC, naive）— 若給定，已完成項目只列 updated_at >= since
+           的（避免把好幾天前完成的也帶進來）；未完成項目永遠全部列出。
+    """
     items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
     total = len(items)
-    done = [i for i in items if i.is_checked]
+    done_all = [i for i in items if i.is_checked]
+    if since is not None:
+        done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
+    else:
+        done = done_all
     undone = [i for i in items if not i.is_checked]
-    lines = [_note_source_label(n), f"表單標題：{n.title}", f"完成進度：{len(done)}/{total}"]
+    progress_line = f"完成進度：{len(done_all)}/{total}"
+    if since is not None:
+        progress_line += f"（區間內完成 {len(done)} 項）"
+    lines = [_note_source_label(n), f"表單標題：{n.title}", progress_line]
     if n.content:
         lines.append(f"備註：{n.content}")
     if done:
-        lines.append("✅ 已完成：")
+        label = "✅ 已完成（區間內）：" if since is not None else "✅ 已完成："
+        lines.append(label)
         for i in done:
             who = i.checked_by_name or "?"
             lines.append(f"- [{who}] {i.text}")
@@ -514,15 +526,18 @@ def _split_notes(notes):
     return regular, checklists
 
 
-def _build_ai_sections(notes, header_prefix=""):
-    """組出傳給 AI 的 prompt 後段（# 待整理... 以下），回傳 (data_block, has_checklist)"""
+def _build_ai_sections(notes, header_prefix="", since=None):
+    """組出傳給 AI 的 prompt 後段（# 待整理... 以下），回傳 (data_block, has_checklist)。
+
+    since: datetime — 傳給 _format_checklist_for_ai 過濾「已完成項目」。
+    """
     regular, checklists = _split_notes(notes)
     blocks = []
     if regular:
         body = "\n\n---\n\n".join(_format_note_for_ai(n) for n in regular)
         blocks.append(f"# 一般筆記（{header_prefix}共 {len(regular)} 筆）\n\n{body}")
     if checklists:
-        body = "\n\n---\n\n".join(_format_checklist_for_ai(n) for n in checklists)
+        body = "\n\n---\n\n".join(_format_checklist_for_ai(n, since=since) for n in checklists)
         blocks.append(f"# 確認表單（{header_prefix}共 {len(checklists)} 筆）\n\n{body}")
     return "\n\n".join(blocks), bool(checklists), len(regular), len(checklists)
 
@@ -660,8 +675,8 @@ def notes_ai_summary():
     if not notes:
         return jsonify({"status": "ok", "summary": "（近期無筆記）"})
 
-    # 拆成一般筆記 / 確認表單兩段
-    data_block, has_cl, nreg, ncl = _build_ai_sections(notes)
+    # 拆成一般筆記 / 確認表單兩段（已完成項目只列區間內 updated 的）
+    data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc)
 
     store_label = f"「{store}店」" if store != "all" else "全店"
     extra = ""
