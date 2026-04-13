@@ -486,9 +486,10 @@ def _format_checklist_for_ai(n):
             who = i.checked_by_name or "?"
             lines.append(f"- [{who}] {i.text}")
     if undone:
-        lines.append("❌ 未完成：")
+        author = n.author_name or (n.author.username if n.author else "?")
+        lines.append(f"❌ 未完成（表單建立者：{author}）：")
         for i in undone:
-            lines.append(f"- {i.text}")
+            lines.append(f"- [{author}] {i.text}")
     return "\n".join(lines)
 
 
@@ -546,8 +547,15 @@ def _build_output_structure_prompt(has_regular, has_checklist):
         "1. 更換廚房燈泡\n"
         "2. 清潔冷凍庫\n\n"
         "## ❌ 未完成項目\n"
-        "將所有表單中尚未完成的項目合併，用 1. 2. 3. 依序列出。\n"
-        "同一事項若重複出現請合併。若沒有任何未完成項目，此小節輸出「（無）」。"
+        "依「表單建立者」分組：同一建立者名下的未完成項目合併到同一組。\n"
+        "每組以 `### 建立者名字` 作為小標題，下方用 1. 2. 3. 列出項目。\n"
+        "同一事項若重複出現請合併。若沒有任何未完成項目，此小節輸出「（無）」。\n\n"
+        "範例：\n"
+        "### 小明\n"
+        "1. 盤點後場\n"
+        "2. 對帳\n\n"
+        "### 小華\n"
+        "1. 收單"
     )
     return "\n".join(parts) + "\n"
 
