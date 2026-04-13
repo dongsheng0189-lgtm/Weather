@@ -445,39 +445,85 @@ def get_ai_task(task_id):
     return jsonify({"status": "processing"})
 
 
-def _format_note_for_ai(n):
-    """將筆記（含確認表單項目）整理成 AI 可讀的文字區塊"""
-    source = f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
-    body = f"{source}\n{n.title}\n{n.content or ''}"
+def _note_source_label(n):
+    return f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
 
-    if getattr(n, "note_type", "note") == "checklist":
-        items = sorted(n.checklist_items or [], key=lambda i: i.order_index)
-        total = len(items)
-        done = [i for i in items if i.is_checked]
-        undone = [i for i in items if not i.is_checked]
-        lines = [f"【確認表單項目（已完成 {len(done)}/{total}）】"]
-        if done:
-            lines.append(f"✅ 已完成（{len(done)}）：")
-            for i in done:
-                who = i.checked_by_name or "?"
-                when = i.checked_at.strftime("%m/%d %H:%M") if i.checked_at else ""
-                lines.append(f"- {i.text}（由 {who} 於 {when} 完成）")
-        if undone:
-            lines.append(f"❌ 未完成（{len(undone)}）：")
-            for i in undone:
-                lines.append(f"- {i.text}")
-        body += "\n" + "\n".join(lines)
-    return body
+
+def _format_note_for_ai(n):
+    """一般筆記的文字區塊（不含 checklist 項目）"""
+    return f"{_note_source_label(n)}\n{n.title}\n{n.content or ''}"
+
+
+def _format_checklist_for_ai(n):
+    """確認表單區塊：標題 + 已完成 / 未完成項目"""
+    items = sorted(n.checklist_items or [], key=lambda i: i.order_index)
+    total = len(items)
+    done = [i for i in items if i.is_checked]
+    undone = [i for i in items if not i.is_checked]
+    lines = [_note_source_label(n), f"表單標題：{n.title}", f"完成進度：{len(done)}/{total}"]
+    if n.content:
+        lines.append(f"備註：{n.content}")
+    if done:
+        lines.append("✅ 已完成：")
+        for i in done:
+            who = i.checked_by_name or "?"
+            when = i.checked_at.strftime("%m/%d %H:%M") if i.checked_at else ""
+            lines.append(f"- {i.text}（由 {who} 於 {when} 完成）")
+    if undone:
+        lines.append("❌ 未完成：")
+        for i in undone:
+            lines.append(f"- {i.text}")
+    return "\n".join(lines)
+
+
+def _split_notes(notes):
+    """分成一般筆記 / 確認表單兩組"""
+    regular = [n for n in notes if getattr(n, "note_type", "note") != "checklist"]
+    checklists = [n for n in notes if getattr(n, "note_type", "note") == "checklist"]
+    return regular, checklists
+
+
+def _build_ai_sections(notes, header_prefix=""):
+    """組出傳給 AI 的 prompt 後段（# 待整理... 以下），回傳 (data_block, has_checklist)"""
+    regular, checklists = _split_notes(notes)
+    blocks = []
+    if regular:
+        body = "\n\n---\n\n".join(_format_note_for_ai(n) for n in regular)
+        blocks.append(f"# 一般筆記（{header_prefix}共 {len(regular)} 筆）\n\n{body}")
+    if checklists:
+        body = "\n\n---\n\n".join(_format_checklist_for_ai(n) for n in checklists)
+        blocks.append(f"# 確認表單（{header_prefix}共 {len(checklists)} 筆）\n\n{body}")
+    return "\n\n".join(blocks), bool(checklists), len(regular), len(checklists)
+
+
+CHECKLIST_EXTRA_PROMPT = """
+# 輸出結構（本次含確認表單）
+請將輸出分為兩大區塊（用 Markdown 標題）：
+
+## 筆記彙整
+針對上方「一般筆記」依【人事】【修繕】【店務】【雜項】分類列點摘要，
+格式同 Output Style。若本次沒有一般筆記，此區塊輸出「（無一般筆記）」。
+
+## 確認表單彙整
+針對上方「確認表單」做整理，分為兩小節：
+
+### ✅ 已完成項目
+將所有表單中已完成的項目合併摘要，可標註由誰完成與完成時間；
+若來源多張表單，請在列點前加上表單標題或店別。
+
+### ❌ 未完成項目
+將所有表單中尚未完成的項目合併列出，可依表單或優先度分組。
+"""
 
 
 def _build_all_content(store_name=None):
-    """收集同店所有筆記，合併成 all_content，每段標註來源"""
+    """收集同店所有筆記，合併成 all_content（舊介面，供 summarize 使用）"""
     query = Note.query
     if store_name:
         query = query.filter_by(store=store_name)
     notes = query.order_by(Note.updated_at.desc()).all()
-    parts = [_format_note_for_ai(n) for n in notes]
-    return "\n\n---\n\n".join(parts), len(notes)
+    data_block, has_cl, nreg, ncl = _build_ai_sections(notes)
+    return data_block, len(notes), has_cl
 
 
 @notes_bp.route("/api/<int:note_id>/summarize", methods=["POST"])
@@ -488,10 +534,11 @@ def summarize(note_id):
     note = Note.query.get_or_404(note_id)
 
     # 收集同店所有筆記合併，一次呼叫 API 做全體分類摘要
-    all_content, count = _build_all_content(note.store)
+    data_block, count, has_cl = _build_all_content(note.store)
     prompt = (
         MANAGER_PROMPT
-        + f"\n# 待整理筆記（{note.store or '未分店'}店，共 {count} 筆）\n\n{all_content}"
+        + (CHECKLIST_EXTRA_PROMPT if has_cl else "")
+        + f"\n# 待整理資料（{note.store or '未分店'}店，共 {count} 筆）\n\n{data_block}"
     )
     task_id = uuid.uuid4().hex[:12]
     _ai_tasks[task_id] = {"status": "processing"}
@@ -508,11 +555,14 @@ def outline(note_id):
         return jsonify({"status": "error", "message": "僅限管理員"}), 403
     note = Note.query.get_or_404(note_id)
 
-    # 單筆大綱：只處理這一篇
+    # 單筆大綱：只處理這一篇（checklist 也用 outline 結構直接列項目）
+    is_cl = getattr(note, "note_type", "note") == "checklist"
+    body = _format_checklist_for_ai(note) if is_cl else _format_note_for_ai(note)
     prompt = (
         MANAGER_PROMPT
-        + "\n# 額外要求\n請將此筆記整理成條列式大綱，保留所有細節。\n"
-        + f"\n# 待整理筆記\n\n{_format_note_for_ai(note)}"
+        + "\n# 額外要求\n請將此筆記整理成條列式大綱，保留所有細節。"
+        + ("若為確認表單，請分「已完成」「未完成」兩段整理。\n" if is_cl else "\n")
+        + f"\n# 待整理筆記\n\n{body}"
     )
     task_id = uuid.uuid4().hex[:12]
     _ai_tasks[task_id] = {"status": "processing"}
@@ -550,19 +600,20 @@ def notes_ai_summary():
     if not notes:
         return jsonify({"status": "ok", "summary": "（近期無筆記）"})
 
-    # 合併所有筆記成 all_content，每段標註檔名來源（checklist 會附上項目明細）
-    all_content = "\n\n---\n\n".join(_format_note_for_ai(n) for n in notes)
+    # 拆成一般筆記 / 確認表單兩段
+    data_block, has_cl, nreg, ncl = _build_ai_sections(notes)
 
     store_label = f"「{store}店」" if store != "all" else "全店"
     extra = ""
     if store == "all":
-        extra = "\n# 額外要求\n請在輸出最前面依「店別」分組，每組內再依上述分類排列。\n"
+        extra = "\n# 額外要求\n請在輸出最前面依「店別」分組，每組內再依下述結構排列。\n"
     else:
         extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
 
     prompt = (
         MANAGER_PROMPT + extra
-        + f"\n# 待整理筆記（{store_label}近 {days} 天，共 {len(notes)} 筆）\n\n{all_content}"
+        + (CHECKLIST_EXTRA_PROMPT if has_cl else "")
+        + f"\n# 待整理資料（{store_label}近 {days} 天，一般筆記 {nreg} 筆 / 確認表單 {ncl} 筆）\n\n{data_block}"
     )
 
     task_id = uuid.uuid4().hex[:12]
