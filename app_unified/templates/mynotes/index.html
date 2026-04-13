@@ -14,6 +14,13 @@
 .mn-new-btn.meeting { background: #3498db; }
 .mn-new-btn.todo-note { background: #27ae60; }
 .mn-new-btn.todo-checklist { background: #e67e22; }
+.mn-filter-bar { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.mn-filter-chip { padding: .3rem .7rem; border-radius: 14px; border: 1px solid #ddd; background: #fff; cursor: pointer;
+                  font-size: .82rem; color: #555; user-select: none; }
+.mn-filter-chip.active { background: #2c3e50; border-color: #2c3e50; color: #fff; }
+.mn-filter-chip[data-type="meeting"].active { background: #3498db; border-color: #3498db; }
+.mn-filter-chip[data-type="todo_note"].active { background: #27ae60; border-color: #27ae60; }
+.mn-filter-chip[data-type="todo_checklist"].active { background: #e67e22; border-color: #e67e22; }
 .mn-reminders { background: #fff8e1; border: 1px solid #ffd54f; border-radius: 10px; padding: .85rem 1rem;
                 margin-bottom: 1rem; }
 .mn-reminders h4 { margin-bottom: .5rem; color: #e65100; font-size: 1rem; display:flex; align-items:center; gap:.35rem; }
@@ -52,6 +59,13 @@
     <a class="mn-new-btn meeting" href="{{ url_for('mynotes.new_note') }}?type=meeting">📅 會議紀錄</a>
     <a class="mn-new-btn todo-note" href="{{ url_for('mynotes.new_note') }}?type=todo_note">📝 代辦筆記</a>
     <a class="mn-new-btn todo-checklist" href="{{ url_for('mynotes.new_note') }}?type=todo_checklist">☑️ 代辦清單</a>
+  </div>
+
+  <div class="mn-filter-bar">
+    <span class="mn-filter-chip active" data-type="" onclick="setFilter(this, '')">全部</span>
+    <span class="mn-filter-chip" data-type="meeting" onclick="setFilter(this, 'meeting')">📅 會議</span>
+    <span class="mn-filter-chip" data-type="todo_note" onclick="setFilter(this, 'todo_note')">📝 代辦</span>
+    <span class="mn-filter-chip" data-type="todo_checklist" onclick="setFilter(this, 'todo_checklist')">☑️ 清單</span>
   </div>
 
   <div id="mn-list"></div>
@@ -100,10 +114,19 @@ function loadReminders() {
   });
 }
 
+var _currentFilter = '';
+function setFilter(el, type) {
+  _currentFilter = type;
+  document.querySelectorAll('.mn-filter-chip').forEach(function(c){ c.classList.remove('active'); });
+  el.classList.add('active');
+  loadList();
+}
+
 function loadList() {
   var q = document.getElementById('mn-search').value.trim();
   var url = '/mynotes/api' + (q ? ('?q=' + encodeURIComponent(q)) : '');
   fetch(url).then(function(r){return r.json();}).then(function(list){
+    if (_currentFilter) list = list.filter(function(n){ return n.note_type === _currentFilter; });
     var box = document.getElementById('mn-list');
     if (!list || list.length === 0) {
       box.innerHTML = '<div class="mn-empty">' + (q ? '沒有符合的筆記' : '還沒有筆記，點上方按鈕新增') + '</div>';
