@@ -35,6 +35,14 @@ def _today_tw() -> date:
     return datetime.now(_TW).date()
 
 
+def _idle_limit_ms() -> int:
+    """依當前 User-Agent 判斷閒置時間：手機 5 分鐘、電腦 30 分鐘。"""
+    ua = (request.headers.get("User-Agent") or "").lower()
+    is_mobile = any(k in ua for k in ("iphone", "ipad", "ipod", "android"))
+    minutes = 5 if is_mobile else 30
+    return minutes * 60 * 1000
+
+
 def _get_my_note(note_id):
     """取屬於 current_user 的筆記，找不到或不屬於自己都 404（看不見即不存在）"""
     n = PrivateNote.query.get(note_id)
@@ -87,7 +95,7 @@ def _attachment_json(a: PrivateAttachment):
 @mynotes_bp.route("/")
 @login_required
 def index():
-    return render_template("mynotes/index.html")
+    return render_template("mynotes/index.html", idle_limit_ms=_idle_limit_ms())
 
 
 @mynotes_bp.route("/new")
@@ -99,14 +107,16 @@ def new_note():
     type_label = {"meeting": "會議", "todo_note": "筆記", "todo_checklist": "清單"}.get(note_type, "筆記")
     today_tw = datetime.now(_TW)
     default_title = f"{today_tw.month}/{today_tw.day} {type_label}"
-    return render_template("mynotes/editor.html", note=None, note_type=note_type, default_title=default_title)
+    return render_template("mynotes/editor.html", note=None, note_type=note_type,
+                           default_title=default_title, idle_limit_ms=_idle_limit_ms())
 
 
 @mynotes_bp.route("/<int:note_id>")
 @login_required
 def view_note(note_id):
     note = _get_my_note(note_id)
-    return render_template("mynotes/editor.html", note=note, note_type=note.note_type, default_title="")
+    return render_template("mynotes/editor.html", note=note, note_type=note.note_type,
+                           default_title="", idle_limit_ms=_idle_limit_ms())
 
 
 # ═══ 筆記 CRUD ═════════════════════════════════════════

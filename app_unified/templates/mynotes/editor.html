@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ note.title if note else '新增' }} - 私人筆記{% endblock %}
 {% block extra_head %}
-<script>window.IDLE_LIMIT_MS = 30 * 60 * 1000;</script>
+<script>window.IDLE_LIMIT_MS = {{ idle_limit_ms }};</script>
 <style>
 .ed-wrap { max-width: 820px; margin: 1rem auto; padding: 0 .75rem; }
 .ed-toolbar { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; flex-wrap: wrap; }
