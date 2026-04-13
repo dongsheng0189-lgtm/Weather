@@ -445,16 +445,38 @@ def get_ai_task(task_id):
     return jsonify({"status": "processing"})
 
 
+def _format_note_for_ai(n):
+    """將筆記（含確認表單項目）整理成 AI 可讀的文字區塊"""
+    source = f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
+    body = f"{source}\n{n.title}\n{n.content or ''}"
+
+    if getattr(n, "note_type", "note") == "checklist":
+        items = sorted(n.checklist_items or [], key=lambda i: i.order_index)
+        total = len(items)
+        done = [i for i in items if i.is_checked]
+        undone = [i for i in items if not i.is_checked]
+        lines = [f"【確認表單項目（已完成 {len(done)}/{total}）】"]
+        if done:
+            lines.append(f"✅ 已完成（{len(done)}）：")
+            for i in done:
+                who = i.checked_by_name or "?"
+                when = i.checked_at.strftime("%m/%d %H:%M") if i.checked_at else ""
+                lines.append(f"- {i.text}（由 {who} 於 {when} 完成）")
+        if undone:
+            lines.append(f"❌ 未完成（{len(undone)}）：")
+            for i in undone:
+                lines.append(f"- {i.text}")
+        body += "\n" + "\n".join(lines)
+    return body
+
+
 def _build_all_content(store_name=None):
     """收集同店所有筆記，合併成 all_content，每段標註來源"""
     query = Note.query
     if store_name:
         query = query.filter_by(store=store_name)
     notes = query.order_by(Note.updated_at.desc()).all()
-    parts = []
-    for n in notes:
-        source = f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
-        parts.append(f"{source}\n{n.title}\n{n.content}")
+    parts = [_format_note_for_ai(n) for n in notes]
     return "\n\n---\n\n".join(parts), len(notes)
 
 
@@ -487,11 +509,10 @@ def outline(note_id):
     note = Note.query.get_or_404(note_id)
 
     # 單筆大綱：只處理這一篇
-    source = f"【檔名：{note.store or '未分店'}店_{note.author_name or (note.author.username if note.author else '?')}_{note.id}】"
     prompt = (
         MANAGER_PROMPT
         + "\n# 額外要求\n請將此筆記整理成條列式大綱，保留所有細節。\n"
-        + f"\n# 待整理筆記\n\n{source}\n{note.title}\n{note.content}"
+        + f"\n# 待整理筆記\n\n{_format_note_for_ai(note)}"
     )
     task_id = uuid.uuid4().hex[:12]
     _ai_tasks[task_id] = {"status": "processing"}
@@ -529,12 +550,8 @@ def notes_ai_summary():
     if not notes:
         return jsonify({"status": "ok", "summary": "（近期無筆記）"})
 
-    # 合併所有筆記成 all_content，每段標註檔名來源
-    parts = []
-    for n in notes:
-        source = f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
-        parts.append(f"{source}\n{n.title}\n{n.content}")
-    all_content = "\n\n---\n\n".join(parts)
+    # 合併所有筆記成 all_content，每段標註檔名來源（checklist 會附上項目明細）
+    all_content = "\n\n---\n\n".join(_format_note_for_ai(n) for n in notes)
 
     store_label = f"「{store}店」" if store != "all" else "全店"
     extra = ""
