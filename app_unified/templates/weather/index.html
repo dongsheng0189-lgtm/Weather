@@ -56,7 +56,9 @@
     /* 頂部標題區（隱藏入口用） */
     h1.weather-title { font-size: 1.55rem; font-weight: 500; letter-spacing: .15em; opacity: .7;
                        cursor: default; user-select: none; margin-bottom: 1.5rem; }
-    #tap-target { cursor: default; -webkit-tap-highlight-color: transparent; user-select: none; outline: none; pointer-events: auto; }
+    h1.weather-title span { font-size: inherit; font-weight: inherit; line-height: inherit; letter-spacing: inherit; }
+    #tap-target { cursor: default; -webkit-tap-highlight-color: transparent; user-select: none; outline: none; pointer-events: auto;
+                  font-size: inherit; font-weight: inherit; }
     #tap-target:active, #tap-target:focus { outline: none; background: none; opacity: 1; }
 
     /* 主要天氣區：城市 + 溫度 + 描述 */
