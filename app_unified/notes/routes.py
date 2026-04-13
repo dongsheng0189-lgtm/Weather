@@ -486,8 +486,8 @@ def _format_note_for_ai(n):
 
 
 def _format_checklist_for_ai(n):
-    """確認表單區塊：標題 + 已完成 / 未完成項目"""
-    items = sorted(n.checklist_items or [], key=lambda i: i.order_index)
+    """確認表單區塊：標題 + 已完成 / 未完成項目（依新到舊排序）"""
+    items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
     total = len(items)
     done = [i for i in items if i.is_checked]
     undone = [i for i in items if not i.is_checked]
@@ -721,7 +721,10 @@ def list_checklist_items(note_id):
     note = _get_note_for_edit(note_id)
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
-    items = ChecklistItem.query.filter_by(note_id=note_id).order_by(ChecklistItem.order_index, ChecklistItem.id).all()
+    # 排序：updated_at 新→舊，相同時 id 大→小
+    items = ChecklistItem.query.filter_by(note_id=note_id).order_by(
+        ChecklistItem.updated_at.desc(), ChecklistItem.id.desc()
+    ).all()
     return jsonify({"status": "ok", "items": [_checklist_item_json(i) for i in items]})
 
 
@@ -733,16 +736,18 @@ def create_checklist_item(note_id):
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
-    # 取得目前最大 order_index
+    # order_index 仍保留（向下相容），但實際排序用 updated_at
     max_order = db.session.query(db.func.max(ChecklistItem.order_index)).filter_by(note_id=note_id).scalar() or 0
+    now = datetime.utcnow()
     item = ChecklistItem(
         note_id=note_id,
         order_index=max_order + 1,
         text=text,
         is_checked=False,
+        updated_at=now,
     )
     db.session.add(item)
-    note.updated_at = datetime.utcnow()
+    note.updated_at = now
     note.updated_by = current_user.id
     db.session.commit()
     return jsonify({"status": "ok", "item": _checklist_item_json(item)}), 201
@@ -758,8 +763,12 @@ def update_checklist_item(item_id):
     if not note:
         return jsonify({"status": "error", "message": "無權限"}), 403
     data = request.get_json(silent=True) or {}
+    text_changed = False
     if "text" in data:
-        item.text = (data.get("text") or "").strip()
+        new_text = (data.get("text") or "").strip()
+        if new_text != item.text:
+            item.text = new_text
+            text_changed = True
     if "is_checked" in data:
         is_checked = bool(data.get("is_checked"))
         if is_checked and not item.is_checked:
@@ -772,6 +781,9 @@ def update_checklist_item(item_id):
             item.checked_at = None
             item.checked_by = None
             item.checked_by_name = None
+    # 文字改動才 bump updated_at（避免打勾就跳到最上面）
+    if text_changed:
+        item.updated_at = datetime.utcnow()
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id
     db.session.commit()
@@ -853,6 +865,11 @@ def upload_attachment_api():
         file_size=len(file_bytes),
     )
     db.session.add(attachment)
+    # 若附件綁到 checklist 項目，bump 該項目 updated_at（讓它跳到最上面）
+    if item_id:
+        item = ChecklistItem.query.get(item_id)
+        if item:
+            item.updated_at = datetime.utcnow()
     db.session.commit()
 
     url = get_signed_url(object_key)
@@ -928,7 +945,13 @@ def delete_attachment_api(attachment_id):
         return jsonify({"status": "error", "message": "無權限刪除"}), 403
 
     delete_attachment(attachment.object_key)
+    item_id = attachment.checklist_item_id
     db.session.delete(attachment)
+    # 若是 checklist 項目附件，bump 項目 updated_at
+    if item_id:
+        item = ChecklistItem.query.get(item_id)
+        if item:
+            item.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({"status": "ok"})
 

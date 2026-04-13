@@ -161,8 +161,11 @@ class ChecklistItem(db.Model):
     checked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     checked_by_name = db.Column(db.Text, nullable=True)  # 快照
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)  # 排序用：新增/編輯/附件變更時 bump
 
-    note = db.relationship("Note", backref=db.backref("checklist_items", lazy=True, cascade="all, delete-orphan", order_by="ChecklistItem.order_index"))
+    note = db.relationship("Note", backref=db.backref(
+        "checklist_items", lazy=True, cascade="all, delete-orphan",
+        order_by="ChecklistItem.updated_at.desc()"))
     checker = db.relationship("User", foreign_keys=[checked_by])
 
 

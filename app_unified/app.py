@@ -222,6 +222,27 @@ def create_app():
                     ))
                 except Exception:
                     pass
+                # 店務筆記 checklist_items.updated_at：依時間排序（新→舊）
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"
+                    ))
+                except Exception:
+                    pass
+                # 既有資料 backfill：updated_at = created_at
+                try:
+                    db.session.execute(db.text(
+                        "UPDATE checklist_items SET updated_at = created_at WHERE updated_at IS NULL"
+                    ))
+                except Exception:
+                    pass
+                # 之後設 NOT NULL（若可行；舊資料已補完）
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ALTER COLUMN updated_at SET NOT NULL"
+                    ))
+                except Exception:
+                    pass
                 # login_tokens.user_id → ON DELETE CASCADE（刪使用者連帶清 tokens）
                 try:
                     db.session.execute(db.text("""
