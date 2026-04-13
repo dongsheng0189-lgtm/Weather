@@ -58,8 +58,8 @@
     <a href="{{ url_for('mynotes.index') }}" class="btn btn-secondary">← 返回</a>
     <span class="ed-type-badge {{ note_type }}">
       {% if note_type == 'meeting' %}📅 會議紀錄
-      {% elif note_type == 'todo_note' %}📝 代辦筆記
-      {% else %}☑️ 代辦清單{% endif %}
+      {% elif note_type == 'todo_note' %}📝 筆記
+      {% else %}☑️ 清單{% endif %}
     </span>
     {% if note_type == 'todo_checklist' %}
       <button class="btn btn-primary" id="btn-save" onclick="doSave()">儲存</button>

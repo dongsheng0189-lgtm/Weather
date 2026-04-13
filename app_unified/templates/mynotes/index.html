@@ -57,14 +57,14 @@
 
   <div class="mn-new-bar">
     <a class="mn-new-btn meeting" href="{{ url_for('mynotes.new_note') }}?type=meeting">📅 會議紀錄</a>
-    <a class="mn-new-btn todo-note" href="{{ url_for('mynotes.new_note') }}?type=todo_note">📝 代辦筆記</a>
-    <a class="mn-new-btn todo-checklist" href="{{ url_for('mynotes.new_note') }}?type=todo_checklist">☑️ 代辦清單</a>
+    <a class="mn-new-btn todo-note" href="{{ url_for('mynotes.new_note') }}?type=todo_note">📝 筆記</a>
+    <a class="mn-new-btn todo-checklist" href="{{ url_for('mynotes.new_note') }}?type=todo_checklist">☑️ 清單</a>
   </div>
 
   <div class="mn-filter-bar">
     <span class="mn-filter-chip active" data-type="" onclick="setFilter(this, '')">全部</span>
     <span class="mn-filter-chip" data-type="meeting" onclick="setFilter(this, 'meeting')">📅 會議</span>
-    <span class="mn-filter-chip" data-type="todo_note" onclick="setFilter(this, 'todo_note')">📝 代辦</span>
+    <span class="mn-filter-chip" data-type="todo_note" onclick="setFilter(this, 'todo_note')">📝 筆記</span>
     <span class="mn-filter-chip" data-type="todo_checklist" onclick="setFilter(this, 'todo_checklist')">☑️ 清單</span>
   </div>
 
@@ -74,7 +74,7 @@
 <script>
 var TYPE_META = {
   meeting: { emoji: '📅', label: '會議' },
-  todo_note: { emoji: '📝', label: '代辦' },
+  todo_note: { emoji: '📝', label: '筆記' },
   todo_checklist: { emoji: '☑️', label: '清單' },
 };
 
