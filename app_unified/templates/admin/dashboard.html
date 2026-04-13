@@ -255,6 +255,27 @@ th { background: #f8f9fa; font-weight: 700; }
   </table>
   <div id="user-logs-pagination" style="display:none;justify-content:center;align-items:center;gap:.4rem;margin-top:.75rem;flex-wrap:wrap;"></div>
 </div>
+
+{% if current_user.is_root_admin() %}
+<div class="card" style="margin-top:1rem;">
+  <h3>🎛️ 模組權限管理</h3>
+  <p style="font-size:.82rem;color:#777;margin-top:.4rem;">
+    勾選該使用者可使用的模組。super_admin 不受此限制（永遠擁有全部模組）。
+  </p>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.75rem;">
+    <label style="font-size:.9rem;">使用者：</label>
+    <select id="feat-user-select" onchange="loadUserFeatures()" style="font-size:.9rem;padding:.4rem .6rem;border-radius:6px;border:1px solid #ddd;min-height:36px;max-width:220px;">
+      <option value="">— 請選擇 —</option>
+    </select>
+    <span id="feat-status" style="font-size:.85rem;color:#666;"></span>
+  </div>
+  <div id="feat-checkbox-wrap" style="display:none;margin-top:.75rem;">
+    <div id="feat-checkboxes" style="display:flex;gap:1rem;flex-wrap:wrap;padding:.5rem 0;"></div>
+    <button class="btn btn-primary" onclick="saveUserFeatures()" style="margin-top:.5rem;">儲存</button>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
@@ -679,5 +700,82 @@ function submitNewUser() {
 
 // 頁面載入時自動載入店家列表
 loadStores();
+
+{% if current_user.is_root_admin() %}
+// ── 模組權限管理（僅種子 admin 可用） ──
+var _availableFeatures = [];
+function _loadFeatureCatalog() {
+  fetch('/admin/features/catalog').then(function(r){return r.json();}).then(function(data){
+    _availableFeatures = data.features || [];
+  });
+}
+function _loadFeatureUserList() {
+  fetch('/admin/features/users').then(function(r){return r.json();}).then(function(users){
+    var sel = document.getElementById('feat-user-select');
+    users.forEach(function(u) {
+      var opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.username + (u.store ? ' (' + u.store + ')' : '');
+      sel.appendChild(opt);
+    });
+  });
+}
+_loadFeatureCatalog();
+_loadFeatureUserList();
+
+function loadUserFeatures() {
+  var uid = document.getElementById('feat-user-select').value;
+  var wrap = document.getElementById('feat-checkbox-wrap');
+  var statusEl = document.getElementById('feat-status');
+  if (!uid) { wrap.style.display = 'none'; statusEl.textContent = ''; return; }
+  statusEl.textContent = '載入中…';
+  fetch('/admin/users/' + uid + '/features').then(function(r){return r.json();}).then(function(data){
+    if (data.status !== 'ok') { statusEl.textContent = data.message || '載入失敗'; return; }
+    var enabled = data.features || [];
+    var box = document.getElementById('feat-checkboxes');
+    box.innerHTML = '';
+    _availableFeatures.forEach(function(f) {
+      var label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.95rem;';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = f.key;
+      cb.style.width = 'auto';
+      cb.checked = enabled.indexOf(f.key) >= 0;
+      label.appendChild(cb);
+      var span = document.createElement('span');
+      span.textContent = f.emoji + ' ' + f.label + (f.enabled ? '' : '（開發中）');
+      label.appendChild(span);
+      box.appendChild(label);
+    });
+    wrap.style.display = 'block';
+    statusEl.textContent = '';
+  }).catch(function(){ statusEl.textContent = '連線錯誤'; });
+}
+
+function saveUserFeatures() {
+  var uid = document.getElementById('feat-user-select').value;
+  if (!uid) return;
+  var checks = document.querySelectorAll('#feat-checkboxes input[type=checkbox]');
+  var keys = [];
+  checks.forEach(function(c){ if (c.checked) keys.push(c.value); });
+  var statusEl = document.getElementById('feat-status');
+  statusEl.textContent = '儲存中…';
+  fetch('/admin/users/' + uid + '/features', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ features: keys })
+  }).then(function(r){return r.json();}).then(function(data){
+    if (data.status === 'ok') {
+      statusEl.textContent = '✓ 已儲存';
+      statusEl.style.color = '#27ae60';
+      setTimeout(function(){ statusEl.textContent = ''; statusEl.style.color = '#666'; }, 2000);
+    } else {
+      statusEl.textContent = data.message || '儲存失敗';
+      statusEl.style.color = '#e74c3c';
+    }
+  }).catch(function(){ statusEl.textContent = '連線錯誤'; statusEl.style.color = '#e74c3c'; });
+}
+{% endif %}
 </script>
 {% endblock %}

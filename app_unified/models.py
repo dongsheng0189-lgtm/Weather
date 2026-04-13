@@ -33,8 +33,26 @@ class User(UserMixin, db.Model):
     store = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    # 模組開關（JSON 陣列字串）。super_admin 會 bypass 檢查，永遠有全部權限
+    features = db.Column(db.Text, nullable=False, default='["notes"]')
 
     notes = db.relationship("Note", backref="author", lazy=True, foreign_keys="Note.user_id")
+
+    def get_features(self) -> list:
+        import json
+        try:
+            val = json.loads(self.features or "[]")
+            return val if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    def set_features(self, keys: list):
+        import json
+        self.features = json.dumps(list(keys))
+
+    def is_root_admin(self) -> bool:
+        """種子管理員：username == 'admin'，擁有模組權限管理 UI 存取權"""
+        return self.username == "admin"
 
     def set_password(self, pin: str):
         self.password_hash = sha256(pin)

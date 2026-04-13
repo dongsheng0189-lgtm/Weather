@@ -163,7 +163,29 @@ def logout():
 @auth_bp.route("/s/r")
 @login_required
 def silent_redirect():
-    return redirect(url_for("notes.index"))
+    from features import user_visible_features
+    from flask_login import current_user
+    feats = user_visible_features(current_user)
+    if len(feats) == 0:
+        # 沒有任何模組權限 → 依舊導向天氣頁（退場）
+        return redirect(url_for("weather.index"))
+    if len(feats) == 1:
+        return redirect(feats[0]["url"])
+    # 多個模組 → 進選單頁
+    return redirect(url_for("auth.module_picker"))
+
+
+@auth_bp.route("/modules")
+@login_required
+def module_picker():
+    from features import user_visible_features
+    from flask_login import current_user
+    feats = user_visible_features(current_user)
+    if len(feats) == 0:
+        return redirect(url_for("weather.index"))
+    if len(feats) == 1:
+        return redirect(feats[0]["url"])
+    return render_template("auth/module_picker.html", features=feats)
 
 
 def _verify_face(user: User, image_b64: str):

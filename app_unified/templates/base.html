@@ -71,8 +71,10 @@
     <a class="nav-brand" href="/">📝 NOTE</a>
     <div class="nav-links">
       {% if current_user.is_authenticated %}
-        <a href="{{ url_for('notes.index') }}">我的筆記</a>
+        {% if has_feature('notes') %}<a href="{{ url_for('notes.index') }}">店務筆記</a>{% endif %}
+        {% if has_feature('mynotes') %}<a href="{{ url_for('mynotes.index') }}">My Notes</a>{% endif %}
         <a href="{{ url_for('weather.index') }}">天氣</a>
+        {% if multi_feature %}<a href="{{ url_for('auth.module_picker') }}">切換模組</a>{% endif %}
         {% if current_user.is_admin() %}
           <a href="{{ url_for('admin.dashboard') }}">管理</a>
           <a href="{{ url_for('face.settings') }}">人臉設定</a>
@@ -86,8 +88,10 @@
     <button class="nav-toggle" id="nav-toggle" aria-label="選單">☰</button>
     <div class="nav-dropdown" id="nav-dropdown">
       {% if current_user.is_authenticated %}
-        <a href="{{ url_for('notes.index') }}">我的筆記</a>
+        {% if has_feature('notes') %}<a href="{{ url_for('notes.index') }}">店務筆記</a>{% endif %}
+        {% if has_feature('mynotes') %}<a href="{{ url_for('mynotes.index') }}">My Notes</a>{% endif %}
         <a href="{{ url_for('weather.index') }}">天氣</a>
+        {% if multi_feature %}<a href="{{ url_for('auth.module_picker') }}">切換模組</a>{% endif %}
         {% if current_user.is_admin() %}
           <a href="{{ url_for('admin.dashboard') }}">管理</a>
           <a href="{{ url_for('face.settings') }}">人臉設定</a>

@@ -49,6 +49,17 @@ def create_app():
             return value[:16]
         return value.strftime(fmt)
 
+    @app.context_processor
+    def inject_features():
+        from features import user_visible_features, user_has_feature
+        from flask_login import current_user
+        feats = user_visible_features(current_user) if current_user.is_authenticated else []
+        return {
+            "visible_features": feats,
+            "has_feature": lambda k: user_has_feature(current_user, k),
+            "multi_feature": len(feats) >= 2,
+        }
+
     with app.app_context():
         try:
             print(f"=== DB URI: {app.config['SQLALCHEMY_DATABASE_URI'][:30]}... ===", flush=True)
@@ -193,6 +204,13 @@ def create_app():
                     """))
                 except Exception:
                     pass
+                # users.features：模組開關 JSON 陣列
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE users ADD COLUMN IF NOT EXISTS features TEXT NOT NULL DEFAULT '[\"notes\"]'"
+                    ))
+                except Exception:
+                    pass
                 # login_tokens.user_id → ON DELETE CASCADE（刪使用者連帶清 tokens）
                 try:
                     db.session.execute(db.text("""
@@ -246,6 +264,7 @@ def create_app():
     from weather.routes import weather_bp
     from admin.routes import admin_bp
     from device.routes import device_bp
+    from mynotes.routes import mynotes_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(face_bp)
@@ -253,6 +272,7 @@ def create_app():
     app.register_blueprint(weather_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(device_bp)
+    app.register_blueprint(mynotes_bp)
 
     from notes.ws import register_ws_events
     register_ws_events(socketio)

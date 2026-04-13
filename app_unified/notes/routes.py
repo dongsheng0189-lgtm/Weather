@@ -8,6 +8,17 @@ from admin.routes import call_llm
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/notes")
 
+
+@notes_bp.before_request
+def _gate_notes_feature():
+    """模組開關：未啟用 notes 的使用者存取此 blueprint 任何路由皆回 404。
+    super_admin 會在 user_has_feature 內 bypass。未登入者由 @login_required 另行處理。"""
+    from features import user_has_feature
+    if current_user.is_authenticated and not user_has_feature(current_user, "notes"):
+        from flask import abort
+        abort(404)
+
+
 RANGE_DAYS = {"today": 0, "3d": 3, "7d": 7, "30d": 30}
 
 _TW = timezone(timedelta(hours=8))

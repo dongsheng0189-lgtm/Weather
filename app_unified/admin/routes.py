@@ -296,6 +296,7 @@ def list_user_logs():
         "set_role": "改角色",
         "set_store": "改店別",
         "approve_device": "核准裝置",
+        "set_features": "改模組權限",
     }
     return jsonify([{
         "id": log.id,
@@ -305,6 +306,58 @@ def list_user_logs():
         "detail": log.detail or "",
         "created_at": (log.created_at.replace(tzinfo=timezone.utc).astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")) if log.created_at else "",
     } for log in logs])
+
+
+# ── 模組權限管理（僅種子 admin username="admin" 可用） ──────
+
+@admin_bp.route("/features/catalog", methods=["GET"])
+@login_required
+def features_catalog():
+    from features import AVAILABLE_FEATURES, require_root_admin
+    require_root_admin()
+    return jsonify({"features": AVAILABLE_FEATURES})
+
+
+@admin_bp.route("/features/users", methods=["GET"])
+@login_required
+def features_user_list():
+    """供模組權限管理下拉使用的完整使用者清單（僅種子 admin 可呼叫）"""
+    from features import require_root_admin
+    require_root_admin()
+    users = User.query.order_by(User.username).all()
+    return jsonify([{
+        "id": u.id, "username": u.username, "store": u.store, "role": u.role,
+    } for u in users])
+
+
+@admin_bp.route("/users/<int:user_id>/features", methods=["GET"])
+@login_required
+def get_user_features(user_id):
+    from features import require_root_admin
+    require_root_admin()
+    user = User.query.get_or_404(user_id)
+    return jsonify({"status": "ok", "features": user.get_features()})
+
+
+@admin_bp.route("/users/<int:user_id>/features", methods=["POST"])
+@login_required
+def set_user_features(user_id):
+    from features import AVAILABLE_FEATURES, require_root_admin
+    require_root_admin()
+    user = User.query.get_or_404(user_id)
+    data = request.get_json(silent=True) or {}
+    keys = data.get("features") or []
+    if not isinstance(keys, list):
+        return jsonify({"status": "error", "message": "features 必須為陣列"}), 400
+    valid_keys = {f["key"] for f in AVAILABLE_FEATURES}
+    cleaned = [k for k in keys if isinstance(k, str) and k in valid_keys]
+    old = user.get_features()
+    user.set_features(cleaned)
+    if set(old) != set(cleaned):
+        _log_user_action("set_features", user,
+                         detail=f"{sorted(old)} → {sorted(cleaned)}")
+    db.session.commit()
+    return jsonify({"status": "ok", "features": cleaned})
 
 
 # ── 設備管理 ──────────────────────────────────────────────

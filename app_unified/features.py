@@ -1,0 +1,66 @@
+"""模組權限系統（Features）— 集中定義可用模組清單與權限檢查 helper"""
+from flask import abort
+
+
+# 模組清單（未來新增功能加這裡即可）
+# key    : 內部識別字串，寫入 user.features
+# label  : UI 顯示名稱
+# emoji  : dashboard 圖示
+# url    : 模組首頁 URL
+# enabled: 是否已完成開發（未完成顯示「開發中」）
+AVAILABLE_FEATURES = [
+    {
+        "key": "notes",
+        "label": "店務筆記",
+        "emoji": "📝",
+        "url": "/notes/",
+        "enabled": True,
+    },
+    {
+        "key": "mynotes",
+        "label": "My Notes（個人）",
+        "emoji": "🗂️",
+        "url": "/mynotes/",
+        "enabled": False,  # 待開發
+    },
+]
+
+
+def feature_meta(key):
+    for f in AVAILABLE_FEATURES:
+        if f["key"] == key:
+            return f
+    return None
+
+
+def user_has_feature(user, key):
+    """檢查使用者是否可進入該模組。super_admin bypass。"""
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_super_admin():
+        return True
+    return key in user.get_features()
+
+
+def user_visible_features(user):
+    """使用者可看到的模組清單（給導覽列/選單頁用）"""
+    if not user or not user.is_authenticated:
+        return []
+    if user.is_super_admin():
+        return list(AVAILABLE_FEATURES)
+    keys = set(user.get_features())
+    return [f for f in AVAILABLE_FEATURES if f["key"] in keys]
+
+
+def require_feature(key):
+    """路由入口用：無權限直接 404（看不見即不存在）"""
+    from flask_login import current_user
+    if not user_has_feature(current_user, key):
+        abort(404)
+
+
+def require_root_admin():
+    """只有種子管理員（username == 'admin'）可通過"""
+    from flask_login import current_user
+    if not current_user.is_authenticated or not current_user.is_root_admin():
+        abort(404)
