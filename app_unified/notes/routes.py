@@ -407,6 +407,15 @@ MANAGER_PROMPT = """# Role
 該類別下方所有事項用數字列表（1. 2. 3. ...）依序排列。
 沒有事項的類別請直接省略，不要輸出空標題。
 
+# 去重規則（重要）
+- 若多篇筆記提到同一事件（如 A 寫「冰箱壞了」、B 寫「冰箱還沒修」），
+  請合併成**一條**列點，不要每篇各列一次。
+- 內容高度重疊的事項請合併；互補資訊併入同一條後面。
+
+# 禁止事項
+- 禁止憑空生成輸入資料中不存在的事項。
+- 若輸入沒有對應類別的事項，該類別省略，不得虛構。
+
 範例：
 ## 人事
 1. 小明午班請假：已協調小華代班。
@@ -503,33 +512,44 @@ def _build_ai_sections(notes, header_prefix=""):
     return "\n\n".join(blocks), bool(checklists), len(regular), len(checklists)
 
 
-CHECKLIST_EXTRA_PROMPT = """
-# 輸出結構（本次含確認表單）
-請將輸出分為兩大區塊（用 Markdown `#` 標題）：
+def _build_output_structure_prompt(has_regular, has_checklist):
+    """根據實際資料動態產生輸出結構指示，沒資料的 section 不出現"""
+    if not has_checklist:
+        # 純筆記：維持原本 4 分類輸出（Output Style 已定義）
+        return ""
 
-# 筆記彙整
-針對上方「一般筆記」依 Output Style 的規則（## 類別 + 數字列表）輸出。
-若本次沒有一般筆記，此區塊輸出「（無一般筆記）」。
+    parts = ["\n# 輸出結構"]
+    if has_regular:
+        parts.append(
+            "請將輸出分為兩大區塊（用 Markdown `#` 標題）：\n\n"
+            "# 筆記彙整\n"
+            "針對上方「一般筆記」依 Output Style 的規則（## 類別 + 數字列表）輸出。\n\n"
+            "# 確認表單彙整"
+        )
+    else:
+        # 只有表單：禁止出現「筆記彙整」段
+        parts.append(
+            "**本次沒有一般筆記資料，禁止輸出「筆記彙整」段，也禁止將表單內容當作筆記分類。**\n\n"
+            "請只輸出以下區塊：\n\n"
+            "# 確認表單彙整"
+        )
 
-# 確認表單彙整
-針對上方「確認表單」做整理，分為以下兩小節：
-
-## ✅ 已完成項目
-依「完成者」分組：同一個人的已完成項目合併到同一組。
-每組以 `### 完成者名字` 作為小標題，下方用 1. 2. 3. 列出該人完成的事項。
-**不要輸出任何時間資訊**，只需呈現完成者與事項。
-範例：
-### 小明
-1. 更換廚房燈泡
-2. 清潔冷凍庫
-
-### 小華
-1. 點收今日進貨
-
-## ❌ 未完成項目
-將所有表單中尚未完成的項目合併，用 1. 2. 3. 依序列出。
-可在每項前標註來源表單標題以利辨識。
-"""
+    parts.append(
+        "針對上方「確認表單」做整理，分為以下兩小節：\n\n"
+        "## ✅ 已完成項目\n"
+        "依「完成者」分組：同一個人的已完成項目合併到同一組。\n"
+        "每組以 `### 完成者名字` 作為小標題，下方用 1. 2. 3. 列出該人完成的事項。\n"
+        "**不要輸出任何時間資訊**，只需呈現完成者與事項。\n"
+        "若沒有任何已完成項目，此小節輸出「（無）」。\n\n"
+        "範例：\n"
+        "### 小明\n"
+        "1. 更換廚房燈泡\n"
+        "2. 清潔冷凍庫\n\n"
+        "## ❌ 未完成項目\n"
+        "將所有表單中尚未完成的項目合併，用 1. 2. 3. 依序列出。\n"
+        "同一事項若重複出現請合併。若沒有任何未完成項目，此小節輸出「（無）」。"
+    )
+    return "\n".join(parts) + "\n"
 
 
 def _build_all_content(store_name=None):
@@ -551,9 +571,11 @@ def summarize(note_id):
 
     # 收集同店所有筆記合併，一次呼叫 API 做全體分類摘要
     data_block, count, has_cl = _build_all_content(note.store)
+    notes_for_count = Note.query.filter_by(store=note.store).all() if note.store else Note.query.all()
+    has_reg = any(getattr(n, "note_type", "note") != "checklist" for n in notes_for_count)
     prompt = (
         MANAGER_PROMPT
-        + (CHECKLIST_EXTRA_PROMPT if has_cl else "")
+        + _build_output_structure_prompt(has_reg, has_cl)
         + f"\n# 待整理資料（{note.store or '未分店'}店，共 {count} 筆）\n\n{data_block}"
     )
     task_id = uuid.uuid4().hex[:12]
@@ -628,7 +650,7 @@ def notes_ai_summary():
 
     prompt = (
         MANAGER_PROMPT + extra
-        + (CHECKLIST_EXTRA_PROMPT if has_cl else "")
+        + _build_output_structure_prompt(nreg > 0, has_cl)
         + f"\n# 待整理資料（{store_label}近 {days} 天，一般筆記 {nreg} 筆 / 確認表單 {ncl} 筆）\n\n{data_block}"
     )
 
