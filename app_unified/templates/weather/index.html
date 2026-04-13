@@ -372,11 +372,22 @@
     fetch('/api/v1/register-device', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify({
         fingerprint: window.__deviceFP || '',
         client_uid: window.__deviceUID || '',
         device_name: window.__deviceName || 'Unknown'
       })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      // 伺服器回的 uid 為權威，寫回 localStorage 保持雙儲存一致
+      if (d && d.client_uid) {
+        try {
+          if (window.__deviceUID !== d.client_uid) {
+            localStorage.setItem('device_uid', d.client_uid);
+            window.__deviceUID = d.client_uid;
+          }
+        } catch (e) {}
+      }
     }).catch(function() {});
   }
 

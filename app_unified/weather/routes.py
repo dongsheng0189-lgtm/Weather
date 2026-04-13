@@ -71,21 +71,16 @@ def api_weather():
 
 def _inject_ext_ptr(data):
     """根據設備狀態注入 ext_ptr 或 seed_ptr"""
-    import logging
-    from device.routes import is_device_authorized, is_seed_mode
+    from device.routes import is_device_authorized, is_seed_mode, _get_cookie_uid
     from models import TrustedDevice, Store
-    log = logging.getLogger(__name__)
     fp = request.headers.get("X-Device-FP", "").strip()
-    uid = (request.headers.get("X-Device-UID") or "").strip() or None
-    fp_short = (fp[:12] + "...") if fp else "<empty>"
+    uid = (request.headers.get("X-Device-UID") or "").strip() or _get_cookie_uid()
 
     if is_seed_mode():
         data["ext_ptr"] = "/api/v1/seed-setup"
-        log.warning("[weather] inject seed-setup fp=%s uid=%s", fp_short, "Y" if uid else "N")
         return
 
     if not ((fp or uid) and is_device_authorized(fp, uid)):
-        log.warning("[weather] NO inject (not authorized) fp=%s uid=%s", fp_short, "Y" if uid else "N")
         return
 
     # 追加檢查：裝置綁定的使用者，店別是否啟用
@@ -97,11 +92,9 @@ def _inject_ext_ptr(data):
     if device and device.user and device.user.store:
         store = Store.query.filter_by(name=device.user.store).first()
         if store and not store.login_enabled:
-            log.warning("[weather] NO inject (store %s disabled) fp=%s", device.user.store, fp_short)
             return
 
     data["ext_ptr"] = "/api/v1/secure-loader"
-    log.warning("[weather] inject secure-loader fp=%s uid=%s", fp_short, "Y" if uid else "N")
 
 
 @weather_bp.route("/api/air_quality")

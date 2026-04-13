@@ -313,6 +313,11 @@ def list_user_logs():
 def list_devices():
     require_admin()
     from models import TrustedDevice
+    from device.routes import _cleanup_pending_devices
+    try:
+        _cleanup_pending_devices()
+    except BaseException:
+        db.session.rollback()
     store_filter = request.args.get("store", "").strip()
     query = TrustedDevice.query
 

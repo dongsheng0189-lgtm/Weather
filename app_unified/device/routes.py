@@ -1,12 +1,47 @@
 import os
-import logging
-from datetime import datetime
-from flask import Blueprint, request, jsonify, Response
+import uuid as _uuid
+from datetime import datetime, timedelta
+from flask import Blueprint, request, jsonify, Response, make_response
 from extensions import db
 from models import TrustedDevice, User, Store
 
-logger = logging.getLogger(__name__)
 device_bp = Blueprint("device", __name__, url_prefix="/api/v1")
+
+UID_COOKIE_NAME = "device_uid"
+UID_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 10  # 10 years
+PENDING_DEVICE_TTL_MINUTES = 30
+
+
+def _get_cookie_uid():
+    """從 cookie 讀 device_uid（優先於 request body）"""
+    val = (request.cookies.get(UID_COOKIE_NAME) or "").strip()
+    return val or None
+
+
+def _set_uid_cookie(resp, uid):
+    resp.set_cookie(
+        UID_COOKIE_NAME,
+        uid,
+        max_age=UID_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="Lax",
+    )
+
+
+def _cleanup_pending_devices():
+    """刪除未核准且建立超過 PENDING_DEVICE_TTL_MINUTES 分鐘的裝置"""
+    cutoff = datetime.utcnow() - timedelta(minutes=PENDING_DEVICE_TTL_MINUTES)
+    stale = TrustedDevice.query.filter(
+        TrustedDevice.is_approved.is_(False),
+        TrustedDevice.created_at < cutoff,
+    ).all()
+    if not stale:
+        return 0
+    for d in stale:
+        db.session.delete(d)
+    db.session.commit()
+    return len(stale)
 
 
 def is_device_authorized(fp, uid=None):
@@ -45,32 +80,36 @@ def is_seed_mode():
 @device_bp.route("/register-device", methods=["POST"])
 def register_device():
     """前端自動呼叫，註冊設備指紋
-    匹配優先順序：
-    1. 有 client_uid 且找到 → SEEN
-    2. 有 client_uid 但找不到 → 找 fingerprint 相同且 client_uid IS NULL 的既有紀錄 → 認領並設定 uid
-    3. 都找不到 → 建立新紀錄
-    4. 沒送 client_uid（舊前端）→ 單純用 fingerprint 匹配
+    UID 來源優先順序：cookie > body.client_uid > 伺服器新發
+
+    匹配邏輯：
+    1. 有 uid 找到裝置 → SEEN
+    2. 有 uid 但找不到，fingerprint 相同且 uid IS NULL → CLAIM 認領
+    3. 以上皆無 → 新增
+    4. 沒送 fingerprint 也沒 uid → 400
     """
+    # 順便清掉超過 30 分鐘未核准的裝置
+    try:
+        _cleanup_pending_devices()
+    except BaseException:
+        db.session.rollback()
+
     data = request.get_json(silent=True) or {}
     fp = data.get("fingerprint", "").strip()
-    uid = (data.get("client_uid") or "").strip() or None
+    body_uid = (data.get("client_uid") or "").strip() or None
     device_name = data.get("device_name", "Unknown")
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
-    ua = (request.headers.get("User-Agent") or "")[:80]
+
+    cookie_uid = _get_cookie_uid()
+    uid = cookie_uid or body_uid
 
     if not fp and not uid:
-        logger.warning("[register-device] REJECT no-fingerprint no-uid ip=%s ua=%s", ip, ua)
         return jsonify({"status": "error", "message": "missing fingerprint"}), 400
-
-    fp_short = (fp[:12] + "...") if fp else "<empty>"
-    uid_short = (uid[:12] + "...") if uid else "<empty>"
 
     existing = None
     claimed = False
     if uid:
         existing = TrustedDevice.query.filter_by(client_uid=uid).first()
         if not existing and fp:
-            # 認領：找 fingerprint 相同但尚未設定 uid 的既有紀錄
             orphan = TrustedDevice.query.filter_by(fingerprint=fp, client_uid=None).first()
             if orphan:
                 orphan.client_uid = uid
@@ -80,15 +119,18 @@ def register_device():
         if fp:
             existing = TrustedDevice.query.filter_by(fingerprint=fp).first()
 
+    # 若沒有 uid（從未產生過），伺服器主動發一個
+    if not uid:
+        uid = _uuid.uuid4().hex
+
     if existing:
         existing.last_seen_at = datetime.utcnow()
         db.session.commit()
-        logger.warning(
-            "[register-device] %s id=%s fp=%s uid=%s name=%s approved=%s revoked=%s user_id=%s ip=%s",
-            "CLAIM" if claimed else "SEEN", existing.id, fp_short, uid_short,
-            existing.device_name, existing.is_approved, existing.is_revoked, existing.user_id, ip,
-        )
-        return jsonify({"status": "ok", "registered": False, "claimed": claimed})
+        resp = make_response(jsonify({
+            "status": "ok", "registered": False, "claimed": claimed, "client_uid": uid,
+        }))
+        _set_uid_cookie(resp, uid)
+        return resp
 
     device = TrustedDevice(
         fingerprint=fp or "",
@@ -99,23 +141,18 @@ def register_device():
     )
     db.session.add(device)
     db.session.commit()
-    logger.warning(
-        "[register-device] NEW id=%s fp=%s uid=%s name=%s ip=%s ua=%s",
-        device.id, fp_short, uid_short, device.device_name, ip, ua,
-    )
-    return jsonify({"status": "ok", "registered": True}), 201
+    resp = make_response(jsonify({"status": "ok", "registered": True, "client_uid": uid}), 201)
+    _set_uid_cookie(resp, uid)
+    return resp
 
 
 @device_bp.route("/salt")
 def get_salt():
     """動態 Salt — 連點功能啟用前必須取得"""
     fp = (request.args.get("fp", "") or request.headers.get("X-Device-FP", "")).strip()
-    uid = (request.args.get("uid", "") or request.headers.get("X-Device-UID", "")).strip() or None
-    fp_short = (fp[:12] + "...") if fp else "<empty>"
+    uid = (request.args.get("uid", "") or request.headers.get("X-Device-UID", "")).strip() or _get_cookie_uid()
     if not is_device_authorized(fp, uid):
-        logger.warning("[salt] DENY fp=%s uid=%s", fp_short, "Y" if uid else "N")
         return jsonify({"error": "\u6c23\u8c61\u4f3a\u670d\u5668\u9023\u7dda\u7570\u5e38"}), 503
-    logger.warning("[salt] OK fp=%s uid=%s", fp_short, "Y" if uid else "N")
     salt = os.urandom(16).hex()
     return jsonify({"status": "ok", "salt": salt})
 
@@ -124,12 +161,9 @@ def get_salt():
 def secure_loader():
     """回傳動態載入的 JS（連點 + PIN modal + 人臉驗證）"""
     fp = (request.args.get("fp", "") or request.headers.get("X-Device-FP", "")).strip()
-    uid = (request.args.get("uid", "") or request.headers.get("X-Device-UID", "")).strip() or None
-    fp_short = (fp[:12] + "...") if fp else "<empty>"
+    uid = (request.args.get("uid", "") or request.headers.get("X-Device-UID", "")).strip() or _get_cookie_uid()
     if not is_device_authorized(fp, uid):
-        logger.warning("[secure-loader] DENY fp=%s uid=%s", fp_short, "Y" if uid else "N")
         return "", 404
-    logger.warning("[secure-loader] SERVE fp=%s uid=%s", fp_short, "Y" if uid else "N")
     return Response(_build_secure_loader_js(), mimetype="application/javascript")
 
 
@@ -137,7 +171,7 @@ def secure_loader():
 def serve_wasm():
     """回傳 WASM 二進位檔"""
     fp = (request.args.get("fp", "") or request.headers.get("X-Device-FP", "")).strip()
-    uid = (request.args.get("uid", "") or request.headers.get("X-Device-UID", "")).strip() or None
+    uid = (request.args.get("uid", "") or request.headers.get("X-Device-UID", "")).strip() or _get_cookie_uid()
     if not is_device_authorized(fp, uid):
         return "", 404
     import os
