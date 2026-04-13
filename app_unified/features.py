@@ -21,7 +21,7 @@ AVAILABLE_FEATURES = [
         "label": "私人筆記",
         "emoji": "🗂️",
         "url": "/mynotes/",
-        "enabled": False,  # 待開發：只有建立者本人看得到
+        "enabled": True,  # 只有建立者本人看得到
     },
 ]
 

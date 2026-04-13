@@ -217,3 +217,59 @@ class TrustedDevice(db.Model):
     last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     user = db.relationship("User", foreign_keys=[user_id])
+
+
+# ════════════════════════════════════════════════════════
+# 私人筆記（mynotes）— 資料與店務筆記完全獨立，只有 owner 看得到
+# ════════════════════════════════════════════════════════
+
+PRIVATE_NOTE_TYPES = ("meeting", "todo_note", "todo_checklist")
+
+
+class PrivateNote(db.Model):
+    __tablename__ = "private_notes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_type = db.Column(db.Text, nullable=False, default="todo_note")  # meeting | todo_note | todo_checklist
+    title = db.Column(db.Text, nullable=False, default="")
+    content = db.Column(db.Text, nullable=False, default="")
+    ai_summary = db.Column(db.Text, nullable=True)           # 僅 meeting 使用
+    reminder_date = db.Column(db.Date, nullable=True)        # 僅 todo_* 使用
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    owner = db.relationship("User", foreign_keys=[user_id])
+
+
+class PrivateChecklistItem(db.Model):
+    __tablename__ = "private_checklist_items"
+
+    id = db.Column(db.Integer, primary_key=True)
+    note_id = db.Column(db.Integer, db.ForeignKey("private_notes.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_index = db.Column(db.Integer, nullable=False, default=0)
+    text = db.Column(db.Text, nullable=False, default="")
+    is_checked = db.Column(db.Boolean, nullable=False, default=False)
+    checked_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    note = db.relationship("PrivateNote", backref=db.backref(
+        "items", lazy=True, cascade="all, delete-orphan",
+        order_by="PrivateChecklistItem.order_index"))
+
+
+class PrivateAttachment(db.Model):
+    __tablename__ = "private_attachments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    note_id = db.Column(db.Integer, db.ForeignKey("private_notes.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("private_checklist_items.id", ondelete="CASCADE"), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    object_key = db.Column(db.Text, nullable=False)
+    filename = db.Column(db.Text, nullable=False)
+    content_type = db.Column(db.Text, nullable=False)
+    file_size = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    note = db.relationship("PrivateNote", backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"))
+    item = db.relationship("PrivateChecklistItem", backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"))

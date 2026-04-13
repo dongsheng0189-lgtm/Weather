@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+{% block title %}{{ note.title if note else '新增' }} - 私人筆記{% endblock %}
+{% block extra_head %}
+<style>
+.ed-wrap { max-width: 820px; margin: 1rem auto; padding: 0 .75rem; }
+.ed-toolbar { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; flex-wrap: wrap; }
+.ed-type-badge { padding: .2rem .6rem; border-radius: 8px; color: #fff; font-size: .78rem; font-weight: 700; }
+.ed-type-badge.meeting { background: #3498db; }
+.ed-type-badge.todo_note { background: #27ae60; }
+.ed-type-badge.todo_checklist { background: #e67e22; }
+.ed-save-status { font-size: .85rem; color: #666; margin-left: auto; }
+.ed-title { width: 100%; font-size: 1.25rem; font-weight: 600; border: none; padding: .4rem 0; margin-bottom: .5rem; outline: none; background: transparent; border-bottom: 1px solid #eee; }
+.ed-reminder-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; font-size: .9rem; }
+.ed-reminder-row input[type=date] { width: auto; flex: 0 0 auto; }
+.ed-content { width: 100%; min-height: 280px; border: 1px solid #e5e5e5; border-radius: 8px; padding: .75rem; font-size: .95rem; font-family: inherit; line-height: 1.6; resize: vertical; }
+.ed-section-title { margin: 1rem 0 .5rem; font-size: .95rem; font-weight: 600; color: #555; }
+
+/* attachments */
+.att-bar { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
+.att-list { display: flex; flex-wrap: wrap; gap: .6rem; }
+.att-item { position: relative; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; background: #fafafa; }
+.att-item img { display: block; max-width: 160px; max-height: 120px; object-fit: cover; cursor: pointer; }
+.att-item video { display: block; max-width: 220px; max-height: 160px; }
+.att-item .att-del { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; cursor: pointer; }
+
+/* checklist items */
+.cl-item { display: flex; gap: .5rem; align-items: flex-start; padding: .5rem; border: 1px solid #e5e5e5; border-radius: 8px; margin-bottom: .4rem; background: #fff; }
+.cl-item.checked { opacity: .65; }
+.cl-item.checked .cl-text { text-decoration: line-through; color: #777; }
+.cl-item input[type=checkbox] { width: 1.2rem; height: 1.2rem; flex: 0 0 auto; }
+.cl-item .cl-text { flex: 1; line-height: 1.4; word-break: break-word; }
+.cl-item .cl-atts { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .25rem; }
+.cl-item .cl-atts img { width: 58px; height: 58px; object-fit: cover; border-radius: 5px; cursor: pointer; border:1px solid #ddd; }
+.cl-item .cl-ops { display: flex; gap: .3rem; margin-left: .25rem; }
+.cl-item .cl-ops button { background: transparent; border: none; font-size: .9rem; cursor: pointer; color: #666; padding: .2rem .3rem; }
+
+/* AI summary */
+.ai-box { background: #f3e5f5; border: 1px solid #ce93d8; border-radius: 10px; padding: 1rem; margin-top: 1rem; }
+.ai-box h4 { margin-bottom: .5rem; color: #6a1b9a; }
+.ai-output { background: #fff; border-radius: 8px; padding: 1rem; margin-top: .75rem; white-space: pre-wrap; font-size: .92rem; line-height: 1.65; color: #333; }
+.ai-output.empty { color: #aaa; font-style: italic; }
+.ai-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; }
+
+/* fullscreen image */
+.fs-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95); z-index: 9999; align-items: center; justify-content: center; }
+.fs-overlay.open { display: flex; }
+.fs-overlay img { max-width: 95vw; max-height: 95vh; touch-action: pinch-zoom; }
+.fs-overlay .fs-close { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; border: none; font-size: 20px; cursor: pointer; }
+</style>
+{% endblock %}
+{% block content %}
+<input type="hidden" id="note-id" value="{{ note.id if note else '' }}">
+<input type="hidden" id="note-type" value="{{ note_type }}">
+
+<div class="ed-wrap">
+  <div class="ed-toolbar">
+    <a href="{{ url_for('mynotes.index') }}" class="btn btn-secondary">← 返回</a>
+    <span class="ed-type-badge {{ note_type }}">
+      {% if note_type == 'meeting' %}📅 會議紀錄
+      {% elif note_type == 'todo_note' %}📝 代辦筆記
+      {% else %}☑️ 代辦清單{% endif %}
+    </span>
+    <button class="btn btn-primary" id="btn-save" onclick="doSave()">儲存</button>
+    {% if note %}<button class="btn btn-danger" onclick="doDelete()">刪除</button>{% endif %}
+    <span class="ed-save-status" id="save-status"></span>
+  </div>
+
+  <input class="ed-title" id="title-input" placeholder="標題..." value="{{ note.title if note else '' }}">
+
+  {% if note_type in ('todo_note', 'todo_checklist') %}
+  <div class="ed-reminder-row">
+    <label style="margin:0;">⏰ 提醒日期：</label>
+    <input type="date" id="reminder-date" value="{{ note.reminder_date.isoformat() if note and note.reminder_date else '' }}">
+    <button type="button" class="btn btn-secondary" style="font-size:.82rem;padding:.25rem .6rem;" onclick="document.getElementById('reminder-date').value='';">清除</button>
+  </div>
+  {% endif %}
+
+  {% if note_type != 'todo_checklist' %}
+  <textarea class="ed-content" id="content-area" placeholder="{% if note_type == 'meeting' %}會議原文/紀錄...（之後可用 AI 產生摘要）{% else %}內容...{% endif %}">{{ note.content if note else '' }}</textarea>
+  {% endif %}
+
+  {# ═══ Checklist ═══ #}
+  {% if note_type == 'todo_checklist' %}
+  <div class="ed-section-title">項目</div>
+  <div id="cl-list"></div>
+  <button class="btn btn-primary" id="btn-add-item" onclick="addChecklistItem()" style="margin-top:.5rem;">+ 新增項目</button>
+  {% endif %}
+
+  {# ═══ 附件（非 checklist 筆記級別） ═══ #}
+  {% if note_type != 'todo_checklist' %}
+  <div class="ed-section-title">附件（圖片 / 影片）</div>
+  <div class="att-bar">
+    <label class="btn btn-secondary" for="att-input" style="cursor:pointer;">📎 選擇檔案</label>
+    <input type="file" id="att-input" accept="image/*,video/*" multiple style="display:none;" onchange="handleAttUpload(this)">
+    <span id="att-status" style="font-size:.82rem;color:#666;"></span>
+  </div>
+  <div class="att-list" id="att-list"></div>
+  {% endif %}
+
+  {# ═══ AI 摘要（僅會議） ═══ #}
+  {% if note_type == 'meeting' %}
+  <div class="ai-box">
+    <h4>🤖 AI 會議摘要</h4>
+    <p style="font-size:.82rem;color:#666;margin-bottom:.25rem;">產生後可下載截圖（PNG）分享給與會人</p>
+    <div class="ai-actions">
+      <button class="btn btn-primary" id="btn-ai" onclick="generateAISummary()">產生摘要</button>
+      <button class="btn btn-secondary" id="btn-share" onclick="downloadSummaryPng()" style="display:none;">⬇️ 下載截圖</button>
+      <span id="ai-status" style="font-size:.85rem;color:#666;margin-left:.5rem;"></span>
+    </div>
+    <div id="ai-output" class="ai-output {% if not note or not note.ai_summary %}empty{% endif %}">{% if note and note.ai_summary %}{{ note.ai_summary }}{% else %}（尚未產生）{% endif %}</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- fullscreen preview -->
+<div class="fs-overlay" id="fs-overlay" onclick="closeFs()">
+  <img id="fs-img" src="">
+  <button class="fs-close" onclick="event.stopPropagation();closeFs();" aria-label="關閉">✕</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+var NOTE_ID = parseInt(document.getElementById('note-id').value || '0') || 0;
+var NOTE_TYPE = document.getElementById('note-type').value;
+
+function setStatus(msg, color) {
+  var el = document.getElementById('save-status');
+  el.textContent = msg || '';
+  el.style.color = color || '#666';
+}
+
+function doSave() {
+  var title = document.getElementById('title-input').value.trim() || '未命名';
+  var body = { title: title };
+  if (NOTE_TYPE !== 'todo_checklist') {
+    body.content = document.getElementById('content-area').value;
+  }
+  if (NOTE_TYPE === 'todo_note' || NOTE_TYPE === 'todo_checklist') {
+    var rd = document.getElementById('reminder-date').value;
+    body.reminder_date = rd || null;
+  }
+  setStatus('儲存中…');
+  var url = NOTE_ID ? ('/mynotes/api/' + NOTE_ID) : '/mynotes/api';
+  var method = NOTE_ID ? 'PUT' : 'POST';
+  if (!NOTE_ID) body.note_type = NOTE_TYPE;
+  return fetch(url, {
+    method: method, headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){return r.json();}).then(function(d){
+    if (d.status === 'ok' || d.id) {
+      if (!NOTE_ID && d.id) {
+        NOTE_ID = d.id;
+        history.replaceState(null, '', '/mynotes/' + NOTE_ID);
+      }
+      setStatus('✓ 已儲存', '#27ae60');
+      setTimeout(function(){ setStatus(''); }, 1500);
+      return NOTE_ID;
+    }
+    setStatus('儲存失敗：' + (d.message || ''), '#e74c3c');
+    throw new Error(d.message || 'save failed');
+  }).catch(function(e){ setStatus('儲存失敗：' + e.message, '#e74c3c'); throw e; });
+}
+
+function doDelete() {
+  if (!NOTE_ID) return;
+  if (!confirm('確定刪除這筆筆記？（附件會一起清除）')) return;
+  fetch('/mynotes/api/' + NOTE_ID, { method: 'DELETE' })
+    .then(function(r){return r.json();}).then(function(d){
+      if (d.status === 'ok') { window.location.href = '/mynotes/'; }
+    });
+}
+
+function ensureNoteExists() {
+  if (NOTE_ID) return Promise.resolve(NOTE_ID);
+  return doSave();
+}
+
+/* ═══ Attachments (note-level) ═══ */
+function handleAttUpload(input) {
+  var files = Array.from(input.files || []);
+  if (files.length === 0) return;
+  ensureNoteExists().then(function(){
+    var statusEl = document.getElementById('att-status');
+    statusEl.textContent = '上傳中 0/' + files.length;
+    var done = 0;
+    files.reduce(function(p, f){
+      return p.then(function(){
+        var fd = new FormData();
+        fd.append('file', f);
+        fd.append('note_id', NOTE_ID);
+        return fetch('/mynotes/api/attachments/upload', { method: 'POST', body: fd })
+          .then(function(r){return r.json();}).then(function(d){
+            done++;
+            statusEl.textContent = '上傳中 ' + done + '/' + files.length;
+            if (d.status === 'ok') addAttachmentToList(d.attachment);
+          });
+      });
+    }, Promise.resolve()).then(function(){
+      statusEl.textContent = '上傳完成';
+      setTimeout(function(){ statusEl.textContent = ''; }, 1500);
+    });
+  });
+  input.value = '';
+}
+
+function addAttachmentToList(a) {
+  var list = document.getElementById('att-list');
+  if (!list) return;
+  var wrap = document.createElement('div');
+  wrap.className = 'att-item';
+  wrap.dataset.attId = a.id;
+  if (a.content_type && a.content_type.indexOf('image/') === 0) {
+    var img = document.createElement('img');
+    img.src = a.url;
+    img.onclick = function(){ openFs(a.url); };
+    wrap.appendChild(img);
+  } else {
+    var v = document.createElement('video');
+    v.src = a.url; v.controls = true;
+    wrap.appendChild(v);
+  }
+  var del = document.createElement('button');
+  del.className = 'att-del';
+  del.textContent = '×';
+  del.onclick = function() {
+    if (!confirm('刪除此附件？')) return;
+    fetch('/mynotes/api/attachments/' + a.id, { method: 'DELETE' })
+      .then(function(r){return r.json();}).then(function(d){
+        if (d.status === 'ok') wrap.remove();
+      });
+  };
+  wrap.appendChild(del);
+  list.appendChild(wrap);
+}
+
+function loadAttachments() {
+  if (!NOTE_ID) return;
+  fetch('/mynotes/api/' + NOTE_ID).then(function(r){return r.json();}).then(function(data){
+    (data.attachments || []).forEach(addAttachmentToList);
+  });
+}
+
+/* ═══ Checklist ═══ */
+function renderChecklist(items) {
+  var list = document.getElementById('cl-list');
+  if (!list) return;
+  list.innerHTML = '';
+  items.forEach(function(item) {
+    var row = document.createElement('div');
+    row.className = 'cl-item' + (item.is_checked ? ' checked' : '');
+    row.dataset.itemId = item.id;
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = item.is_checked;
+    cb.onchange = function(){ toggleItem(item.id, cb.checked); };
+    row.appendChild(cb);
+
+    var main = document.createElement('div');
+    main.style.flex = '1';
+    var txt = document.createElement('div');
+    txt.className = 'cl-text';
+    txt.textContent = item.text || '(無文字)';
+    txt.style.cursor = 'pointer';
+    txt.onclick = function(){ editItemText(item); };
+    main.appendChild(txt);
+
+    if (item.attachments && item.attachments.length > 0) {
+      var atts = document.createElement('div');
+      atts.className = 'cl-atts';
+      item.attachments.forEach(function(a){
+        if (a.content_type && a.content_type.indexOf('image/') === 0) {
+          var im = document.createElement('img');
+          im.src = a.url;
+          im.onclick = function(){ openFs(a.url); };
+          atts.appendChild(im);
+        } else {
+          var vv = document.createElement('video');
+          vv.src = a.url; vv.controls = true; vv.style.maxWidth = '120px';
+          atts.appendChild(vv);
+        }
+      });
+      main.appendChild(atts);
+    }
+    row.appendChild(main);
+
+    var ops = document.createElement('div');
+    ops.className = 'cl-ops';
+    var addAttBtn = document.createElement('button');
+    addAttBtn.innerHTML = '📎';
+    addAttBtn.title = '新增附件';
+    addAttBtn.onclick = function(){ pickItemAttachment(item.id); };
+    ops.appendChild(addAttBtn);
+    var delBtn = document.createElement('button');
+    delBtn.innerHTML = '🗑';
+    delBtn.title = '刪除項目';
+    delBtn.onclick = function(){
+      if (!confirm('刪除此項目？')) return;
+      fetch('/mynotes/api/items/' + item.id, { method: 'DELETE' })
+        .then(function(r){return r.json();}).then(function(d){
+          if (d.status === 'ok') refreshChecklist();
+        });
+    };
+    ops.appendChild(delBtn);
+    row.appendChild(ops);
+
+    list.appendChild(row);
+  });
+}
+
+function refreshChecklist() {
+  if (!NOTE_ID) { renderChecklist([]); return; }
+  fetch('/mynotes/api/' + NOTE_ID + '/items')
+    .then(function(r){return r.json();}).then(renderChecklist);
+}
+
+function addChecklistItem() {
+  var text = prompt('項目內容：');
+  if (text === null) return;
+  ensureNoteExists().then(function(){
+    fetch('/mynotes/api/' + NOTE_ID + '/items', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text: text.trim() })
+    }).then(function(r){return r.json();}).then(function(d){
+      if (d.status === 'ok') refreshChecklist();
+    });
+  });
+}
+
+function toggleItem(itemId, checked) {
+  fetch('/mynotes/api/items/' + itemId, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ is_checked: checked })
+  }).then(function(r){return r.json();}).then(function(d){
+    if (d.status === 'ok') refreshChecklist();
+  });
+}
+
+function editItemText(item) {
+  var t = prompt('編輯項目：', item.text || '');
+  if (t === null) return;
+  fetch('/mynotes/api/items/' + item.id, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ text: t.trim() })
+  }).then(function(r){return r.json();}).then(function(d){
+    if (d.status === 'ok') refreshChecklist();
+  });
+}
+
+function pickItemAttachment(itemId) {
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*,video/*';
+  inp.multiple = true;
+  inp.onchange = function(){
+    var files = Array.from(inp.files || []);
+    files.reduce(function(p, f){
+      return p.then(function(){
+        var fd = new FormData();
+        fd.append('file', f);
+        fd.append('note_id', NOTE_ID);
+        fd.append('item_id', itemId);
+        return fetch('/mynotes/api/attachments/upload', { method: 'POST', body: fd });
+      });
+    }, Promise.resolve()).then(refreshChecklist);
+  };
+  inp.click();
+}
+
+/* ═══ Fullscreen preview ═══ */
+function openFs(url) {
+  document.getElementById('fs-img').src = url;
+  document.getElementById('fs-overlay').classList.add('open');
+}
+function closeFs() {
+  document.getElementById('fs-overlay').classList.remove('open');
+  document.getElementById('fs-img').src = '';
+}
+
+/* ═══ AI Summary (meeting only) ═══ */
+function generateAISummary() {
+  if (NOTE_TYPE !== 'meeting') return;
+  ensureNoteExists().then(function(){
+    // 先存內文，確保後端抓到最新內容
+    return doSave();
+  }).then(function(){
+    var btn = document.getElementById('btn-ai');
+    var statusEl = document.getElementById('ai-status');
+    btn.disabled = true;
+    statusEl.textContent = 'AI 整理中… 約 10-30 秒';
+    fetch('/mynotes/api/' + NOTE_ID + '/summarize', { method: 'POST' })
+      .then(function(r){return r.json();}).then(function(d){
+        if (d.task_id) pollAITask(d.task_id);
+        else { statusEl.textContent = d.message || '啟動失敗'; btn.disabled = false; }
+      });
+  });
+}
+
+function pollAITask(taskId) {
+  var btn = document.getElementById('btn-ai');
+  var statusEl = document.getElementById('ai-status');
+  fetch('/mynotes/api/ai/task/' + taskId).then(function(r){return r.json();}).then(function(d){
+    if (d.status === 'done') {
+      var out = document.getElementById('ai-output');
+      out.textContent = d.result;
+      out.classList.remove('empty');
+      document.getElementById('btn-share').style.display = 'inline-block';
+      statusEl.textContent = '✓ 完成';
+      btn.disabled = false;
+      setTimeout(function(){ statusEl.textContent = ''; }, 2000);
+    } else if (d.status === 'error') {
+      statusEl.textContent = '錯誤：' + (d.message || '');
+      btn.disabled = false;
+    } else {
+      setTimeout(function(){ pollAITask(taskId); }, 2000);
+    }
+  });
+}
+
+function downloadSummaryPng() {
+  var target = document.getElementById('ai-output');
+  if (!target || target.classList.contains('empty')) { alert('尚未產生摘要'); return; }
+  var statusEl = document.getElementById('ai-status');
+  statusEl.textContent = '產生截圖中…';
+  html2canvas(target, { backgroundColor: '#ffffff', scale: 2 }).then(function(canvas){
+    var title = (document.getElementById('title-input').value.trim() || '會議摘要');
+    var dateStr = new Date().toISOString().slice(0,10);
+    var link = document.createElement('a');
+    link.download = title + '_' + dateStr + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    statusEl.textContent = '✓ 已下載';
+    setTimeout(function(){ statusEl.textContent = ''; }, 2000);
+  }).catch(function(e){
+    statusEl.textContent = '截圖失敗：' + e.message;
+  });
+}
+
+/* ═══ init ═══ */
+if (NOTE_ID) {
+  if (NOTE_TYPE === 'todo_checklist') refreshChecklist();
+  else loadAttachments();
+}
+
+// 如果 AI 摘要已存在，顯示分享按鈕
+(function(){
+  var out = document.getElementById('ai-output');
+  if (NOTE_TYPE === 'meeting' && out && !out.classList.contains('empty')) {
+    document.getElementById('btn-share').style.display = 'inline-block';
+  }
+})();
+</script>
+{% endblock %}

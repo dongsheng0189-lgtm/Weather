@@ -211,6 +211,7 @@ def create_app():
                     ))
                 except Exception:
                     pass
+                # 私人筆記三張表由 db.create_all() 自動建立（純新增，無需 ALTER）
                 # login_tokens.user_id → ON DELETE CASCADE（刪使用者連帶清 tokens）
                 try:
                     db.session.execute(db.text("""

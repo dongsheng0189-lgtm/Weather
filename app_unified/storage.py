@@ -56,8 +56,11 @@ ALLOWED_CONTENT_TYPES = {
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
-def upload_attachment(file_bytes: bytes, note_id: int, filename: str, content_type: str) -> str | None:
-    """Upload attachment to R2. Returns object_key or None if R2 not configured."""
+def upload_attachment(file_bytes: bytes, note_id: int, filename: str, content_type: str, prefix: str = "attachments") -> str | None:
+    """Upload attachment to R2. Returns object_key or None if R2 not configured.
+
+    prefix 可傳不同前綴以隔離不同模組（例：私人筆記傳 "private/{user_id}"）。
+    """
     if not BOTO3_AVAILABLE:
         return None
     cfg = current_app.config
@@ -65,7 +68,7 @@ def upload_attachment(file_bytes: bytes, note_id: int, filename: str, content_ty
         return None
 
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
-    object_key = f"attachments/{note_id}/{uuid.uuid4().hex}.{ext}"
+    object_key = f"{prefix}/{note_id}/{uuid.uuid4().hex}.{ext}"
 
     client = _get_client()
     client.put_object(
