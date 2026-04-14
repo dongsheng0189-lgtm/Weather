@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{% if note %}編輯筆記{% else %}新增筆記{% endif %} — NOTE{% endblock %}
 {% block extra_head %}
-<script src="{{ url_for('static', filename='js/edit_keepalive.js') }}"></script>
+<script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=3"></script>
 <style>
 .editor-wrap { display: grid; grid-template-rows: auto 1fr; gap: 1rem; }
 .editor-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
