@@ -6,6 +6,7 @@ window.IDLE_LIMIT_MS = {{ idle_limit_ms }};
 window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000 : 0;
 </script>
 <script src="{{ url_for('static', filename='js/mynotes_privacy.js') }}"></script>
+<script src="{{ url_for('static', filename='js/edit_keepalive.js') }}"></script>
 <style>
 .ed-wrap { max-width: 820px; margin: 1rem auto; padding: 0 .75rem; }
 .ed-toolbar { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; flex-wrap: wrap; }
@@ -200,10 +201,10 @@ function doSave() {
   var url = NOTE_ID ? ('/mynotes/api/' + NOTE_ID) : '/mynotes/api';
   var method = NOTE_ID ? 'PUT' : 'POST';
   if (!NOTE_ID) body.note_type = NOTE_TYPE;
-  _saveInFlight = fetch(url, {
+  _saveInFlight = EditKeepalive.fetchJson(url, {
     method: method, headers: {'Content-Type':'application/json'},
     body: JSON.stringify(body)
-  }).then(function(r){return r.json();}).then(function(d){
+  }).then(function(d){
     if (d.status === 'ok' || d.id) {
       if (!NOTE_ID && d.id) {
         NOTE_ID = d.id;
@@ -211,6 +212,7 @@ function doSave() {
       }
       setStatus('✓ 已儲存', '#27ae60');
       setTimeout(function(){ setStatus(NOTE_TYPE === 'todo_checklist' ? '' : '自動儲存'); }, 1500);
+      EditKeepalive.markSaved();
       return NOTE_ID;
     }
     setStatus('儲存失敗：' + (d.message || ''), '#e74c3c');
@@ -548,19 +550,19 @@ function saveItemFromDialog() {
   ensureNoteExists().then(function(){
     if (itemId) {
       // 編輯
-      return fetch('/mynotes/api/items/' + itemId, {
+      return EditKeepalive.fetchJson('/mynotes/api/items/' + itemId, {
         method: 'PATCH', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ text: text, reminder_date: reminder })
-      }).then(function(r){return r.json();}).then(function(d){
+      }).then(function(d){
         if (d.status !== 'ok') throw new Error(d.message || '儲存失敗');
         return parseInt(itemId);
       });
     }
     // 新增
-    return fetch('/mynotes/api/' + NOTE_ID + '/items', {
+    return EditKeepalive.fetchJson('/mynotes/api/' + NOTE_ID + '/items', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ text: text, reminder_date: reminder })
-    }).then(function(r){return r.json();}).then(function(d){
+    }).then(function(d){
       if (d.status !== 'ok') throw new Error(d.message || '建立失敗');
       return d.item.id;
     });
@@ -577,6 +579,7 @@ function saveItemFromDialog() {
       });
     }, Promise.resolve()).then(function(){ return savedItemId; });
   }).then(function(){
+    EditKeepalive.markSaved();
     closeItemDialog();
     refreshChecklist();
   }).catch(function(e){
@@ -669,10 +672,10 @@ function downloadSummaryPng() {
     if (current === '（尚未產生）') return;  // 尚未產生不存
     var statusEl = document.getElementById('ai-status');
     statusEl.textContent = '儲存中…';
-    fetch('/mynotes/api/' + NOTE_ID, {
+    EditKeepalive.fetchJson('/mynotes/api/' + NOTE_ID, {
       method: 'PUT', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ ai_summary: current })
-    }).then(function(r){return r.json();}).then(function(d){
+    }).then(function(d){
       if (d.status === 'ok') {
         lastSaved = current;
         statusEl.textContent = '✓ 已儲存';
@@ -706,6 +709,60 @@ if (NOTE_ID) {
   if (NOTE_TYPE === 'todo_checklist') refreshChecklist();
   else loadAttachments();
 }
+
+/* ═══ keepalive + draft fallback ═══ */
+EditKeepalive.init({
+  storageKey: function(){ return 'mn_draft:' + location.pathname + ':' + (location.search || ''); },
+  serialize: function(){
+    var out = {};
+    var t = document.getElementById('title-input');
+    if (t) out.title = t.value;
+    var c = document.getElementById('content-area');
+    if (c) out.content = c.value;
+    var rd = document.getElementById('reminder-date');
+    if (rd) out.reminder_date = rd.value;
+    // AI 摘要手動編輯內容
+    var ai = document.getElementById('ai-output');
+    if (ai && !ai.classList.contains('empty')) out.ai_summary = ai.textContent;
+    // 若 item dialog 開著，暫存它的內容（附件 File 物件無法序列化，略）
+    var modal = document.getElementById('item-modal');
+    if (modal && modal.style.display === 'flex') {
+      out.item_dialog = {
+        id: document.getElementById('item-modal-id').value || '',
+        text: document.getElementById('item-modal-text').value,
+        reminder: document.getElementById('item-modal-reminder').value,
+      };
+    }
+    // 全空就不存
+    var hasAny = (out.title && out.title.trim()) || (out.content && out.content.trim())
+                 || out.reminder_date || out.ai_summary || out.item_dialog;
+    return hasAny ? out : null;
+  },
+  restore: function(data){
+    if (!data) return;
+    var t = document.getElementById('title-input');
+    if (t && data.title != null) t.value = data.title;
+    var c = document.getElementById('content-area');
+    if (c && data.content != null) c.value = data.content;
+    var rd = document.getElementById('reminder-date');
+    if (rd && data.reminder_date != null) rd.value = data.reminder_date;
+    var ai = document.getElementById('ai-output');
+    if (ai && data.ai_summary) {
+      ai.textContent = data.ai_summary;
+      ai.classList.remove('empty');
+    }
+    if (data.item_dialog && typeof openItemDialog === 'function') {
+      // 重新打開對話框並填回內容
+      var d = data.item_dialog;
+      openItemDialog(d.id ? { id: parseInt(d.id), text: d.text, reminder_date: d.reminder, attachments: [] } : null);
+      // openItemDialog 會覆蓋欄位；對新增情境手動回填
+      if (!d.id) {
+        document.getElementById('item-modal-text').value = d.text || '';
+        document.getElementById('item-modal-reminder').value = d.reminder || '';
+      }
+    }
+  },
+});
 
 // 如果 AI 摘要已存在，顯示分享按鈕
 (function(){

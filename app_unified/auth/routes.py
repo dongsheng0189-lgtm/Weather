@@ -163,6 +163,15 @@ def logout():
     return redirect(url_for("weather.index"))
 
 
+@auth_bp.route("/ping", methods=["GET"])
+def ping():
+    # 編輯頁面 keepalive 用。永遠回 JSON，不走 Flask-Login 的 302 redirect。
+    # _enforce_session_idle 已在 before_request 跑過；若 session 還活著會自動刷新 _last_request_at。
+    if not current_user.is_authenticated:
+        return jsonify({"status": "unauthorized"}), 401
+    return jsonify({"status": "ok"})
+
+
 # Opaque redirect endpoint — hides destination from JS/DevTools
 @auth_bp.route("/s/r")
 @login_required
