@@ -57,6 +57,11 @@ def is_device_authorized(fp, uid=None):
         device = TrustedDevice.query.filter_by(fingerprint=fp).first()
     if not device or not device.is_approved or device.is_revoked:
         return False
+    # 設備綁定的使用者若被停用 → 這台手機連 6 下都不該觸發
+    # （共用公務機的情境：公務機綁的是在職「代表人」，停用某共用者不受影響；
+    #  只有當代表人本身被停用時才鎖住這台手機）
+    if device.user_id and device.user and not device.user.is_active:
+        return False
     return True
 
 
