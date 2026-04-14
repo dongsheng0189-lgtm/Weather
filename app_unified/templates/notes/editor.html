@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{% if note %}編輯筆記{% else %}新增筆記{% endif %} — NOTE{% endblock %}
 {% block extra_head %}
-<script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=4"></script>
 <style>
 .editor-wrap { display: grid; grid-template-rows: auto 1fr; gap: 1rem; }
 .editor-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
@@ -321,16 +321,15 @@ function doSave() {
   var method = NOTE_ID ? 'PUT' : 'POST';
   var body = { title: title, content: content, store: store, status: currentStatus, priority: currentPriority };
   if (!NOTE_ID) body.note_type = EDITOR_TYPE;
-  EditKeepalive.fetchJson(url, {
+  fetch(url, {
     method: method,
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
-  }).then(function(data) {
+  }).then(function(res) { return res.json(); }).then(function(data) {
     if (data.status === 'ok' || data.id) {
       if (!NOTE_ID && data.id) {
         NOTE_ID = data.id;
       }
-      EditKeepalive.markSaved();
       // 如果有暫存的檔案，先全部上傳完才跳轉
       if (pendingFiles.length > 0) {
         statusEl.textContent = '上傳附件中…';
@@ -996,11 +995,11 @@ function saveItemFromDialog() {
       url = '/notes/api/' + NOTE_ID + '/items';
       method = 'POST';
     }
-    return EditKeepalive.fetchJson(url, {
+    return fetch(url, {
       method: method,
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ text: text })
-    }).then(function(d) {
+    }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.status !== 'ok') throw new Error(d.message || '儲存失敗');
       return d.item.id;
     });
@@ -1018,7 +1017,6 @@ function saveItemFromDialog() {
     });
     return Promise.all(uploads).then(function() { return savedItemId; });
   }).then(function() {
-    EditKeepalive.markSaved();
     closeItemDialog();
     loadChecklistItems();
   }).catch(function(err) {
@@ -1029,50 +1027,8 @@ function saveItemFromDialog() {
 
 if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();
 
-/* ═══ keepalive + draft fallback ═══ */
-if (!IS_READONLY) {
-  EditKeepalive.init({
-    storageKey: function(){ return 'notes_draft_v2:' + location.pathname + ':' + (location.search || ''); },
-    serialize: function(){
-      var out = {};
-      var t = document.getElementById('title-input');
-      if (t) out.title = t.value;
-      var c = document.getElementById('content-area');
-      if (c) out.content = c.value;
-      out.store = currentStore;
-      out.status = currentStatus;
-      out.priority = currentPriority;
-      // 若 item dialog 開著，暫存文字
-      var modal = document.getElementById('item-modal');
-      if (modal && modal.style.display === 'flex') {
-        out.item_dialog = {
-          id: document.getElementById('item-modal-id').value || '',
-          text: document.getElementById('item-modal-text').value,
-        };
-      }
-      var hasAny = (out.title && out.title.trim()) || (out.content && out.content.trim()) || out.item_dialog;
-      return hasAny ? out : null;
-    },
-    restore: function(data){
-      if (!data) return;
-      var t = document.getElementById('title-input');
-      if (t && data.title != null) t.value = data.title;
-      var c = document.getElementById('content-area');
-      if (c && data.content != null) c.value = data.content;
-      if (data.item_dialog && typeof openAddItemDialog === 'function') {
-        // 重新打開對話框並填回文字
-        if (data.item_dialog.id && typeof openEditItemDialog === 'function') {
-          // 編輯模式需要 item 物件，這裡只能重新 fetch 或略過
-          openAddItemDialog();
-        } else {
-          openAddItemDialog();
-        }
-        var txt = document.getElementById('item-modal-text');
-        if (txt) txt.value = data.item_dialog.text || '';
-      }
-    },
-  });
-}
+/* ═══ keepalive（只保活 session，不存 draft）═══ */
+if (!IS_READONLY) EditKeepalive.init();
 
 </script>
 {% endblock %}
