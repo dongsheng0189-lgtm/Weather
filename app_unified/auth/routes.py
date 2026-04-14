@@ -165,7 +165,15 @@ def logout():
 def silent_redirect():
     from features import user_visible_features
     from flask_login import current_user
+    logger.warning(
+        "silent_redirect: authed=%s user=%s session_user_id=%s last_req=%s",
+        current_user.is_authenticated,
+        getattr(current_user, "username", None),
+        session.get("_user_id"),
+        session.get("_last_request_at"),
+    )
     feats = user_visible_features(current_user)
+    logger.warning("silent_redirect: feats=%s", [f["key"] for f in feats])
     if len(feats) == 0:
         # 沒有任何模組權限 → 依舊導向天氣頁（退場）
         return redirect(url_for("weather.index"))

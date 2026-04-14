@@ -98,8 +98,8 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
   {# ═══ Checklist ═══ #}
   {% if note_type == 'todo_checklist' %}
   <div class="ed-section-title">項目</div>
+  <button class="btn btn-primary" id="btn-add-item" onclick="openItemDialog()" style="margin-bottom:.5rem;">+ 新增項目</button>
   <div id="cl-list"></div>
-  <button class="btn btn-primary" id="btn-add-item" onclick="openItemDialog()" style="margin-top:.5rem;">+ 新增項目</button>
   {% endif %}
 
   {# ═══ 附件（非 checklist 筆記級別） ═══ #}
