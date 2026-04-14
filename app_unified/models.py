@@ -3,6 +3,7 @@ from datetime import datetime
 import numpy as np
 from flask_login import UserMixin
 from extensions import db
+from crypto import EncryptedText
 
 STATUS_CHOICES = ["pending", "in_progress", "resolved"]
 PRIORITY_CHOICES = ["high", "medium", "low"]
@@ -85,12 +86,12 @@ class Note(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    author_name = db.Column(db.Text, nullable=True)  # 建立當下的作者帳號（刪除使用者後保留）
+    author_name = db.Column(EncryptedText, nullable=True)  # 建立當下的作者帳號（刪除使用者後保留）
     note_type = db.Column(db.Text, nullable=False, default="note")  # 'note' | 'checklist'
-    title = db.Column(db.Text, nullable=False, default="")
-    content = db.Column(db.Text, nullable=False, default="")
-    ai_summary = db.Column(db.Text)
-    ai_outline = db.Column(db.Text)
+    title = db.Column(EncryptedText, nullable=False, default="")
+    content = db.Column(EncryptedText, nullable=False, default="")
+    ai_summary = db.Column(EncryptedText)
+    ai_outline = db.Column(EncryptedText)
     store = db.Column(db.Text, nullable=True)
     status = db.Column(db.Text, nullable=False, default="pending")
     priority = db.Column(db.Text, nullable=False, default="medium")
@@ -121,10 +122,10 @@ class NoteLog(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     note_id = db.Column(db.Integer, db.ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
-    note_title = db.Column(db.Text, nullable=False)
+    note_title = db.Column(EncryptedText, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action = db.Column(db.Text, nullable=False)   # 'edit' | 'delete'
-    diff = db.Column(db.Text, nullable=True)
+    diff = db.Column(EncryptedText, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     operator = db.relationship("User", foreign_keys=[user_id])
@@ -155,11 +156,11 @@ class ChecklistItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     note_id = db.Column(db.Integer, db.ForeignKey("notes.id", ondelete="CASCADE"), nullable=False)
     order_index = db.Column(db.Integer, nullable=False, default=0)
-    text = db.Column(db.Text, nullable=False, default="")
+    text = db.Column(EncryptedText, nullable=False, default="")
     is_checked = db.Column(db.Boolean, nullable=False, default=False)
     checked_at = db.Column(db.DateTime, nullable=True)
     checked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    checked_by_name = db.Column(db.Text, nullable=True)  # 快照
+    checked_by_name = db.Column(EncryptedText, nullable=True)  # 快照
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)  # 排序用：新增/編輯/附件變更時 bump
 
@@ -235,9 +236,9 @@ class PrivateNote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     note_type = db.Column(db.Text, nullable=False, default="todo_note")  # meeting | todo_note | todo_checklist
-    title = db.Column(db.Text, nullable=False, default="")
-    content = db.Column(db.Text, nullable=False, default="")
-    ai_summary = db.Column(db.Text, nullable=True)           # 僅 meeting 使用
+    title = db.Column(EncryptedText, nullable=False, default="")
+    content = db.Column(EncryptedText, nullable=False, default="")
+    ai_summary = db.Column(EncryptedText, nullable=True)     # 僅 meeting 使用
     reminder_date = db.Column(db.Date, nullable=True)        # 僅 todo_* 使用
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -251,15 +252,16 @@ class PrivateChecklistItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     note_id = db.Column(db.Integer, db.ForeignKey("private_notes.id", ondelete="CASCADE"), nullable=False, index=True)
     order_index = db.Column(db.Integer, nullable=False, default=0)
-    text = db.Column(db.Text, nullable=False, default="")
+    text = db.Column(EncryptedText, nullable=False, default="")
     is_checked = db.Column(db.Boolean, nullable=False, default=False)
     checked_at = db.Column(db.DateTime, nullable=True)
     reminder_date = db.Column(db.Date, nullable=True)   # 每個項目獨立提醒日期
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)  # 排序用：新增/編輯/附件/勾選時 bump
 
     note = db.relationship("PrivateNote", backref=db.backref(
         "items", lazy=True, cascade="all, delete-orphan",
-        order_by="PrivateChecklistItem.order_index"))
+        order_by="PrivateChecklistItem.updated_at.desc()"))
 
 
 class PrivateAttachment(db.Model):

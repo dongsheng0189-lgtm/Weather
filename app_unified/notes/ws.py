@@ -55,9 +55,9 @@ def register_ws_events(socketio):
 
         # 互斥篩選：關鍵字 > 優先權 > 狀態 > 日期範圍
         from models import PRIORITY_CHOICES
+        keyword_mode = False
         if keyword:
-            like = f"%{keyword}%"
-            query = query.filter(db.or_(Note.title.ilike(like), Note.content.ilike(like)))
+            keyword_mode = True  # title/content 加密 → Python 端 filter
         elif priority_filter and priority_filter in PRIORITY_CHOICES:
             query = query.filter_by(priority=priority_filter)
         elif 'status' in data and data.get('status') is not None:
@@ -76,6 +76,9 @@ def register_ws_events(socketio):
                 query = query.filter(Note.updated_at >= since)
 
         notes = query.order_by(Note.updated_at.desc()).all()
+        if keyword_mode:
+            kl = keyword.lower()
+            notes = [n for n in notes if kl in (n.title or "").lower() or kl in (n.content or "").lower()]
         emit('r', {'op': 'ln', 'notes': [{
             'id': n.id, 'title': n.title, 'content': n.content,
             'note_type': n.note_type or 'note',

@@ -26,6 +26,32 @@ _TW = timezone(timedelta(hours=8))
 LOCK_TIMEOUT_MIN = 5
 
 
+class _PyPagination:
+    """給 keyword 搜尋用的簡易分頁 shim（加密後無法 SQL ilike）。"""
+    def __init__(self, items, page, per_page):
+        self.total = len(items)
+        self.page = max(1, page)
+        self.per_page = per_page
+        self.pages = max(1, (self.total + per_page - 1) // per_page)
+        start = (self.page - 1) * per_page
+        self.items = items[start:start + per_page]
+        self.has_prev = self.page > 1
+        self.has_next = self.page < self.pages
+        self.prev_num = self.page - 1 if self.has_prev else None
+        self.next_num = self.page + 1 if self.has_next else None
+
+    def iter_pages(self, left_edge=2, left_current=2, right_current=3, right_edge=2):
+        last = 0
+        for num in range(1, self.pages + 1):
+            if (num <= left_edge or
+                (self.page - left_current - 1 < num < self.page + right_current) or
+                num > self.pages - right_edge):
+                if last + 1 != num:
+                    yield None
+                yield num
+                last = num
+
+
 def _lock_status(note):
     """回傳 (is_locked_by_other, locker_user_or_None)"""
     if not note.locked_by or not note.locked_at:
@@ -110,10 +136,10 @@ def index():
 
     # 互斥篩選：關鍵字 > 優先權 > 狀態 > 日期範圍
     active_filter = None
+    keyword_mode = False
     if keyword:
         active_filter = 'keyword'
-        like = f"%{keyword}%"
-        query = query.filter(db.or_(Note.title.ilike(like), Note.content.ilike(like)))
+        keyword_mode = True   # title/content 已加密，無法 SQL ilike → Python 端 filter
     elif priority_filter and priority_filter in PRIORITY_CHOICES:
         active_filter = 'priority'
         query = query.filter_by(priority=priority_filter)
@@ -128,7 +154,13 @@ def index():
             range_param = 'today'
         query = _date_filter(query, range_param)
 
-    pagination = query.order_by(Note.updated_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    if keyword_mode:
+        all_rows = query.order_by(Note.updated_at.desc()).all()
+        kl = keyword.lower()
+        filtered = [n for n in all_rows if kl in (n.title or "").lower() or kl in (n.content or "").lower()]
+        pagination = _PyPagination(filtered, page=page, per_page=per_page)
+    else:
+        pagination = query.order_by(Note.updated_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
 
     return render_template("notes/index.html", notes=pagination.items, pagination=pagination,
                            stores=stores,
@@ -176,9 +208,9 @@ def list_notes():
     else:
         query = query.filter_by(store=current_user.store)
 
+    keyword_mode = False
     if keyword:
-        like = f"%{keyword}%"
-        query = query.filter(db.or_(Note.title.ilike(like), Note.content.ilike(like)))
+        keyword_mode = True   # title/content 加密 → Python 端 filter
     elif priority_filter and priority_filter in PRIORITY_CHOICES:
         query = query.filter_by(priority=priority_filter)
     elif 'status' in request.args:
@@ -191,6 +223,9 @@ def list_notes():
         query = _date_filter(query, range_param)
 
     notes = query.order_by(Note.updated_at.desc()).all()
+    if keyword_mode:
+        kl = keyword.lower()
+        notes = [n for n in notes if kl in (n.title or "").lower() or kl in (n.content or "").lower()]
 
     return jsonify([{
         "id": n.id, "title": n.title, "content": n.content,

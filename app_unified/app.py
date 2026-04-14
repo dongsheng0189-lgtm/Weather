@@ -243,6 +243,25 @@ def create_app():
                     ))
                 except Exception:
                     pass
+                # 私人筆記 private_checklist_items.updated_at：依時間排序（新→舊）
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE private_checklist_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "UPDATE private_checklist_items SET updated_at = created_at WHERE updated_at IS NULL"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE private_checklist_items ALTER COLUMN updated_at SET NOT NULL"
+                    ))
+                except Exception:
+                    pass
                 # login_tokens.user_id → ON DELETE CASCADE（刪使用者連帶清 tokens）
                 try:
                     db.session.execute(db.text("""

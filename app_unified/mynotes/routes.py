@@ -126,10 +126,10 @@ def view_note(note_id):
 def list_notes():
     q = (request.args.get("q") or "").strip()
     query = PrivateNote.query.filter_by(user_id=current_user.id)
-    if q:
-        like = f"%{q}%"
-        query = query.filter(db.or_(PrivateNote.title.ilike(like), PrivateNote.content.ilike(like)))
     notes = query.order_by(PrivateNote.updated_at.desc()).limit(300).all()
+    if q:
+        ql = q.lower()
+        notes = [n for n in notes if ql in (n.title or "").lower() or ql in (n.content or "").lower()]
     return jsonify([_note_json(n) for n in notes])
 
 
@@ -215,7 +215,7 @@ def create_note():
 def get_note(note_id):
     n = _get_my_note(note_id)
     data = _note_json(n)
-    data["items"] = [_item_json(i) for i in sorted(n.items, key=lambda x: x.order_index)] if n.note_type == "todo_checklist" else []
+    data["items"] = [_item_json(i) for i in sorted(n.items, key=lambda x: (x.updated_at or x.created_at, x.id), reverse=True)] if n.note_type == "todo_checklist" else []
     data["attachments"] = [_attachment_json(a) for a in n.attachments if a.item_id is None]
     return jsonify(data)
 
@@ -270,7 +270,7 @@ def _parse_date(val):
 @login_required
 def list_items(note_id):
     n = _get_my_note(note_id)
-    items = sorted(n.items, key=lambda i: i.order_index)
+    items = sorted(n.items, key=lambda i: (i.updated_at or i.created_at, i.id), reverse=True)
     return jsonify([_item_json(i) for i in items])
 
 
@@ -283,14 +283,16 @@ def create_item(note_id):
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     max_order = max([i.order_index for i in n.items], default=-1)
+    now = datetime.utcnow()
     item = PrivateChecklistItem(
         note_id=n.id,
         order_index=max_order + 1,
         text=text,
         reminder_date=_parse_date(data.get("reminder_date")),
+        updated_at=now,
     )
     db.session.add(item)
-    n.updated_at = datetime.utcnow()
+    n.updated_at = now
     db.session.commit()
     return jsonify({"status": "ok", "item": _item_json(item)}), 201
 
@@ -303,19 +305,31 @@ def update_item(item_id):
         abort(404)
     n = _get_my_note(item.note_id)  # 附帶 ownership 檢查
     data = request.get_json(silent=True) or {}
+    changed = False
     if "text" in data:
-        item.text = (data.get("text") or "").strip()
+        new_text = (data.get("text") or "").strip()
+        if new_text != item.text:
+            item.text = new_text
+            changed = True
     if "is_checked" in data:
         is_checked = bool(data.get("is_checked"))
         if is_checked and not item.is_checked:
             item.is_checked = True
             item.checked_at = datetime.utcnow()
+            changed = True
         elif not is_checked and item.is_checked:
             item.is_checked = False
             item.checked_at = None
+            changed = True
     if "reminder_date" in data:
-        item.reminder_date = _parse_date(data.get("reminder_date"))
-    n.updated_at = datetime.utcnow()
+        new_rem = _parse_date(data.get("reminder_date"))
+        if new_rem != item.reminder_date:
+            item.reminder_date = new_rem
+            changed = True
+    now = datetime.utcnow()
+    if changed:
+        item.updated_at = now
+    n.updated_at = now
     db.session.commit()
     return jsonify({"status": "ok", "item": _item_json(item)})
 
@@ -375,7 +389,12 @@ def upload_attachment_api():
         file_size=len(data),
     )
     db.session.add(att)
-    n.updated_at = datetime.utcnow()
+    now = datetime.utcnow()
+    n.updated_at = now
+    if item_id:
+        item_obj = PrivateChecklistItem.query.get(item_id)
+        if item_obj:
+            item_obj.updated_at = now
     db.session.commit()
     return jsonify({"status": "ok", "attachment": _attachment_json(att)}), 201
 
@@ -392,8 +411,14 @@ def delete_attachment_api(attachment_id):
         delete_attachment(att.object_key)
     except Exception:
         pass
+    item_id = att.item_id
     db.session.delete(att)
-    n.updated_at = datetime.utcnow()
+    now = datetime.utcnow()
+    n.updated_at = now
+    if item_id:
+        item_obj = PrivateChecklistItem.query.get(item_id)
+        if item_obj:
+            item_obj.updated_at = now
     db.session.commit()
     return jsonify({"status": "ok"})
 

@@ -437,7 +437,10 @@ function toggleItem(itemId, checked) {
     method: 'PATCH', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ is_checked: checked })
   }).then(function(r){return r.json();}).then(function(d){
-    if (d.status === 'ok') refreshChecklist();
+    if (d.status !== 'ok') return;
+    // 就地更新：勾選當下不重排（避免跳動），下次重進頁面才排到最上面
+    var row = document.querySelector('.cl-item[data-item-id="' + itemId + '"]');
+    if (row) row.classList.toggle('checked', !!checked);
   });
 }
 
