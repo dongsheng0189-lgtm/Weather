@@ -712,7 +712,7 @@ if (NOTE_ID) {
 
 /* ═══ keepalive + draft fallback ═══ */
 EditKeepalive.init({
-  storageKey: function(){ return 'mn_draft:' + location.pathname + ':' + (location.search || ''); },
+  storageKey: function(){ return 'mn_draft_v2:' + location.pathname + ':' + (location.search || ''); },
   serialize: function(){
     var out = {};
     var t = document.getElementById('title-input');

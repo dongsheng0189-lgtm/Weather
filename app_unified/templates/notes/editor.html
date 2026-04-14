@@ -1032,7 +1032,7 @@ if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();
 /* ═══ keepalive + draft fallback ═══ */
 if (!IS_READONLY) {
   EditKeepalive.init({
-    storageKey: function(){ return 'notes_draft:' + location.pathname + ':' + (location.search || ''); },
+    storageKey: function(){ return 'notes_draft_v2:' + location.pathname + ':' + (location.search || ''); },
     serialize: function(){
       var out = {};
       var t = document.getElementById('title-input');

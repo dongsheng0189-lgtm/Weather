@@ -31,6 +31,7 @@
   var _hbTimer = null;
   var _draftTimer = null;
   var _authLost = false;
+  var _dirty = false; // 使用者真的改過內容才設 true
 
   function _now() { return Date.now(); }
 
@@ -43,6 +44,7 @@
 
   function _writeDraft() {
     if (!_opts || _authLost) return;
+    if (!_dirty) return; // 沒改過就不寫
     var key = _getStorageKey();
     if (!key) return;
     try {
@@ -183,10 +185,15 @@
       return;
     }
 
-    // 活動偵測：任何使用者輸入都算
-    ['input', 'change', 'touchstart', 'pointerdown', 'keydown'].forEach(function (ev) {
+    // 活動偵測：任何互動都算（給 heartbeat 用）。不代表有內容變動。
+    ['touchstart', 'pointerdown', 'keydown', 'scroll'].forEach(function (ev) {
+      document.addEventListener(ev, _markActivity, { passive: true, capture: true });
+    });
+    // 只有「真的有內容變動」才排程 draft 寫入
+    ['input', 'change'].forEach(function (ev) {
       document.addEventListener(ev, function () {
         _markActivity();
+        _dirty = true;
         _scheduleDraft();
       }, { passive: true, capture: true });
     });
@@ -214,6 +221,7 @@
 
   function markSaved() {
     clearTimeout(_draftTimer);
+    _dirty = false;
     _clearDraft();
   }
 
