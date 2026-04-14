@@ -333,12 +333,6 @@ def create_app():
         now = int(time.time())
         last = session.get("_last_request_at")
         if last is not None and now - last > max_idle:
-            import logging as _log
-            _log.getLogger(__name__).warning(
-                "_enforce_session_idle: FORCED LOGOUT path=%s idle=%ss max=%ss user=%s",
-                p, now - last, max_idle,
-                getattr(current_user, "username", None),
-            )
             logout_user()
             session.clear()
             return  # 後續 @login_required 會自動 redirect 到 weather

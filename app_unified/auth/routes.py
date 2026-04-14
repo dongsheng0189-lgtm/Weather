@@ -133,6 +133,10 @@ def verify():
                 return jsonify({"status": "store_disabled"})
         login_user(matched)
         session.permanent = True
+        # 重置 idle 計時器：避免 session 裡殘留的舊 _last_request_at
+        # 讓 _enforce_session_idle 在下個 request 直接判定 idle 超時而登出
+        import time as _time
+        session["_last_request_at"] = int(_time.time())
         logger.warning("verify: PIN matched, face matched user=%s", matched.username)
         return jsonify({"status": "ok"})
 
@@ -165,15 +169,7 @@ def logout():
 def silent_redirect():
     from features import user_visible_features
     from flask_login import current_user
-    logger.warning(
-        "silent_redirect: authed=%s user=%s session_user_id=%s last_req=%s",
-        current_user.is_authenticated,
-        getattr(current_user, "username", None),
-        session.get("_user_id"),
-        session.get("_last_request_at"),
-    )
     feats = user_visible_features(current_user)
-    logger.warning("silent_redirect: feats=%s", [f["key"] for f in feats])
     if len(feats) == 0:
         # 沒有任何模組權限 → 依舊導向天氣頁（退場）
         return redirect(url_for("weather.index"))
