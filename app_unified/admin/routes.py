@@ -292,9 +292,7 @@ def rename_user(user_id):
     require_admin()
     user = User.query.get_or_404(user_id)
 
-    if user.id == current_user.id:
-        return jsonify({"status": "error", "message": "不可修改自己的帳號名稱"}), 403
-
+    # admin/super_admin 可以改自己；admin 跨店不可
     if not current_user.is_super_admin():
         if user.store != current_user.store:
             return jsonify({"status": "error", "message": "無權修改他店使用者"}), 403

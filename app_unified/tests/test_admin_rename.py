@@ -111,14 +111,16 @@ def test_rename_empty_returns_400(app, client, db_session):
     assert r.status_code == 400
 
 
-def test_cannot_rename_self(app, client, db_session):
+def test_admin_can_rename_self(app, client, db_session):
     admin = _mk_user(db_session, username=f"admin_{uuid.uuid4().hex[:6]}", role="admin", store="B")
     admin.set_password("0000")
     db_session.commit()
     _login(client, admin, pin="0000")
 
     r = client.post(f"/admin/users/{admin.id}/rename", json={"new_username": "admin_renamed"})
-    assert r.status_code == 403
+    assert r.status_code == 200
+    db_session.expire_all()
+    assert User.query.get(admin.id).username == "admin_renamed"
 
 
 def test_rename_noop_same_name(app, client, db_session):
