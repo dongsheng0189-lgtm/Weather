@@ -47,6 +47,13 @@ def app():
     """
     os.environ.setdefault('SECRET_KEY', 'test-secret')
     os.environ.setdefault('DATABASE_URL', 'sqlite:///:memory:')
+    # DB_ENCRYPTION_KEY must be set before models are imported; use a fixed test key
+    # so encrypted columns (Note.title, Note.content, etc.) can be written in tests.
+    import base64
+    os.environ.setdefault(
+        'DB_ENCRYPTION_KEY',
+        base64.urlsafe_b64encode(b'test-key-32-bytes-for-unit-tests').decode(),
+    )
 
     from app import create_app
     application = create_app()
