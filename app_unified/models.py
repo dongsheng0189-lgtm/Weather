@@ -100,6 +100,7 @@ class Note(db.Model):
     locked_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime, nullable=True)
 
     locker = db.relationship("User", foreign_keys=[locked_by])
 
