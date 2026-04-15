@@ -80,43 +80,7 @@ def register():
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    """Username + PIN + optional face login (App1 style)."""
-    if request.method == "GET":
-        return redirect(url_for("weather.index"))
-
-    data = request.get_json(silent=True) or request.form
-    username = (data.get("username") or "").strip()
-    pin = str(data.get("pin") or "").strip()
-    face_image = data.get("face_image")
-
-    if not username or not pin:
-        return jsonify({"status": "error", "message": "請填寫帳號和 PIN"}), 400
-
-    user = User.query.filter_by(username=username, is_active=True).first()
-    if not user or not user.check_password(pin):
-        return jsonify({"status": "wrong_password"})
-
-    # If user has no face encoding, log in directly (admin/PIN-only flow)
-    if user.face_encoding is None:
-        login_user(user)
-        session.permanent = True
-        import time as _time
-        session["_last_request_at"] = int(_time.time())
-        return jsonify({"status": "need_face_enroll"})
-
-    # User has face encoding — require face image
-    if not face_image:
-        return jsonify({"status": "face_required"})
-
-    match, _ = _verify_face(user, face_image)
-    if match:
-        login_user(user)
-        session.permanent = True
-        import time as _time
-        session["_last_request_at"] = int(_time.time())
-        return jsonify({"status": "ok"})
-
-    return jsonify({"status": "face_mismatch"})
+    return redirect(url_for("weather.index"))
 
 
 @auth_bp.route("/verify", methods=["POST"])

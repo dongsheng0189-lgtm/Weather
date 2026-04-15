@@ -5,7 +5,7 @@ TW_TZ = timezone(timedelta(hours=8))
 from flask import Blueprint, render_template, jsonify, request, abort, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from models import User, Note, Store, NoteLog, UserLog, TrustedDevice, STATUS_CHOICES
+from models import User, Note, Store, NoteLog, UserLog, STATUS_CHOICES
 
 
 def _log_user_action(action, target_user, detail=None):
@@ -281,47 +281,6 @@ def set_store(user_id):
     return jsonify({"status": "ok", "store": user.store})
 
 
-@admin_bp.route("/users/<int:user_id>/rename", methods=["POST"])
-@login_required
-def rename_user(user_id):
-    require_admin()
-    user = User.query.get_or_404(user_id)
-
-    if user.id == current_user.id:
-        return jsonify({"status": "error", "message": "不可修改自己的帳號名稱"}), 403
-
-    if not current_user.is_super_admin():
-        if user.store != current_user.store:
-            return jsonify({"status": "error", "message": "無權修改他店使用者"}), 403
-
-    data = request.get_json(silent=True) or {}
-    new_name = (data.get("new_username") or "").strip()
-    if not new_name:
-        return jsonify({"status": "error", "message": "名稱不可為空"}), 400
-
-    old_name = user.username
-    if new_name == old_name:
-        return jsonify({"status": "ok", "new_username": new_name})
-
-    dup = User.query.filter(User.username == new_name, User.id != user.id).first()
-    if dup is not None:
-        return jsonify({"status": "error", "message": "名稱已被使用"}), 409
-
-    try:
-        user.username = new_name
-        TrustedDevice.query.filter_by(user_id=user.id).update(
-            {"device_name": new_name}, synchronize_session=False
-        )
-        _log_user_action("rename", user, detail=f"{old_name} → {new_name}")
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        current_app.logger.exception("rename_user failed")
-        return jsonify({"status": "error", "message": "內部錯誤"}), 500
-
-    return jsonify({"status": "ok", "new_username": new_name})
-
-
 # ── 使用者操作 Log ────────────────────────────────────────
 
 @admin_bp.route("/user-logs", methods=["GET"])
@@ -338,7 +297,6 @@ def list_user_logs():
         "set_store": "改店別",
         "approve_device": "核准裝置",
         "set_features": "改模組權限",
-        "rename": "改名",
     }
     return jsonify([{
         "id": log.id,
