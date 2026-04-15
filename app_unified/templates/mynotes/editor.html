@@ -30,7 +30,7 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
 .att-item { position: relative; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; background: #fafafa; }
 .att-item img { display: block; max-width: 160px; max-height: 120px; object-fit: cover; cursor: pointer; }
 .att-item video { display: block; max-width: 220px; max-height: 160px; }
-.att-item .att-del { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 12px; cursor: pointer; }
+.att-item .att-del { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 0.75rem; cursor: pointer; }
 
 /* checklist items */
 .cl-item { display: flex; gap: .5rem; align-items: flex-start; padding: .5rem; border: 1px solid #e5e5e5; border-radius: 8px; margin-bottom: .4rem; background: #fff; }
@@ -56,7 +56,7 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
 .fs-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95); z-index: 9999; align-items: center; justify-content: center; }
 .fs-overlay.open { display: flex; }
 .fs-overlay img { max-width: 95vw; max-height: 95vh; touch-action: pinch-zoom; }
-.fs-overlay .fs-close { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; border: none; font-size: 20px; cursor: pointer; }
+.fs-overlay .fs-close { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; border: none; font-size: 1.25rem; cursor: pointer; }
 </style>
 {% endblock %}
 {% block content %}
