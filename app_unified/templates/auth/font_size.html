@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}調整字體{% endblock %}
+{% block content %}
+<style>
+  .fs-wrap { max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+  .fs-title { text-align: center; font-size: 1.3rem; color: #2c3e50; margin-bottom: .5rem; }
+  .fs-hint { text-align: center; color: #888; font-size: .85rem; margin-bottom: 1.5rem; }
+  .fs-options { display: flex; flex-direction: column; gap: .75rem; }
+  .fs-option { display: flex; align-items: center; justify-content: space-between;
+               background: #fff; border: 2px solid #e0e0e0; border-radius: 12px;
+               padding: 1rem 1.25rem; cursor: pointer; transition: border-color .15s, background .15s;
+               font-family: inherit; text-align: left; width: 100%; }
+  .fs-option:hover { border-color: #3498db; }
+  .fs-option.active { border-color: #3498db; background: #eaf5fc; }
+  .fs-option-label { font-weight: 600; color: #2c3e50; }
+  .fs-option-preview { color: #555; }
+  .fs-option[data-size="small"] .fs-option-preview { font-size: 16px; }
+  .fs-option[data-size="medium"] .fs-option-preview { font-size: 19px; }
+  .fs-option[data-size="large"] .fs-option-preview { font-size: 22px; }
+  .fs-check { color: #3498db; font-size: 1.25rem; opacity: 0; transition: opacity .15s; }
+  .fs-option.active .fs-check { opacity: 1; }
+</style>
+<div class="fs-wrap">
+  <div class="fs-title">調整字體</div>
+  <div class="fs-hint">選擇後立即套用，整個 app 都會跟著變。</div>
+  <div class="fs-options">
+    <button type="button" class="fs-option" data-size="small">
+      <span class="fs-option-label">小（預設）</span>
+      <span class="fs-option-preview">範例文字 Aa 示範</span>
+      <span class="fs-check">✓</span>
+    </button>
+    <button type="button" class="fs-option" data-size="medium">
+      <span class="fs-option-label">中</span>
+      <span class="fs-option-preview">範例文字 Aa 示範</span>
+      <span class="fs-check">✓</span>
+    </button>
+    <button type="button" class="fs-option" data-size="large">
+      <span class="fs-option-label">大</span>
+      <span class="fs-option-preview">範例文字 Aa 示範</span>
+      <span class="fs-check">✓</span>
+    </button>
+  </div>
+</div>
+<script>
+  (function() {
+    var sizes = { small: '16px', medium: '19px', large: '22px' };
+    function apply(pref) {
+      document.documentElement.style.fontSize = sizes[pref] || sizes.small;
+      localStorage.setItem('font_size_pref', pref);
+      document.querySelectorAll('.fs-option').forEach(function(btn){
+        btn.classList.toggle('active', btn.getAttribute('data-size') === pref);
+      });
+    }
+    var current = localStorage.getItem('font_size_pref') || 'small';
+    document.querySelectorAll('.fs-option').forEach(function(btn){
+      btn.addEventListener('click', function(){ apply(btn.getAttribute('data-size')); });
+    });
+    apply(current);
+  })();
+</script>
+{% endblock %}

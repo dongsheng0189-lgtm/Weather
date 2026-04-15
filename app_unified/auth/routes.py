@@ -201,6 +201,12 @@ def module_picker():
     return render_template("auth/module_picker.html", features=feats)
 
 
+@auth_bp.route("/font-size")
+@login_required
+def font_size():
+    return render_template("auth/font_size.html")
+
+
 def _verify_face(user: User, image_b64: str):
     """Returns (match: bool, confidence: float). Face ops run in thread pool."""
     try:
