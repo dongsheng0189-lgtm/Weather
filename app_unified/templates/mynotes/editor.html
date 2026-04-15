@@ -641,7 +641,13 @@ function downloadSummaryPng() {
   if (!target || target.classList.contains('empty')) { alert('尚未產生摘要'); return; }
   var statusEl = document.getElementById('ai-status');
   statusEl.textContent = '產生截圖中…';
-  html2canvas(target, { backgroundColor: '#ffffff', scale: 2 }).then(function(canvas){
+  var scale = Math.max(3, (window.devicePixelRatio || 1) * 2);
+  html2canvas(target, {
+    backgroundColor: '#ffffff',
+    scale: scale,
+    useCORS: true,
+    letterRendering: true,
+  }).then(function(canvas){
     var title = (document.getElementById('title-input').value.trim() || '會議摘要');
     var dateStr = new Date().toISOString().slice(0,10);
     var link = document.createElement('a');
