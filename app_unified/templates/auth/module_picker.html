@@ -16,6 +16,12 @@
   .picker-card .label { font-size: 1rem; font-weight: 600; text-align: center; }
   .picker-card .status { margin-top: .35rem; font-size: .75rem; color: #999; }
   .picker-card.disabled { opacity: .6; cursor: not-allowed; }
+  .font-toggle { margin: 2rem auto 0; text-align: center; }
+  .font-toggle-label { font-size: .85rem; color: #666; margin-bottom: .5rem; }
+  .font-toggle-group { display: inline-flex; border: 1px solid #ccc; border-radius: 8px; overflow: hidden; }
+  .font-toggle-btn { background: #fff; border: none; padding: .6rem 1.2rem; cursor: pointer; font-size: 1rem; color: #333; min-height: 40px; }
+  .font-toggle-btn + .font-toggle-btn { border-left: 1px solid #ccc; }
+  .font-toggle-btn.active { background: #2c3e50; color: #fff; }
 </style>
 <div class="picker-wrap">
   <div class="picker-title">選擇要進入的模組</div>
@@ -28,5 +34,30 @@
     </a>
     {% endfor %}
   </div>
+  <div class="font-toggle">
+    <div class="font-toggle-label">字體大小</div>
+    <div class="font-toggle-group" role="group" aria-label="字體大小">
+      <button type="button" class="font-toggle-btn" data-size="small" style="font-size:.9rem;">小</button>
+      <button type="button" class="font-toggle-btn" data-size="medium" style="font-size:1.05rem;">中</button>
+      <button type="button" class="font-toggle-btn" data-size="large" style="font-size:1.2rem;">大</button>
+    </div>
+  </div>
 </div>
+<script>
+  (function() {
+    var sizes = { small: '16px', medium: '19px', large: '22px' };
+    var current = localStorage.getItem('font_size_pref') || 'small';
+    function apply(pref) {
+      document.documentElement.style.fontSize = sizes[pref] || sizes.small;
+      localStorage.setItem('font_size_pref', pref);
+      document.querySelectorAll('.font-toggle-btn').forEach(function(btn){
+        btn.classList.toggle('active', btn.getAttribute('data-size') === pref);
+      });
+    }
+    document.querySelectorAll('.font-toggle-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){ apply(btn.getAttribute('data-size')); });
+    });
+    apply(current);
+  })();
+</script>
 {% endblock %}

@@ -2,7 +2,15 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <script>
+    // 套用使用者選的字體大小（存在 localStorage）。在 CSS 渲染前執行避免 FOUC。
+    (function() {
+      var sizes = { small: '16px', medium: '19px', large: '22px' };
+      var pref = localStorage.getItem('font_size_pref') || 'small';
+      document.documentElement.style.fontSize = sizes[pref] || sizes.small;
+    })();
+  </script>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
