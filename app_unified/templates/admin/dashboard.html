@@ -49,7 +49,15 @@ th { background: #f8f9fa; font-weight: 700; }
     {% for user in users %}
     <tr id="user-{{ user.id }}" data-store="{{ user.store or '' }}">
       <td>{{ user.id }}</td>
-      <td>{{ user.username }}</td>
+      <td>
+        <span class="uname" data-uid="{{ user.id }}">{{ user.username }}</span>
+        {% if user.id != current_user.id and (current_user.is_super_admin() or user.store == current_user.store) %}
+        <button type="button" class="rename-btn"
+                style="background:none;border:none;cursor:pointer;padding:.15rem .3rem;font-size:.95rem;"
+                onclick="renameUser({{ user.id }}, '{{ user.username|e }}')"
+                title="改名">✏️</button>
+        {% endif %}
+      </td>
       <td>
         {% if user.store %}
         <span class="store-chip" style="background:{{ store_colors.get(user.store,'#999') }};">{{ user.store }}</span>
@@ -439,6 +447,33 @@ async function loadUserLogs() {
   _userLogsData = await res.json();
   document.getElementById('user-logs-table').style.display = 'table';
   renderUserLogsPage(1);
+}
+
+async function renameUser(uid, oldName) {
+  const newName = prompt('新的名稱（會同步更新綁定手機上的名字）：', oldName);
+  if (newName === null) return;
+  const trimmed = newName.trim();
+  if (!trimmed) { alert('名稱不可為空'); return; }
+  if (trimmed === oldName) return;
+
+  try {
+    const res = await fetch(`/admin/users/${uid}/rename`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({new_username: trimmed}),
+    });
+    const data = await res.json();
+    if (res.ok && data.status === 'ok') {
+      const span = document.querySelector(`.uname[data-uid="${uid}"]`);
+      if (span) span.textContent = data.new_username;
+      const btn = document.querySelector(`.rename-btn[onclick^="renameUser(${uid},"]`);
+      if (btn) btn.setAttribute('onclick', `renameUser(${uid}, '${data.new_username.replace(/'/g, "\\'")}')`);
+    } else {
+      alert(data.message || '改名失敗');
+    }
+  } catch (e) {
+    alert('網路錯誤：' + e.message);
+  }
 }
 
 async function deleteUser(id, username) {
