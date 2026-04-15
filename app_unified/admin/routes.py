@@ -125,6 +125,11 @@ def require_admin():
 @login_required
 def dashboard():
     require_admin()
+    try:
+        from notes.cleanup import cleanup_resolved_notes
+        cleanup_resolved_notes()
+    except Exception:
+        current_app.logger.exception("cleanup_resolved_notes failed")
     user_page = request.args.get("user_page", 1, type=int)
     user_store_filter = request.args.get("user_store", "").strip()
     per_page = 20
