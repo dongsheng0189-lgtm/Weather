@@ -110,6 +110,9 @@
     <button class="status-btn {% if note and note.status == 'in_progress' %}selected{% endif %}" data-status="in_progress" type="button" onclick="selectStatus(this)">待討論</button>
     <button class="status-btn {% if note and note.status == 'resolved' %}selected{% endif %}" data-status="resolved" type="button" onclick="selectStatus(this)">已解決</button>
   </div>
+  <div id="resolved-warning" style="font-size:.8rem;color:#888;margin-top:.3rem;display:none;">
+    ⚠️ 此筆記標為已解決，30 天後將自動刪除（含附件）
+  </div>
   {% set cur_priority = note.priority if note and note.priority else 'medium' %}
   <div class="priority-selector">
     <label>優先度：</label>
@@ -293,7 +296,20 @@ function selectStatus(btn) {
   for (var i = 0; i < all.length; i++) all[i].classList.remove('selected');
   btn.classList.add('selected');
   currentStatus = btn.getAttribute('data-status');
+  updateResolvedWarning();
 }
+
+(function() {
+  function updateResolvedWarning() {
+    var warn = document.getElementById('resolved-warning');
+    if (!warn) return;
+    warn.style.display = (currentStatus === 'resolved') ? 'block' : 'none';
+  }
+  window.updateResolvedWarning = updateResolvedWarning;
+  document.addEventListener('DOMContentLoaded', updateResolvedWarning);
+  // Also run once immediately in case DOMContentLoaded already fired
+  updateResolvedWarning();
+})();
 
 function selectPriority(btn) {
   var all = document.querySelectorAll('.priority-btn');
