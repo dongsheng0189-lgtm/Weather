@@ -31,7 +31,10 @@ def _mk_device(db_session, user, device_name):
 
 
 def _login(client, user, pin="1234"):
-    return client.post("/auth/login", json={"username": user.username, "pin": pin})
+    """Bypass real auth (6-tap/face) and seed Flask-Login session directly."""
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(user.id)
+        sess["_fresh"] = True
 
 
 def test_admin_rename_cascades_device_name(app, client, db_session):
@@ -131,15 +134,9 @@ def test_rename_noop_same_name(app, client, db_session):
 
 
 def test_non_admin_forbidden(app, client, db_session):
-    from tests.conftest import FAKE_ENCODING
     user = _mk_user(db_session, username=f"user_{uuid.uuid4().hex[:6]}", store="B")
-    user.set_face_encoding(FAKE_ENCODING)
-    db_session.commit()
     target = _mk_user(db_session, username="gina", store="B")
-    client.post("/auth/login", json={
-        "username": user.username, "pin": "1234",
-        "face_image": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
-    })
+    _login(client, user)
 
     r = client.post(f"/admin/users/{target.id}/rename", json={"new_username": "gina2"})
     assert r.status_code in (302, 401, 403)
