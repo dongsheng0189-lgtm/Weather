@@ -114,6 +114,11 @@ def _date_filter(query, range_param):
 @notes_bp.route("/")
 @login_required
 def index():
+    try:
+        from notes.cleanup import cleanup_resolved_notes
+        cleanup_resolved_notes()
+    except Exception:
+        current_app.logger.exception("cleanup_resolved_notes failed")
     store_filter = request.args.get("store", "")
     status_filter = request.args.get("status", "")
     range_param = request.args.get("range", "")
@@ -265,6 +270,8 @@ def create_note():
         created_at=now,
         updated_at=now,
     )
+    if status == "resolved":
+        note.resolved_at = datetime.utcnow()
     db.session.add(note)
     db.session.commit()
     return jsonify({"status": "ok", "id": note.id}), 201
@@ -320,9 +327,14 @@ def update_note(note_id):
     if "store" in data and current_user.is_super_admin():
         note.store = data["store"] if data["store"] in stores else None
     if "status" in data and data["status"] in STATUS_CHOICES:
-        if data["status"] != note.status:
-            diff_parts.append(f"狀態: {note.status} → {data['status']}")
-        note.status = data["status"]
+        new_status = data["status"]
+        if new_status != note.status:
+            diff_parts.append(f"狀態: {note.status} → {new_status}")
+            if new_status == "resolved" and note.status != "resolved":
+                note.resolved_at = datetime.utcnow()
+            elif note.status == "resolved" and new_status != "resolved":
+                note.resolved_at = None
+        note.status = new_status
     if "priority" in data and data["priority"] in PRIORITY_CHOICES:
         if data["priority"] != note.priority:
             diff_parts.append(f"優先度: {note.priority} → {data['priority']}")
