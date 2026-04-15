@@ -4,8 +4,6 @@
 import os
 import sys
 
-# 測試前設好 key
-os.environ["DB_ENCRYPTION_KEY"] = ""  # 先清空
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from crypto import generate_key, encrypt, decrypt, is_encrypted, _PREFIX  # noqa: E402
