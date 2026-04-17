@@ -26,6 +26,16 @@ _TW = timezone(timedelta(hours=8))
 LOCK_TIMEOUT_MIN = 5
 
 
+def _note_matches(n, kl):
+    """搜尋比對：title / content / checklist 項目文字"""
+    if kl in (n.title or "").lower() or kl in (n.content or "").lower():
+        return True
+    for item in (n.checklist_items or []):
+        if kl in (item.text or "").lower():
+            return True
+    return False
+
+
 class _PyPagination:
     """給 keyword 搜尋用的簡易分頁 shim（加密後無法 SQL ilike）。"""
     def __init__(self, items, page, per_page):
@@ -162,7 +172,7 @@ def index():
     if keyword_mode:
         all_rows = query.order_by(Note.updated_at.desc()).all()
         kl = keyword.lower()
-        filtered = [n for n in all_rows if kl in (n.title or "").lower() or kl in (n.content or "").lower()]
+        filtered = [n for n in all_rows if _note_matches(n, kl)]
         pagination = _PyPagination(filtered, page=page, per_page=per_page)
     else:
         pagination = query.order_by(Note.updated_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
@@ -230,7 +240,7 @@ def list_notes():
     notes = query.order_by(Note.updated_at.desc()).all()
     if keyword_mode:
         kl = keyword.lower()
-        notes = [n for n in notes if kl in (n.title or "").lower() or kl in (n.content or "").lower()]
+        notes = [n for n in notes if _note_matches(n, kl)]
 
     return jsonify([{
         "id": n.id, "title": n.title, "content": n.content,

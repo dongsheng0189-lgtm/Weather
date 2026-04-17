@@ -78,7 +78,8 @@ def register_ws_events(socketio):
         notes = query.order_by(Note.updated_at.desc()).all()
         if keyword_mode:
             kl = keyword.lower()
-            notes = [n for n in notes if kl in (n.title or "").lower() or kl in (n.content or "").lower()]
+            notes = [n for n in notes if kl in (n.title or "").lower() or kl in (n.content or "").lower()
+                     or any(kl in (item.text or "").lower() for item in (n.checklist_items or []))]
         emit('r', {'op': 'ln', 'notes': [{
             'id': n.id, 'title': n.title, 'content': n.content,
             'note_type': n.note_type or 'note',
