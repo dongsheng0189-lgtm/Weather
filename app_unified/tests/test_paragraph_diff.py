@@ -1,0 +1,70 @@
+"""Tests for notes.diff_utils paragraph diff logic."""
+import pytest
+
+
+def test_no_change():
+    from notes.diff_utils import compute_paragraph_diff
+    old = "第一行\n第二行\n第三行"
+    new = "第一行\n第二行\n第三行"
+    result = compute_paragraph_diff(old, new)
+    assert result is None  # no change → None
+
+
+def test_one_paragraph_modified():
+    from notes.diff_utils import compute_paragraph_diff
+    old = "今天採買水果20斤\n下週排班表已更新"
+    new = "今天採買水果30斤\n下週排班表已更新"
+    result = compute_paragraph_diff(old, new)
+    assert result == "今天採買水果30斤"
+
+
+def test_multiple_paragraphs_modified():
+    from notes.diff_utils import compute_paragraph_diff
+    old = "第一行\n第二行\n第三行"
+    new = "第一行改\n第二行\n第三行改"
+    result = compute_paragraph_diff(old, new)
+    assert "第一行改" in result
+    assert "第三行改" in result
+    assert "第二行" not in result
+
+
+def test_paragraph_added():
+    from notes.diff_utils import compute_paragraph_diff
+    old = "第一行\n第二行"
+    new = "第一行\n第二行\n新增第三行"
+    result = compute_paragraph_diff(old, new)
+    assert result == "新增第三行"
+
+
+def test_paragraph_deleted():
+    from notes.diff_utils import compute_paragraph_diff
+    old = "第一行\n要刪掉的\n第三行"
+    new = "第一行\n第三行"
+    result = compute_paragraph_diff(old, new)
+    # deletion → return None (no new content to summarize)
+    assert result is None
+
+
+def test_old_empty_returns_none():
+    """First save (old is empty) → None so caller uses full content."""
+    from notes.diff_utils import compute_paragraph_diff
+    result = compute_paragraph_diff("", "全新的內容\n第二段")
+    assert result is None
+
+
+def test_old_none_returns_none():
+    from notes.diff_utils import compute_paragraph_diff
+    result = compute_paragraph_diff(None, "全新的內容")
+    assert result is None
+
+
+def test_separator_in_output():
+    """Multiple changed paragraphs are joined by the separator."""
+    from notes.diff_utils import compute_paragraph_diff
+    old = "A\nB\nC"
+    new = "A改\nB\nC改"
+    result = compute_paragraph_diff(old, new)
+    parts = result.split("\n---\n")
+    assert len(parts) == 2
+    assert parts[0] == "A改"
+    assert parts[1] == "C改"
