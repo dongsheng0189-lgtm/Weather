@@ -530,9 +530,27 @@ def _note_source_label(n):
     return f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
 
 
-def _format_note_for_ai(n):
-    """一般筆記的文字區塊（不含 checklist 項目）"""
-    return f"{_note_source_label(n)}\n{n.title}\n{n.content or ''}"
+def _format_note_for_ai(n, since=None):
+    """一般筆記的文字區塊（不含 checklist 項目）。
+
+    since: datetime（UTC）— 若給定，嘗試從 NoteLog 取段落 diff，
+           只餵變動段落而非全文。找不到 diff 則 fallback 全文。
+    """
+    content = n.content or ""
+    if since is not None:
+        from notes.diff_utils import PARAGRAPH_DIFF_PREFIX
+        logs = NoteLog.query.filter(
+            NoteLog.note_id == n.id,
+            NoteLog.action == "edit",
+            NoteLog.created_at >= since,
+        ).order_by(NoteLog.created_at.desc()).all()
+        diff_parts = []
+        for log in logs:
+            if log.diff and log.diff.startswith(PARAGRAPH_DIFF_PREFIX):
+                diff_parts.append(log.diff[len(PARAGRAPH_DIFF_PREFIX):])
+        if diff_parts:
+            content = "\n---\n".join(diff_parts)
+    return f"{_note_source_label(n)}\n{n.title}\n{content}"
 
 
 def _format_checklist_for_ai(n, since=None):
@@ -579,12 +597,13 @@ def _split_notes(notes):
 def _build_ai_sections(notes, header_prefix="", since=None):
     """組出傳給 AI 的 prompt 後段（# 待整理... 以下），回傳 (data_block, has_checklist)。
 
-    since: datetime — 傳給 _format_checklist_for_ai 過濾「已完成項目」。
+    since: datetime — 傳給 _format_checklist_for_ai 過濾「已完成項目」，
+                      傳給 _format_note_for_ai 取段落 diff。
     """
     regular, checklists = _split_notes(notes)
     blocks = []
     if regular:
-        body = "\n\n---\n\n".join(_format_note_for_ai(n) for n in regular)
+        body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since) for n in regular)
         blocks.append(f"# 一般筆記（{header_prefix}共 {len(regular)} 筆）\n\n{body}")
     if checklists:
         body = "\n\n---\n\n".join(_format_checklist_for_ai(n, since=since) for n in checklists)

@@ -116,3 +116,65 @@ def test_save_stores_paragraph_diff(app, client, db_session):
     assert log is not None
     assert log.diff.startswith(PARAGRAPH_DIFF_PREFIX)
     assert "今天採買水果30斤" in log.diff
+
+
+def test_format_note_uses_diff(app, client, db_session):
+    """When since is given and NoteLog has paragraph diff, _format_note_for_ai returns diff only."""
+    from models import NoteLog
+    from notes.diff_utils import PARAGRAPH_DIFF_PREFIX
+    from datetime import datetime, timedelta
+
+    user = _login_admin(client, db_session)
+    note = _mk_note(db_session, user, content="原始第一行\n原始第二行\n原始第三行")
+
+    # Simulate an edit that stored paragraph diff
+    log = NoteLog(
+        note_id=note.id,
+        note_title=note.title,
+        user_id=user.id,
+        action="edit",
+        diff=f"{PARAGRAPH_DIFF_PREFIX}修改後第二行",
+    )
+    db_session.add(log)
+    db_session.commit()
+
+    since = datetime.utcnow() - timedelta(hours=1)
+    from notes.routes import _format_note_for_ai
+    result = _format_note_for_ai(note, since=since)
+
+    assert "修改後第二行" in result
+    assert "原始第一行" not in result
+    assert "原始第三行" not in result
+
+
+def test_format_note_fallback_no_diff(app, client, db_session):
+    """When no paragraph diff exists, _format_note_for_ai returns full content."""
+    from datetime import datetime, timedelta
+
+    user = _login_admin(client, db_session)
+    note = _mk_note(db_session, user, content="第一行\n第二行")
+
+    since = datetime.utcnow() - timedelta(hours=1)
+    from notes.routes import _format_note_for_ai
+    result = _format_note_for_ai(note, since=since)
+
+    assert "第一行" in result
+    assert "第二行" in result
+
+
+def test_format_note_no_since_returns_full(app, db_session):
+    """Without since parameter, always return full content."""
+    from models import User
+    import uuid
+    user = User(username=f"adm_{uuid.uuid4().hex[:6]}", role="admin", store="A")
+    user.set_password("0000")
+    db_session.add(user)
+    db_session.commit()
+
+    note = _mk_note(db_session, user, content="全部內容\n第二行")
+
+    from notes.routes import _format_note_for_ai
+    result = _format_note_for_ai(note)
+
+    assert "全部內容" in result
+    assert "第二行" in result
