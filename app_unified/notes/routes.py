@@ -741,6 +741,14 @@ def notes_ai_summary():
         query = query.filter_by(store=store)
     notes = query.order_by(Note.store, Note.updated_at.desc()).all()
 
+    # DEBUG: 確認撈到的筆記（部署穩定後可移除）
+    import logging
+    _log = logging.getLogger("ai_summary")
+    _log.warning("=== AI摘要 debug: store=%s, days=%s, start_utc=%s, end_utc=%s ===", store, days, start_utc, end_utc)
+    for _n in notes:
+        _log.warning("  note id=%s store=%s type=%s title=%.30s updated_at=%s content_len=%s",
+                     _n.id, _n.store, _n.note_type, _n.title, _n.updated_at, len(_n.content or ""))
+
     if not notes:
         return jsonify({"status": "ok", "summary": "（近期無筆記）"})
 
