@@ -487,6 +487,9 @@ MANAGER_PROMPT = """# Role
 
 ## 修繕
 1. 廚房冰箱漏水：已請廠商週三來修。
+
+# 結尾（必須遵守）
+整理完所有內容後，在最後一行輸出：「--- 摘要整理結束 ---」
 """
 
 
@@ -708,7 +711,7 @@ def summarize(note_id):
     _ai_tasks[task_id] = {"status": "processing"}
     import gevent
     gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
-                 prompt, 8192, note_id, "ai_summary")
+                 prompt, 16384, note_id, "ai_summary")
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
@@ -732,7 +735,7 @@ def outline(note_id):
     _ai_tasks[task_id] = {"status": "processing"}
     import gevent
     gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
-                 prompt, 8192, note_id, "ai_outline")
+                 prompt, 16384, note_id, "ai_outline")
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
@@ -792,7 +795,7 @@ def notes_ai_summary():
     _ai_tasks[task_id] = {"status": "processing"}
     import gevent
     gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
-                 prompt, 8192)
+                 prompt, 16384)
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
