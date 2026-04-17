@@ -515,16 +515,14 @@ def _run_split_summary(task_id, app, notes, since, store_label, days, extra):
                 parts.append("# 筆記彙整\n\n" + call_llm(prompt, max_tokens=65536))
 
             if checklists:
-                body = "\n\n---\n\n".join(_format_checklist_for_ai(n, since=since) for n in checklists)
-                data = (
-                    f"# ===== 確認表單 開始 =====（共 {len(checklists)} 筆）\n\n"
-                    f"{body}\n\n"
-                    f"# ===== 確認表單 結束 ====="
+                cl_block, _, _, ncl = _build_ai_sections(
+                    [n for n in notes if getattr(n, "note_type", "note") == "checklist"],
+                    since=since,
                 )
                 prompt = (
                     MANAGER_PROMPT + extra
                     + _build_output_structure_prompt(False, True)
-                    + f"\n# 待整理資料（{store_label}近 {days} 天，確認表單 {len(checklists)} 筆）\n\n{data}"
+                    + f"\n# 待整理資料（{store_label}近 {days} 天，確認表單 {ncl} 筆）\n\n{cl_block}"
                 )
                 parts.append("# 確認表單彙整\n\n" + call_llm(prompt, max_tokens=65536))
 
@@ -654,9 +652,42 @@ def _build_ai_sections(notes, header_prefix="", since=None):
             f"# ===== 一般筆記 結束 ====="
         )
     if checklists:
-        body = "\n\n---\n\n".join(_format_checklist_for_ai(n, since=since) for n in checklists)
+        # 跨表單去重：合併所有 checklist 項目，相同文字只保留一次
+        seen_done = set()
+        seen_undone = set()
+        all_done_lines = []
+        all_undone_lines = []
+        for n in checklists:
+            items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
+            done_all = [i for i in items if i.is_checked]
+            if since is not None:
+                done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
+            else:
+                done = done_all
+            undone = [i for i in items if not i.is_checked]
+            for i in done:
+                key = i.text.strip()
+                if key not in seen_done:
+                    seen_done.add(key)
+                    who = i.checked_by_name or "?"
+                    all_done_lines.append(f"- [{who}] {i.text}")
+            for i in undone:
+                key = i.text.strip()
+                # 已完成的不再列為未完成
+                if key not in seen_undone and key not in seen_done:
+                    seen_undone.add(key)
+                    author = n.author_name or (n.author.username if n.author else "?")
+                    all_undone_lines.append(f"- [{author}] {i.text}")
+        dedup_lines = []
+        if all_done_lines:
+            dedup_lines.append("✅ 已完成：")
+            dedup_lines.extend(all_done_lines)
+        if all_undone_lines:
+            dedup_lines.append("❌ 未完成：")
+            dedup_lines.extend(all_undone_lines)
+        body = "\n".join(dedup_lines) if dedup_lines else "（無項目）"
         blocks.append(
-            f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆）\n\n"
+            f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆，去重後已完成 {len(all_done_lines)} 項 / 未完成 {len(all_undone_lines)} 項）\n\n"
             f"{body}\n\n"
             f"# ===== 確認表單 結束 ====="
         )
