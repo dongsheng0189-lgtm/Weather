@@ -493,6 +493,47 @@ MANAGER_PROMPT = """# Role
 """
 
 
+def _run_split_summary(task_id, app, notes, since, store_label, days, extra):
+    """資料量大時，拆成「筆記」「確認表單」兩批分別呼叫 LLM 再合併結果。"""
+    with app.app_context():
+        try:
+            regular, checklists = _split_notes(notes)
+            parts = []
+
+            if regular:
+                body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since) for n in regular)
+                data = (
+                    f"# ===== 一般筆記 開始 =====（共 {len(regular)} 筆）\n\n"
+                    f"{body}\n\n"
+                    f"# ===== 一般筆記 結束 ====="
+                )
+                prompt = (
+                    MANAGER_PROMPT + extra
+                    + _build_output_structure_prompt(True, False)
+                    + f"\n# 待整理資料（{store_label}近 {days} 天，一般筆記 {len(regular)} 筆）\n\n{data}"
+                )
+                parts.append("# 筆記彙整\n\n" + call_llm(prompt, max_tokens=65536))
+
+            if checklists:
+                body = "\n\n---\n\n".join(_format_checklist_for_ai(n, since=since) for n in checklists)
+                data = (
+                    f"# ===== 確認表單 開始 =====（共 {len(checklists)} 筆）\n\n"
+                    f"{body}\n\n"
+                    f"# ===== 確認表單 結束 ====="
+                )
+                prompt = (
+                    MANAGER_PROMPT + extra
+                    + _build_output_structure_prompt(False, True)
+                    + f"\n# 待整理資料（{store_label}近 {days} 天，確認表單 {len(checklists)} 筆）\n\n{data}"
+                )
+                parts.append("# 確認表單彙整\n\n" + call_llm(prompt, max_tokens=65536))
+
+            result = "\n\n".join(parts) + "\n\n--- 摘要整理結束 ---"
+            _ai_tasks[task_id] = {"status": "done", "result": result}
+        except Exception as e:
+            _ai_tasks[task_id] = {"status": "error", "message": str(e)}
+
+
 def _run_ai_task(task_id, app, prompt, max_tokens, note_id=None, field=None):
     """在 gevent greenlet 中執行 LLM 呼叫"""
     with app.app_context():
@@ -711,7 +752,7 @@ def summarize(note_id):
     _ai_tasks[task_id] = {"status": "processing"}
     import gevent
     gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
-                 prompt, 16384, note_id, "ai_summary")
+                 prompt, 65536, note_id, "ai_summary")
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
@@ -735,7 +776,7 @@ def outline(note_id):
     _ai_tasks[task_id] = {"status": "processing"}
     import gevent
     gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
-                 prompt, 16384, note_id, "ai_outline")
+                 prompt, 65536, note_id, "ai_outline")
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
@@ -785,17 +826,26 @@ def notes_ai_summary():
     else:
         extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
 
-    prompt = (
-        MANAGER_PROMPT + extra
-        + _build_output_structure_prompt(nreg > 0, has_cl)
-        + f"\n# 待整理資料（{store_label}近 {days} 天，一般筆記 {nreg} 筆 / 確認表單 {ncl} 筆）\n\n{data_block}"
-    )
-
-    task_id = uuid.uuid4().hex[:12]
-    _ai_tasks[task_id] = {"status": "processing"}
-    import gevent
-    gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
-                 prompt, 16384)
+    # 資料量大時拆成筆記 + 確認表單兩批分別呼叫
+    if nreg > 0 and has_cl and len(data_block) > 6000:
+        task_id = uuid.uuid4().hex[:12]
+        _ai_tasks[task_id] = {"status": "processing"}
+        import gevent
+        gevent.spawn(
+            _run_split_summary, task_id, current_app._get_current_object(),
+            notes, since=start_utc, store_label=store_label, days=days, extra=extra,
+        )
+    else:
+        prompt = (
+            MANAGER_PROMPT + extra
+            + _build_output_structure_prompt(nreg > 0, has_cl)
+            + f"\n# 待整理資料（{store_label}近 {days} 天，一般筆記 {nreg} 筆 / 確認表單 {ncl} 筆）\n\n{data_block}"
+        )
+        task_id = uuid.uuid4().hex[:12]
+        _ai_tasks[task_id] = {"status": "processing"}
+        import gevent
+        gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
+                     prompt, 65536)
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
