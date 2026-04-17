@@ -639,56 +639,79 @@ def _format_checklist_for_ai(n, since=None):
     return "\n".join(lines)
 
 
-def _format_checklist_for_ai_dedup(n, since=None, seen=None):
-    """跟 _format_checklist_for_ai 相同，但跨表單去重。
+def _classify_by_title(title):
+    """根據表單標題關鍵字分類，回傳類別名稱。"""
+    t = (title or "").lower()
+    if any(k in t for k in ("客人", "顧客", "客訴")):
+        return "客人"
+    if any(k in t for k in ("同事", "員工", "人事", "排班", "請假")):
+        return "員工"
+    if any(k in t for k in ("雜事", "雜項", "其他")):
+        return "其他雜事"
+    return "店務"
 
-    seen: set — 已出現過的項目文字，跨表單共用。
-           已完成優先：若某項已在 seen 中（前面表單已列過），跳過。
-           同一項已完成則不再列為未完成。
-    回傳 None 表示這張表單去重後沒有任何項目可列。
+
+def _build_categorized_checklist(checklists, since=None):
+    """Python 端預分類 + 跨表單去重，回傳已分好類的文字區塊。
+
+    分類依據表單標題關鍵字，去重依據項目文字完全比對。
+    已完成優先：同一項目已完成則不再列為未完成。
     """
-    if seen is None:
-        seen = set()
-    items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
-    done_all = [i for i in items if i.is_checked]
-    if since is not None:
-        done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
-    else:
-        done = done_all
-    undone = [i for i in items if not i.is_checked]
+    categories = {
+        "店務": {"done": [], "undone": []},
+        "員工": {"done": [], "undone": []},
+        "客人": {"done": [], "undone": []},
+        "其他雜事": {"done": [], "undone": []},
+    }
+    seen = set()
 
-    done_lines = []
-    for i in done:
-        key = i.text.strip()
-        if key not in seen:
-            seen.add(key)
-            who = i.checked_by_name or "?"
-            done_lines.append(f"- [{who}] {i.text}")
+    for n in checklists:
+        cat = _classify_by_title(n.title)
+        items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
+        done_all = [i for i in items if i.is_checked]
+        if since is not None:
+            done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
+        else:
+            done = done_all
+        undone = [i for i in items if not i.is_checked]
 
-    undone_lines = []
-    for i in undone:
-        key = i.text.strip()
-        if key not in seen:
-            seen.add(key)
-            author = n.author_name or (n.author.username if n.author else "?")
-            undone_lines.append(f"- [{author}] {i.text}")
+        for i in done:
+            key = i.text.strip()
+            if key not in seen:
+                seen.add(key)
+                who = i.checked_by_name or "?"
+                categories[cat]["done"].append(f"- [{who}] {i.text}")
 
-    if not done_lines and not undone_lines:
-        return None
+        for i in undone:
+            key = i.text.strip()
+            if key not in seen:
+                seen.add(key)
+                author = n.author_name or (n.author.username if n.author else "?")
+                categories[cat]["undone"].append(f"- [{author}] {i.text}")
 
-    total = len(items)
-    lines = [_note_source_label(n), f"表單標題：{n.title}", f"完成進度：{len(done_all)}/{total}"]
-    if n.content:
-        lines.append(f"備註：{n.content}")
-    if done_lines:
-        label = "✅ 已完成（區間內）：" if since is not None else "✅ 已完成："
-        lines.append(label)
-        lines.extend(done_lines)
-    if undone_lines:
-        author = n.author_name or (n.author.username if n.author else "?")
-        lines.append(f"❌ 未完成（表單建立者：{author}）：")
-        lines.extend(undone_lines)
-    return "\n".join(lines)
+    # 組裝輸出
+    cat_labels = {
+        "店務": "## 🏪 店務",
+        "員工": "## 👥 員工",
+        "客人": "## 🧑‍🤝‍🧑 客人",
+        "其他雜事": "## 📋 其他雜事",
+    }
+    blocks = []
+    for cat_key in ("店務", "員工", "客人", "其他雜事"):
+        done_lines = categories[cat_key]["done"]
+        undone_lines = categories[cat_key]["undone"]
+        if not done_lines and not undone_lines:
+            continue
+        lines = [cat_labels[cat_key]]
+        if done_lines:
+            lines.append("### ✅ 已完成")
+            lines.extend(done_lines)
+        if undone_lines:
+            lines.append("### ❌ 未完成")
+            lines.extend(undone_lines)
+        blocks.append("\n".join(lines))
+
+    return "\n\n".join(blocks) if blocks else "（無項目）"
 
 
 def _split_notes(notes):
@@ -714,16 +737,10 @@ def _build_ai_sections(notes, header_prefix="", since=None):
             f"# ===== 一般筆記 結束 ====="
         )
     if checklists:
-        # 跨表單去重：保留每張表單的標題結構，但相同項目文字只在第一張出現
-        seen = set()
-        cl_bodies = []
-        for n in checklists:
-            body = _format_checklist_for_ai_dedup(n, since=since, seen=seen)
-            if body:
-                cl_bodies.append(body)
-        body = "\n\n---\n\n".join(cl_bodies) if cl_bodies else "（無項目）"
+        # Python 端預分類 + 去重，AI 不需要自己分類
+        body = _build_categorized_checklist(checklists, since=since)
         blocks.append(
-            f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆）\n\n"
+            f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆，已依標題預分類並去重）\n\n"
             f"{body}\n\n"
             f"# ===== 確認表單 結束 ====="
         )
@@ -759,36 +776,14 @@ def _build_output_structure_prompt(has_regular, has_checklist):
         )
 
     parts.append(
-        "**僅限**處理「===== 確認表單 開始 =====」到「===== 確認表單 結束 =====」之間的項目。\n"
-        "依下列四大類別分類整理。\n"
-        "每個類別分為「✅ 已完成」和「❌ 未完成」兩小節。\n\n"
-        "# 分類優先規則\n"
-        "**以表單標題作為首要分類依據。** 例如：標題含「客人」→ 該表單的項目優先歸入「客人」類；標題含「同事」或「員工」→ 優先歸入「員工」類。\n"
-        "只有當標題無法判斷分類時，才依據項目內容自行判斷。\n"
-        "若仍不確定，歸入「📋 其他雜事」。沒有事項的類別請整段省略。\n"
-        "**不要輸出時間資訊**。每條事項必須保留相關人名（員工名、顧客名），格式：「人名 — 事項內容」。\n"
-        "同一人的多個事項放在一起。\n\n"
-        "# 去重規則（極度重要，違反等同錯誤）\n"
-        "- **每個事項只能出現在一個類別**。選擇最相關的類別放入，其他類別不得重複列出。\n"
-        "- 同一事項若同時出現在已完成（✅）和未完成（❌），**只保留已完成**，從未完成中移除。\n"
-        "- 不同表單中描述相同事件的項目，合併為一條，不要重複列出。\n"
-        "- 輸出完成後請自我檢查：同一個關鍵字（如人名、物品名）是否出現在多個類別？若是，只保留最相關的那一個。\n\n"
-        "## 🏪 店務\n"
-        "進貨、庫存、設備、修繕、營運、活動、環境衛生等店內事務。\n"
-        "### ✅ 已完成\n1. ...\n"
-        "### ❌ 未完成\n1. ...\n\n"
-        "## 👥 員工\n"
-        "排班、請假、遲到、獎懲、人力、訓練等人員相關。\n"
-        "### ✅ 已完成\n1. ...\n"
-        "### ❌ 未完成\n1. ...\n\n"
-        "## 🧑‍🤝‍🧑 客人\n"
-        "顧客反應、客訴、預約、服務等客人相關。\n"
-        "### ✅ 已完成\n1. ...\n"
-        "### ❌ 未完成\n1. ...\n\n"
-        "## 📋 其他雜事\n"
-        "不屬於上述三類的所有事項。\n"
-        "### ✅ 已完成\n1. ...\n"
-        "### ❌ 未完成\n1. ...\n"
+        "**僅限**處理「===== 確認表單 開始 =====」到「===== 確認表單 結束 =====」之間的項目。\n\n"
+        "確認表單的資料**已經由系統預先分類並去重完成**，分為 🏪店務 / 👥員工 / 🧑‍🤝‍🧑客人 / 📋其他雜事 四大類，每類下有 ✅已完成 和 ❌未完成。\n\n"
+        "你的工作：\n"
+        "1. **保持現有分類不變** — 禁止將項目移到其他類別。\n"
+        "2. **保持已完成/未完成分組不變** — 禁止移動。\n"
+        "3. **整理文字** — 每條保留人名，精簡為「人名 — 事項內容」格式。同一人的事項放在一起。\n"
+        "4. **不要新增、刪除或重複任何項目** — 輸入幾條就輸出幾條。\n"
+        "5. **不要輸出時間資訊**。\n"
     )
     return "\n".join(parts) + "\n"
 
