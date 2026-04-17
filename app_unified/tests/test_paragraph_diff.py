@@ -68,3 +68,51 @@ def test_separator_in_output():
     assert len(parts) == 2
     assert parts[0] == "A改"
     assert parts[1] == "C改"
+
+
+def _login_admin(client, db_session):
+    """Create admin + login via session_transaction."""
+    from models import User
+    import uuid
+    u = User(username=f"adm_{uuid.uuid4().hex[:6]}", role="admin", store="A")
+    u.set_password("0000")
+    db_session.add(u)
+    db_session.commit()
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(u.id)
+    return u
+
+
+def _mk_note(db_session, user, content="第一行\n第二行\n第三行"):
+    from models import Note
+    n = Note(
+        user_id=user.id,
+        author_name=user.username,
+        note_type="note",
+        title="test",
+        content=content,
+        store=user.store,
+        status="active",
+        priority="medium",
+    )
+    db_session.add(n)
+    db_session.commit()
+    return n
+
+
+def test_save_stores_paragraph_diff(app, client, db_session):
+    """Editing a note via REST stores paragraph diff in NoteLog.diff."""
+    from models import NoteLog
+    from notes.diff_utils import PARAGRAPH_DIFF_PREFIX
+    user = _login_admin(client, db_session)
+    note = _mk_note(db_session, user, content="今天採買水果20斤\n排班表已更新")
+
+    resp = client.put(f"/notes/api/{note.id}", json={
+        "content": "今天採買水果30斤\n排班表已更新"
+    })
+    assert resp.status_code == 200
+
+    log = NoteLog.query.filter_by(note_id=note.id, action="edit").first()
+    assert log is not None
+    assert log.diff.startswith(PARAGRAPH_DIFF_PREFIX)
+    assert "今天採買水果30斤" in log.diff

@@ -320,9 +320,12 @@ def update_note(note_id):
         diff_parts.append(f"標題: {note.title} → {data['title']}")
         note.title = data["title"]
     if "content" in data and data["content"] != note.content:
-        old_len = len(note.content)
-        new_len = len(data["content"])
-        diff_parts.append(f"內容長度: {old_len} → {new_len} 字")
+        from notes.diff_utils import compute_paragraph_diff, PARAGRAPH_DIFF_PREFIX
+        pdiff = compute_paragraph_diff(note.content, data["content"])
+        if pdiff:
+            diff_parts.append(f"{PARAGRAPH_DIFF_PREFIX}{pdiff}")
+        else:
+            diff_parts.append(f"內容變更（全文）")
         note.content = data["content"]
     if "store" in data and current_user.is_super_admin():
         note.store = data["store"] if data["store"] in stores else None
