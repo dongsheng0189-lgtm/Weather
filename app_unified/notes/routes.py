@@ -629,6 +629,58 @@ def _format_checklist_for_ai(n, since=None):
     return "\n".join(lines)
 
 
+def _format_checklist_for_ai_dedup(n, since=None, seen=None):
+    """跟 _format_checklist_for_ai 相同，但跨表單去重。
+
+    seen: set — 已出現過的項目文字，跨表單共用。
+           已完成優先：若某項已在 seen 中（前面表單已列過），跳過。
+           同一項已完成則不再列為未完成。
+    回傳 None 表示這張表單去重後沒有任何項目可列。
+    """
+    if seen is None:
+        seen = set()
+    items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
+    done_all = [i for i in items if i.is_checked]
+    if since is not None:
+        done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
+    else:
+        done = done_all
+    undone = [i for i in items if not i.is_checked]
+
+    done_lines = []
+    for i in done:
+        key = i.text.strip()
+        if key not in seen:
+            seen.add(key)
+            who = i.checked_by_name or "?"
+            done_lines.append(f"- [{who}] {i.text}")
+
+    undone_lines = []
+    for i in undone:
+        key = i.text.strip()
+        if key not in seen:
+            seen.add(key)
+            author = n.author_name or (n.author.username if n.author else "?")
+            undone_lines.append(f"- [{author}] {i.text}")
+
+    if not done_lines and not undone_lines:
+        return None
+
+    total = len(items)
+    lines = [_note_source_label(n), f"表單標題：{n.title}", f"完成進度：{len(done_all)}/{total}"]
+    if n.content:
+        lines.append(f"備註：{n.content}")
+    if done_lines:
+        label = "✅ 已完成（區間內）：" if since is not None else "✅ 已完成："
+        lines.append(label)
+        lines.extend(done_lines)
+    if undone_lines:
+        author = n.author_name or (n.author.username if n.author else "?")
+        lines.append(f"❌ 未完成（表單建立者：{author}）：")
+        lines.extend(undone_lines)
+    return "\n".join(lines)
+
+
 def _split_notes(notes):
     """分成一般筆記 / 確認表單兩組"""
     regular = [n for n in notes if getattr(n, "note_type", "note") != "checklist"]
@@ -652,42 +704,16 @@ def _build_ai_sections(notes, header_prefix="", since=None):
             f"# ===== 一般筆記 結束 ====="
         )
     if checklists:
-        # 跨表單去重：合併所有 checklist 項目，相同文字只保留一次
-        seen_done = set()
-        seen_undone = set()
-        all_done_lines = []
-        all_undone_lines = []
+        # 跨表單去重：保留每張表單的標題結構，但相同項目文字只在第一張出現
+        seen = set()
+        cl_bodies = []
         for n in checklists:
-            items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
-            done_all = [i for i in items if i.is_checked]
-            if since is not None:
-                done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
-            else:
-                done = done_all
-            undone = [i for i in items if not i.is_checked]
-            for i in done:
-                key = i.text.strip()
-                if key not in seen_done:
-                    seen_done.add(key)
-                    who = i.checked_by_name or "?"
-                    all_done_lines.append(f"- [{who}] {i.text}")
-            for i in undone:
-                key = i.text.strip()
-                # 已完成的不再列為未完成
-                if key not in seen_undone and key not in seen_done:
-                    seen_undone.add(key)
-                    author = n.author_name or (n.author.username if n.author else "?")
-                    all_undone_lines.append(f"- [{author}] {i.text}")
-        dedup_lines = []
-        if all_done_lines:
-            dedup_lines.append("✅ 已完成：")
-            dedup_lines.extend(all_done_lines)
-        if all_undone_lines:
-            dedup_lines.append("❌ 未完成：")
-            dedup_lines.extend(all_undone_lines)
-        body = "\n".join(dedup_lines) if dedup_lines else "（無項目）"
+            body = _format_checklist_for_ai_dedup(n, since=since, seen=seen)
+            if body:
+                cl_bodies.append(body)
+        body = "\n\n---\n\n".join(cl_bodies) if cl_bodies else "（無項目）"
         blocks.append(
-            f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆，去重後已完成 {len(all_done_lines)} 項 / 未完成 {len(all_undone_lines)} 項）\n\n"
+            f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆）\n\n"
             f"{body}\n\n"
             f"# ===== 確認表單 結束 ====="
         )
