@@ -604,10 +604,18 @@ def _build_ai_sections(notes, header_prefix="", since=None):
     blocks = []
     if regular:
         body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since) for n in regular)
-        blocks.append(f"# 一般筆記（{header_prefix}共 {len(regular)} 筆）\n\n{body}")
+        blocks.append(
+            f"# ===== 一般筆記 開始 =====（{header_prefix}共 {len(regular)} 筆）\n\n"
+            f"{body}\n\n"
+            f"# ===== 一般筆記 結束 ====="
+        )
     if checklists:
         body = "\n\n---\n\n".join(_format_checklist_for_ai(n, since=since) for n in checklists)
-        blocks.append(f"# 確認表單（{header_prefix}共 {len(checklists)} 筆）\n\n{body}")
+        blocks.append(
+            f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆）\n\n"
+            f"{body}\n\n"
+            f"# ===== 確認表單 結束 ====="
+        )
     return "\n\n".join(blocks), bool(checklists), len(regular), len(checklists)
 
 
@@ -627,8 +635,9 @@ def _build_output_structure_prompt(has_regular, has_checklist):
         parts.append(
             "請將輸出分為兩大區塊（用 Markdown `#` 標題）：\n\n"
             "# 筆記彙整\n"
-            "**僅限**處理輸入中「# 一般筆記」區段的內容。依 Output Style 的規則（## 類別 + 數字列表）輸出。\n"
-            "確認表單的任何項目禁止出現在此區塊。\n\n"
+            "**僅限**處理「===== 一般筆記 開始 =====」到「===== 一般筆記 結束 =====」之間的內容。\n"
+            "依 Output Style 的規則（## 類別 + 數字列表）輸出。\n"
+            "「===== 確認表單 =====」區段內的任何項目絕對禁止出現在此區塊。\n\n"
             "# 確認表單彙整"
         )
     else:
@@ -639,7 +648,8 @@ def _build_output_structure_prompt(has_regular, has_checklist):
         )
 
     parts.append(
-        "針對上方「確認表單」的所有項目（已完成與未完成），依下列四大類別分類整理。\n"
+        "**僅限**處理「===== 確認表單 開始 =====」到「===== 確認表單 結束 =====」之間的項目。\n"
+        "依下列四大類別分類整理。\n"
         "每個類別分為「✅ 已完成」和「❌ 未完成」兩小節。\n"
         "若某事項不確定分類，歸入「📋 其他雜事」。沒有事項的類別請整段省略。\n"
         "**不要輸出任何時間資訊、完成者、建立者**，只需呈現事項內容。\n"
