@@ -3,7 +3,7 @@ from flask import request
 from flask_login import current_user
 from flask_socketio import emit
 from extensions import db
-from models import Note, Store, NoteLog, User, STATUS_CHOICES, PRIORITY_CHOICES
+from models import Note, Store, NoteLog, User, STATUS_CHOICES, CATEGORY_CHOICES
 
 
 def register_ws_events(socketio):
@@ -41,7 +41,7 @@ def register_ws_events(socketio):
         store_filter = data.get('store', '')
         status_filter = data.get('status', '')
         range_param = data.get('range', '')
-        priority_filter = data.get('priority', '')
+        category_filter = data.get('category', '')
         keyword = (data.get('q') or '').strip()
         stores = _get_stores()
         query = Note.query
@@ -53,13 +53,13 @@ def register_ws_events(socketio):
         else:
             query = query.filter_by(store=current_user.store)
 
-        # 互斥篩選：關鍵字 > 優先權 > 狀態 > 日期範圍
-        from models import PRIORITY_CHOICES
+        # 互斥篩選：關鍵字 > 種類 > 狀態 > 日期範圍
+        from models import CATEGORY_CHOICES
         keyword_mode = False
         if keyword:
             keyword_mode = True  # title/content 加密 → Python 端 filter
-        elif priority_filter and priority_filter in PRIORITY_CHOICES:
-            query = query.filter_by(priority=priority_filter)
+        elif category_filter and category_filter in CATEGORY_CHOICES:
+            query = query.filter_by(category=category_filter)
         elif 'status' in data and data.get('status') is not None:
             if status_filter in STATUS_CHOICES:
                 query = query.filter_by(status=status_filter)
@@ -84,7 +84,7 @@ def register_ws_events(socketio):
             'id': n.id, 'title': n.title, 'content': n.content,
             'note_type': n.note_type or 'note',
             'store': n.store, 'status': n.status or 'pending',
-            'priority': n.priority or 'medium',
+            'category': n.category or 'unclassified',
             'author': n.display_author,
             'created_at': n.created_at.isoformat() if n.created_at else '',
             'updated_at': n.updated_at.isoformat() if n.updated_at else '',
@@ -100,7 +100,7 @@ def register_ws_events(socketio):
         else:
             store = current_user.store if current_user.store in stores else None
         status = data.get('status') if data.get('status') in STATUS_CHOICES else 'pending'
-        priority = data.get('priority') if data.get('priority') in PRIORITY_CHOICES else 'medium'
+        category = data.get('category') if data.get('category') in CATEGORY_CHOICES else 'unclassified'
         note_type = data.get('note_type') if data.get('note_type') in ('note', 'checklist') else 'note'
         note = Note(
             user_id=current_user.id,
@@ -108,7 +108,7 @@ def register_ws_events(socketio):
             note_type=note_type,
             title=data.get('title', '未命名筆記'),
             content=data.get('content', ''),
-            store=store, status=status, priority=priority,
+            store=store, status=status, category=category,
             created_at=now, updated_at=now,
         )
         db.session.add(note)
@@ -145,10 +145,10 @@ def register_ws_events(socketio):
             if data['status'] != note.status:
                 diff_parts.append(f"狀態: {note.status} → {data['status']}")
             note.status = data['status']
-        if 'priority' in data and data['priority'] in PRIORITY_CHOICES:
-            if data['priority'] != note.priority:
-                diff_parts.append(f"優先度: {note.priority} → {data['priority']}")
-            note.priority = data['priority']
+        if 'category' in data and data['category'] in CATEGORY_CHOICES:
+            if data['category'] != note.category:
+                diff_parts.append(f"類別: {note.category} → {data['category']}")
+            note.category = data['category']
         # 編輯鎖檢查
         if note.locked_by and note.locked_by != current_user.id:
             from datetime import timedelta as _td
@@ -208,7 +208,7 @@ def register_ws_events(socketio):
         emit('r', {'op': 'gn', 'note': {
             'id': note.id, 'title': note.title, 'content': note.content,
             'store': note.store, 'status': note.status or 'pending',
-            'priority': note.priority or 'medium', 'updated_by': updater,
+            'category': note.category or 'unclassified', 'updated_by': updater,
             'created_at': note.created_at.isoformat() if note.created_at else '',
             'updated_at': note.updated_at.isoformat() if note.updated_at else '',
         }})
