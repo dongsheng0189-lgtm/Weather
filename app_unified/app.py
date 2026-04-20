@@ -339,6 +339,19 @@ def create_app():
         session["_last_request_at"] = now
         session.permanent = True
 
+    @app.after_request
+    def _private_no_store(response):
+        """敏感頁面與 API 禁止瀏覽器/中介快取，防止筆記內容留在瀏覽器快取。
+        靜態資源、SW、健康檢查除外（需快取才有效率）。"""
+        p = request.path or ""
+        if (p.startswith("/static/") or p == "/sw.js"
+                or p == "/healthz" or p == "/robots.txt"):
+            return response
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
     from auth.routes import auth_bp
     from face.routes import face_bp
     from notes.routes import notes_bp

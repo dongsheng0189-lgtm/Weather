@@ -124,6 +124,20 @@
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   {% block scripts %}{% endblock %}
   <script>
+    // ── 路徑隱匿：址列永遠維持 '/'，返回鍵強制回首頁 ──
+    // 遮罩後 refresh 會回到首頁（再 redirect 到天氣），這是刻意行為（避免洩漏路徑）
+    (function() {
+      try {
+        if (location.pathname !== '/') {
+          history.replaceState({masked: true}, '', '/');
+        }
+      } catch (e) {}
+      window.addEventListener('popstate', function() {
+        // 返回鍵熔斷：不論原本要去哪一頁，都導回首頁
+        window.location.replace('/');
+      });
+    })();
+
     // Hamburger menu
     const toggle = document.getElementById('nav-toggle');
     const dropdown = document.getElementById('nav-dropdown');
