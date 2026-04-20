@@ -5,7 +5,7 @@
  *   - API calls (/notes/api/*, /weather/api/*): network-first
  *   - Navigation: network-first, fallback to cache
  */
-const CACHE_NAME = 'note-weather-v20';
+const CACHE_NAME = 'note-weather-v21';
 const STATIC_CACHE_URLS = [
   '/static/js/camera.js',
   '/static/js/voice_input.js',
@@ -33,7 +33,9 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
   // API requests: network-first
-  if (url.pathname.startsWith('/notes/api') ||
+  // 路徑已被 server-side alias 縮短：/n/api = /notes/api, /m/api = /mynotes/api
+  if (url.pathname.startsWith('/n/api') ||
+      url.pathname.startsWith('/m/api') ||
       url.pathname.startsWith('/weather/api') ||
       url.pathname.startsWith('/auth/')) {
     event.respondWith(

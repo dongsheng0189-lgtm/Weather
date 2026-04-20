@@ -18,7 +18,7 @@
   <meta name="theme-color" content="#2c3e50">
   <link rel="manifest" href="/static/manifest.json">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-apple-180.png">
-  <title>{% block title %}NOTE{% endblock %}</title>
+  <title>空污偵測</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', 'PingFang TC', sans-serif; background: #f5f5f5; color: #333; min-height: 100vh; }
@@ -124,20 +124,6 @@
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   {% block scripts %}{% endblock %}
   <script>
-    // ── 路徑隱匿：址列永遠維持 '/'，返回鍵強制回首頁 ──
-    // 遮罩後 refresh 會回到首頁（再 redirect 到天氣），這是刻意行為（避免洩漏路徑）
-    (function() {
-      try {
-        if (location.pathname !== '/') {
-          history.replaceState({masked: true}, '', '/');
-        }
-      } catch (e) {}
-      window.addEventListener('popstate', function() {
-        // 返回鍵熔斷：不論原本要去哪一頁，都導回首頁
-        window.location.replace('/');
-      });
-    })();
-
     // Hamburger menu
     const toggle = document.getElementById('nav-toggle');
     const dropdown = document.getElementById('nav-dropdown');

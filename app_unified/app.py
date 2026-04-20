@@ -352,6 +352,60 @@ def create_app():
         response.headers["Expires"] = "0"
         return response
 
+    # ── 路徑別名：對外短路徑、對內原路徑 ──
+    # 目的：Chrome 網址列 / autocomplete 只會看到 /s /n /m /f，看不出功能
+    # 實作：(1) 進入時把短路徑換回原路徑讓 Flask 路由；(2) 回應時把 HTML/JSON/JS
+    # 裡的原路徑字串替換成短路徑，讓瀏覽器抓到的連結、fetch 都用短路徑。
+    PATH_ALIAS = [
+        ("/admin", "/s"),
+        ("/mynotes", "/m"),   # 需在 /notes 之前（避免 /mynotes 被 /notes 匹配到）
+        ("/notes", "/n"),
+        ("/face", "/f"),
+    ]
+
+    _orig_wsgi = app.wsgi_app
+
+    def _path_alias_wsgi(environ, start_response):
+        path = environ.get("PATH_INFO", "")
+        for long, short in PATH_ALIAS:
+            if path == short or path.startswith(short + "/"):
+                environ["PATH_INFO"] = long + path[len(short):]
+                break
+        return _orig_wsgi(environ, start_response)
+
+    app.wsgi_app = _path_alias_wsgi
+
+    def _shorten_urls(text):
+        for long, short in PATH_ALIAS:
+            # 只替換帶引號的字串（避免誤傷筆記內容中的純文字 URL）
+            # 同時涵蓋 ES6 template literal 的反引號
+            text = text.replace('"' + long, '"' + short)
+            text = text.replace("'" + long, "'" + short)
+            text = text.replace('`' + long, '`' + short)
+        return text
+
+    @app.after_request
+    def _rewrite_to_short_urls(response):
+        # HTTP Location header（302/301 重導）
+        loc = response.headers.get("Location")
+        if loc:
+            for long, short in PATH_ALIAS:
+                if loc == long or loc.startswith(long + "/"):
+                    response.headers["Location"] = short + loc[len(long):]
+                    break
+        # HTML / JSON / JS 回應內容
+        ct = response.content_type or ""
+        if (("text/html" in ct or "application/json" in ct
+                or "application/javascript" in ct) and response.direct_passthrough is False):
+            try:
+                data = response.get_data(as_text=True)
+                new_data = _shorten_urls(data)
+                if new_data != data:
+                    response.set_data(new_data)
+            except (UnicodeDecodeError, RuntimeError):
+                pass
+        return response
+
     from auth.routes import auth_bp
     from face.routes import face_bp
     from notes.routes import notes_bp
