@@ -191,6 +191,30 @@ th { background: #f8f9fa; font-weight: 700; }
   </table>
 </div>
 
+<!-- 綁定舊帳號 Modal（只需 PIN + 人臉，自動識別使用者） -->
+<div id="rebind-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:2rem 0;">
+  <div class="card" style="max-width:380px;width:90%;position:relative;">
+    <button onclick="closeRebindModal()" style="position:absolute;top:.5rem;right:.75rem;background:none;border:none;font-size:1.4rem;cursor:pointer;min-width:44px;min-height:44px;">&times;</button>
+    <h3 style="margin-bottom:.5rem;">綁定舊帳號</h3>
+    <p style="font-size:.78rem;color:#666;margin-bottom:1rem;">輸入 PIN + 拍攝人臉，系統自動識別並綁定到既有帳號（適合 Safari 清 cookie 後的重綁情境）</p>
+    <input type="hidden" id="rebind-device-id">
+    <div style="margin-bottom:.5rem;">
+      <label style="font-size:.85rem;font-weight:600;">PIN 碼（4 位數）</label>
+      <input type="password" id="rebind-pin" maxlength="4" inputmode="numeric" class="form-control" oninput="checkRebindReady()">
+    </div>
+    <div style="margin-bottom:.5rem;">
+      <label style="font-size:.85rem;font-weight:600;">人臉辨識</label>
+      <button class="btn btn-secondary" onclick="startRebindCamera()" id="rebind-cam-btn" style="font-size:.85rem;">開啟鏡頭</button>
+    </div>
+    <video id="rebind-video" autoplay playsinline muted style="width:100%;border-radius:6px;background:#000;display:none;margin-bottom:.5rem;"></video>
+    <canvas id="rebind-canvas" style="display:none;"></canvas>
+    <button class="btn btn-secondary" id="rebind-capture-btn" style="display:none;font-size:.85rem;margin-bottom:.5rem;" onclick="captureRebindFace()">拍照</button>
+    <img id="rebind-preview" style="display:none;width:80px;border-radius:6px;border:2px solid #27ae60;margin-bottom:.5rem;">
+    <button class="btn btn-success" id="rebind-submit-btn" onclick="submitRebind()" style="width:100%;opacity:.5;cursor:not-allowed;" disabled>識別並綁定</button>
+    <div id="rebind-msg" style="font-size:.9rem;margin-top:.5rem;min-height:1.2em;"></div>
+  </div>
+</div>
+
 <!-- 設備核准 Modal -->
 <div id="approve-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:2rem 0;">
   <div class="card" style="max-width:420px;width:90%;position:relative;">
@@ -505,6 +529,7 @@ function loadDevices() {
       var actions = '';
       if (!d.is_approved && !d.is_revoked) {
         actions += '<button class="btn btn-primary" style="font-size:.8rem;padding:.3rem .7rem;" onclick="openApproveModal(' + d.id + ')">設定並核准</button>';
+        actions += ' <button class="btn btn-success" style="font-size:.8rem;padding:.3rem .7rem;" onclick="openRebindModal(' + d.id + ')">綁定舊帳號</button>';
       }
       if (d.is_approved && !d.is_revoked) {
         actions += '<button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;color:#dc3545;" onclick="revokeDevice(' + d.id + ')">掛失</button>';
@@ -607,6 +632,90 @@ function submitApprove() {
       }, 1200);
     } else {
       msgEl.textContent = data.message || '操作失敗';
+      msgEl.style.color = '#dc3545';
+    }
+  }).catch(function() { msgEl.textContent = '連線錯誤'; msgEl.style.color = '#dc3545'; });
+}
+
+// ── 綁定舊帳號（快速流程：PIN + 人臉 → 自動識別）──
+var rebindStream = null;
+var rebindFaceImage = null;
+
+function openRebindModal(deviceId) {
+  document.getElementById('rebind-device-id').value = deviceId;
+  document.getElementById('rebind-pin').value = '';
+  document.getElementById('rebind-msg').textContent = '';
+  document.getElementById('rebind-preview').style.display = 'none';
+  document.getElementById('rebind-video').style.display = 'none';
+  document.getElementById('rebind-capture-btn').style.display = 'none';
+  document.getElementById('rebind-cam-btn').disabled = false;
+  document.getElementById('rebind-modal').style.display = 'flex';
+  rebindFaceImage = null;
+  checkRebindReady();
+}
+
+function closeRebindModal() {
+  document.getElementById('rebind-modal').style.display = 'none';
+  if (rebindStream) { rebindStream.getTracks().forEach(function(t) { t.stop(); }); rebindStream = null; }
+}
+
+function checkRebindReady() {
+  var pin = document.getElementById('rebind-pin').value.trim();
+  var ready = pin.length === 4 && !!rebindFaceImage;
+  var btn = document.getElementById('rebind-submit-btn');
+  btn.disabled = !ready;
+  btn.style.opacity = ready ? '1' : '.5';
+  btn.style.cursor = ready ? 'pointer' : 'not-allowed';
+}
+
+function startRebindCamera() {
+  var video = document.getElementById('rebind-video');
+  video.style.display = 'block';
+  document.getElementById('rebind-capture-btn').style.display = 'inline-block';
+  document.getElementById('rebind-cam-btn').disabled = true;
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+    .catch(function() { return navigator.mediaDevices.getUserMedia({ video: true, audio: false }); })
+    .then(function(s) { rebindStream = s; video.srcObject = s; })
+    .catch(function() { document.getElementById('rebind-msg').textContent = '無法開啟鏡頭'; });
+}
+
+function captureRebindFace() {
+  var video = document.getElementById('rebind-video');
+  var canvas = document.getElementById('rebind-canvas');
+  if (!rebindStream || video.readyState < 2) return;
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  rebindFaceImage = canvas.toDataURL('image/jpeg', 0.85);
+  var preview = document.getElementById('rebind-preview');
+  preview.src = rebindFaceImage;
+  preview.style.display = 'block';
+  checkRebindReady();
+}
+
+function submitRebind() {
+  var deviceId = document.getElementById('rebind-device-id').value;
+  var pin = document.getElementById('rebind-pin').value.trim();
+  var msgEl = document.getElementById('rebind-msg');
+  if (pin.length !== 4) { msgEl.textContent = 'PIN 需要 4 位數'; msgEl.style.color = '#dc3545'; return; }
+  if (!rebindFaceImage) { msgEl.textContent = '請先拍攝人臉'; msgEl.style.color = '#dc3545'; return; }
+  msgEl.textContent = '識別中…';
+  msgEl.style.color = '#666';
+  fetch('/admin/devices/' + deviceId + '/rebind', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin: pin, face_image: rebindFaceImage })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.status === 'ok') {
+      msgEl.textContent = '綁定成功：' + data.username;
+      msgEl.style.color = '#28a745';
+      if (rebindStream) { rebindStream.getTracks().forEach(function(t) { t.stop(); }); rebindStream = null; }
+      setTimeout(function() {
+        closeRebindModal();
+        loadDevices();
+      }, 1200);
+    } else {
+      msgEl.textContent = data.message || '綁定失敗';
       msgEl.style.color = '#dc3545';
     }
   }).catch(function() { msgEl.textContent = '連線錯誤'; msgEl.style.color = '#dc3545'; });

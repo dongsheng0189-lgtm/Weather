@@ -547,6 +547,65 @@ def approve_device(device_id):
     return jsonify({"status": "ok", "user_id": user.id})
 
 
+@admin_bp.route("/devices/<int:device_id>/rebind", methods=["POST"])
+@login_required
+def rebind_device(device_id):
+    """快速綁定舊帳號：PIN + 人臉 → 自動識別使用者並綁定 + 核准。
+    用於 Safari 清完 cookie 後要重新綁定既有帳號的情境，省去填帳號/店別/角色。"""
+    require_admin()
+    from models import TrustedDevice
+    from auth.routes import _verify_face
+
+    device = TrustedDevice.query.get_or_404(device_id)
+    if device.is_approved:
+        return jsonify({"status": "error", "message": "此裝置已核准"}), 400
+
+    data = request.get_json(silent=True) or {}
+    pin = str(data.get("pin") or "").strip()
+    face_image = data.get("face_image")
+
+    if not pin:
+        return jsonify({"status": "error", "message": "請輸入 PIN"}), 400
+    if not face_image:
+        return jsonify({"status": "error", "message": "請拍攝人臉"}), 400
+
+    # 1. PIN 篩候選
+    all_users = User.query.filter_by(is_active=True).all()
+    pin_users = [u for u in all_users if u.check_password(pin)]
+    if not pin_users:
+        return jsonify({"status": "wrong_password", "message": "PIN 錯誤"})
+
+    # 2. 必須已登錄人臉
+    face_enrolled = [u for u in pin_users if u.face_encoding is not None]
+    if not face_enrolled:
+        return jsonify({"status": "need_face_enroll",
+                        "message": "此 PIN 對應帳號尚未登錄人臉，請先用「設定並核准」完整流程"})
+
+    # 3. 人臉比對
+    matched = None
+    for u in face_enrolled:
+        match, _ = _verify_face(u, face_image)
+        if match:
+            matched = u
+            break
+    if not matched:
+        return jsonify({"status": "face_mismatch", "message": "人臉不符"})
+
+    # 4. 跨店綁定檢查（跟 approve_device 同規則）
+    if not current_user.is_super_admin():
+        if matched.store and matched.store != current_user.store:
+            return jsonify({"status": "error", "message": "無權限綁定到其他店別的帳號"}), 403
+
+    # 5. 綁定
+    device.user_id = matched.id
+    device.is_approved = True
+    device.is_revoked = False
+    _log_user_action("rebind_device", matched, detail=f"device={device.device_name}")
+    db.session.commit()
+
+    return jsonify({"status": "ok", "username": matched.username, "user_id": matched.id})
+
+
 @admin_bp.route("/devices/<int:device_id>/revoke", methods=["POST"])
 @login_required
 def revoke_device(device_id):
