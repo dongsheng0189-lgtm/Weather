@@ -612,7 +612,10 @@ def _format_note_for_ai(n, since=None):
                 diff_parts.append(log.diff[len(PARAGRAPH_DIFF_PREFIX):])
         if diff_parts:
             content = "\n---\n".join(diff_parts)
-    return f"{_note_source_label(n)}\n{n.title}\n{content}"
+    cat_hint = ""
+    if getattr(n, "category", None) == "personal":
+        cat_hint = "[分類提示：此筆記為個人類別，請歸入雜項處理]\n"
+    return f"{_note_source_label(n)}\n{cat_hint}{n.title}\n{content}"
 
 
 def _format_checklist_for_ai(n, since=None):
@@ -676,7 +679,11 @@ def _build_categorized_checklist(checklists, since=None):
     seen = set()
 
     for n in checklists:
-        cat = _classify_by_title(n.title)
+        # 個人類筆記強制歸雜項（使用者決策：個人內容仍與工作有關，AI 摘要時放雜項）
+        if getattr(n, "category", None) == "personal":
+            cat = "其他雜事"
+        else:
+            cat = _classify_by_title(n.title)
         items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
         done_all = [i for i in items if i.is_checked]
         if since is not None:
@@ -879,8 +886,7 @@ def notes_ai_summary():
 
     query = (Note.query
              .filter(Note.updated_at >= start_utc)
-             .filter_by(store=store)
-             .filter(Note.category != "personal"))
+             .filter_by(store=store))
     if end_utc:
         query = query.filter(Note.updated_at < end_utc)
     notes = query.order_by(Note.updated_at.desc()).all()
