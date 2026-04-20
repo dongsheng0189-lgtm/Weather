@@ -33,12 +33,14 @@
 .status-btn.selected[data-status="pending"]     { background: #95a5a6; color: #fff; border-color: transparent; }
 .status-btn.selected[data-status="in_progress"] { background: #3498db; color: #fff; border-color: transparent; }
 .status-btn.selected[data-status="resolved"]    { background: #27ae60; color: #fff; border-color: transparent; }
-.priority-selector { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
-.priority-selector label { font-size: .85rem; color: #666; margin-right: .25rem; }
-.priority-btn { padding: .35rem .7rem; border-radius: 16px; font-size: .82rem; font-weight: 600; cursor: pointer; border: 2px solid #ddd; background: #f5f5f5; color: #555; transition: all .15s; min-height: 36px; }
-.priority-btn.selected[data-priority="high"]   { background: #e74c3c; color: #fff; border-color: transparent; }
-.priority-btn.selected[data-priority="medium"] { background: #e67e22; color: #fff; border-color: transparent; }
-.priority-btn.selected[data-priority="low"]    { background: #95a5a6; color: #fff; border-color: transparent; }
+.category-selector { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
+.category-selector label { font-size: .85rem; color: #666; margin-right: .25rem; }
+.category-btn { padding: .35rem .7rem; border-radius: 16px; font-size: .82rem; font-weight: 600; cursor: pointer; border: 2px solid #ddd; background: #f5f5f5; color: #555; transition: all .15s; min-height: 36px; }
+.category-btn.selected[data-category="employee"]     { background: #3498db; color: #fff; border-color: transparent; }
+.category-btn.selected[data-category="customer"]     { background: #e67e22; color: #fff; border-color: transparent; }
+.category-btn.selected[data-category="misc"]         { background: #95a5a6; color: #fff; border-color: transparent; }
+.category-btn.selected[data-category="personal"]     { background: #9b59b6; color: #fff; border-color: transparent; }
+.category-btn.selected[data-category="unclassified"] { background: #bdc3c7; color: #fff; border-color: transparent; }
 .updated-by-info { font-size: .85rem; color: #888; margin-bottom: .5rem; }
 .store-display { font-size: .85rem; color: #666; margin-bottom: .75rem; }
 .store-display .store-badge-inline { display:inline-block; padding:.1rem .5rem; border-radius:10px; font-size:.82rem; font-weight:700; color:#fff; margin-left:.3rem; }
@@ -113,12 +115,16 @@
   <div id="resolved-warning" style="font-size:.8rem;color:#888;margin-top:.3rem;display:none;">
     ⚠️ 此筆記標為已解決，30 天後將自動刪除（含附件）
   </div>
-  {% set cur_priority = note.priority if note and note.priority else 'medium' %}
-  <div class="priority-selector">
-    <label>優先度：</label>
-    <button class="priority-btn {% if cur_priority == 'high' %}selected{% endif %}" data-priority="high" type="button" onclick="selectPriority(this)">高</button>
-    <button class="priority-btn {% if cur_priority == 'medium' %}selected{% endif %}" data-priority="medium" type="button" onclick="selectPriority(this)">中</button>
-    <button class="priority-btn {% if cur_priority == 'low' %}selected{% endif %}" data-priority="low" type="button" onclick="selectPriority(this)">低</button>
+  {% set cur_category = note.category if note and note.category else (default_category or 'unclassified') %}
+  <div class="category-selector">
+    <label>類別：</label>
+    <button class="category-btn {% if cur_category == 'employee' %}selected{% endif %}" data-category="employee" type="button" onclick="selectCategory(this)">員工</button>
+    <button class="category-btn {% if cur_category == 'customer' %}selected{% endif %}" data-category="customer" type="button" onclick="selectCategory(this)">客人</button>
+    <button class="category-btn {% if cur_category == 'misc' %}selected{% endif %}" data-category="misc" type="button" onclick="selectCategory(this)">雜事</button>
+    <button class="category-btn {% if cur_category == 'personal' %}selected{% endif %}" data-category="personal" type="button" onclick="selectCategory(this)">個人</button>
+    {% if cur_category == 'unclassified' %}
+    <button class="category-btn selected" data-category="unclassified" type="button" onclick="selectCategory(this)">未分類</button>
+    {% endif %}
   </div>
   <div class="editor-toolbar">
     <button class="btn btn-primary" id="btn-save" onclick="doSave()">💾 儲存</button>
@@ -192,7 +198,7 @@
 var NOTE_ID = {{ (note.id if note else None)|tojson }};
 var currentStore = {{ (note.store if note else current_user.store)|tojson }};
 var currentStatus = {{ (note.status if note else 'pending')|tojson }};
-var currentPriority = {{ (note.priority if note else 'medium')|tojson }};
+var currentCategory = {{ (note.category if note else (default_category or 'unclassified'))|tojson }};
 var IS_READONLY = {{ (is_readonly or false)|tojson }};
 
 // Readonly 模式：禁用所有輸入和按鈕（除了返回和強制釋放）
@@ -311,11 +317,11 @@ function selectStatus(btn) {
   updateResolvedWarning();
 })();
 
-function selectPriority(btn) {
-  var all = document.querySelectorAll('.priority-btn');
+function selectCategory(btn) {
+  var all = document.querySelectorAll('.category-btn');
   for (var i = 0; i < all.length; i++) all[i].classList.remove('selected');
   btn.classList.add('selected');
-  currentPriority = btn.getAttribute('data-priority');
+  currentCategory = btn.getAttribute('data-category');
 }
 
 // 暫存待上傳的檔案（新筆記用）
@@ -335,7 +341,7 @@ function doSave() {
 
   var url = NOTE_ID ? ('/notes/api/' + NOTE_ID) : '/notes/api';
   var method = NOTE_ID ? 'PUT' : 'POST';
-  var body = { title: title, content: content, store: store, status: currentStatus, priority: currentPriority };
+  var body = { title: title, content: content, store: store, status: currentStatus, category: currentCategory };
   if (!NOTE_ID) body.note_type = EDITOR_TYPE;
   fetch(url, {
     method: method,
@@ -373,7 +379,7 @@ function ensureNoteExists() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       title: title, content: '', store: store,
-      status: currentStatus, priority: currentPriority, note_type: EDITOR_TYPE
+      status: currentStatus, category: currentCategory, note_type: EDITOR_TYPE
     })
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.id) {
