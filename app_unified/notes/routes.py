@@ -862,7 +862,7 @@ def notes_ai_summary():
     if not current_user.is_admin():
         return jsonify({"status": "error", "message": "僅限管理員"}), 403
     data = request.get_json(silent=True) or {}
-    store = data.get("store", "all")
+    store = data.get("store", "")
     # Admin 只能摘要自己的店
     if current_user.is_admin() and not current_user.is_super_admin():
         store = current_user.store
@@ -874,12 +874,16 @@ def notes_ai_summary():
         end_utc = None
 
     valid_stores = [s.name for s in Store.query.all()]
-    query = Note.query.filter(Note.updated_at >= start_utc)
+    if store not in valid_stores:
+        return jsonify({"status": "error", "message": "請選擇店別"}), 400
+
+    query = (Note.query
+             .filter(Note.updated_at >= start_utc)
+             .filter_by(store=store)
+             .filter(Note.category != "personal"))
     if end_utc:
         query = query.filter(Note.updated_at < end_utc)
-    if store != "all" and store in valid_stores:
-        query = query.filter_by(store=store)
-    notes = query.order_by(Note.store, Note.updated_at.desc()).all()
+    notes = query.order_by(Note.updated_at.desc()).all()
 
     # DEBUG: 確認撈到的筆記（部署穩定後可移除）
     import logging
@@ -895,12 +899,8 @@ def notes_ai_summary():
     # 拆成一般筆記 / 確認表單兩段（已完成項目只列區間內 updated 的）
     data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc)
 
-    store_label = f"「{store}店」" if store != "all" else "全店"
-    extra = ""
-    if store == "all":
-        extra = "\n# 額外要求\n請在輸出最前面依「店別」分組，每組內再依下述結構排列。\n"
-    else:
-        extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
+    store_label = f"「{store}店」"
+    extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
 
     # 資料量大時拆成筆記 + 確認表單兩批分別呼叫
     if nreg > 0 and has_cl and len(data_block) > 6000:

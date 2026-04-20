@@ -71,9 +71,8 @@
     <strong style="font-size:.95rem;">🤖 AI 摘要</strong>
     {% if current_user.is_super_admin() %}
     <select id="ai-store-select" style="font-size:.85rem;padding:.3rem .5rem;border-radius:6px;border:1px solid #ddd;min-height:36px;">
-      <option value="all">全店</option>
       {% for s in stores %}
-      <option value="{{ s }}">{{ s }} 店</option>
+      <option value="{{ s }}" {% if current_user.store == s %}selected{% endif %}>{{ s }} 店</option>
       {% endfor %}
     </select>
     {% else %}
@@ -345,8 +344,9 @@ function saveSummaryAsNote() {
     body: JSON.stringify({
       title: title,
       content: content,
-      store: store === 'all' ? '' : store,
-      status: 'pending'
+      store: store,
+      status: 'pending',
+      category: 'personal'
     })
   }).then(function(res) { return res.json(); }).then(function(data) {
     if (data.id) {
