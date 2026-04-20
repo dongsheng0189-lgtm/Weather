@@ -71,6 +71,9 @@
     <strong style="font-size:.95rem;">🤖 AI 摘要</strong>
     {% if current_user.is_super_admin() %}
     <select id="ai-store-select" style="font-size:.85rem;padding:.3rem .5rem;border-radius:6px;border:1px solid #ddd;min-height:36px;">
+      {% if not current_user.store %}
+      <option value="" selected disabled>-- 請選擇店別 --</option>
+      {% endif %}
       {% for s in stores %}
       <option value="{{ s }}" {% if current_user.store == s %}selected{% endif %}>{{ s }} 店</option>
       {% endfor %}
@@ -281,6 +284,10 @@ function generateSummary() {
   var statusEl = document.getElementById('ai-status');
   var outputEl = document.getElementById('ai-summary-output');
   var saveBtn = document.getElementById('btn-save-summary');
+  if (!store) {
+    alert('請先選擇店別');
+    return;
+  }
   btn.disabled = true;
   statusEl.textContent = 'AI 整理中… 已等待 0 秒';
   outputEl.style.display = 'none';
