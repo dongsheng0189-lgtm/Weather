@@ -347,7 +347,7 @@ def create_app():
         if (p.startswith("/static/") or p == "/sw.js"
                 or p == "/healthz" or p == "/robots.txt"):
             return response
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
         return response
