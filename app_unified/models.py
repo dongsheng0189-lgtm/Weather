@@ -6,7 +6,16 @@ from extensions import db
 from crypto import EncryptedText
 
 STATUS_CHOICES = ["pending", "in_progress", "resolved"]
-PRIORITY_CHOICES = ["high", "medium", "low"]
+PRIORITY_CHOICES = ["high", "medium", "low"]  # DEPRECATED: use CATEGORY_* instead
+CATEGORY_CHOICES = ["employee", "customer", "misc", "personal", "unclassified"]
+CATEGORY_LABELS = {
+    "employee": "員工",
+    "customer": "客人",
+    "misc": "雜事",
+    "personal": "個人",
+    "unclassified": "未分類",
+}
+CATEGORY_CREATABLE = ["employee", "customer", "misc", "personal"]
 
 
 def sha256(text: str) -> str:
@@ -94,7 +103,7 @@ class Note(db.Model):
     ai_outline = db.Column(EncryptedText)
     store = db.Column(db.Text, nullable=True)
     status = db.Column(db.Text, nullable=False, default="pending")
-    priority = db.Column(db.Text, nullable=False, default="medium")
+    category = db.Column(db.Text, nullable=False, default="unclassified")
     updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     locked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at = db.Column(db.DateTime, nullable=True)

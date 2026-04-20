@@ -93,7 +93,7 @@ def _mk_note(db_session, user, content="第一行\n第二行\n第三行"):
         content=content,
         store=user.store,
         status="active",
-        priority="medium",
+        category="unclassified",
     )
     db_session.add(n)
     db_session.commit()

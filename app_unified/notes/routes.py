@@ -266,7 +266,7 @@ def create_note():
     else:
         store = current_user.store if current_user.store in stores else None
     status = data.get("status") if data.get("status") in STATUS_CHOICES else "pending"
-    priority = data.get("priority") if data.get("priority") in PRIORITY_CHOICES else "medium"
+    # priority = data.get("priority") if data.get("priority") in PRIORITY_CHOICES else "medium"
     note_type = data.get("note_type") if data.get("note_type") in ("note", "checklist") else "note"
     note = Note(
         user_id=current_user.id,
@@ -276,7 +276,7 @@ def create_note():
         content=data.get("content", ""),
         store=store,
         status=status,
-        priority=priority,
+        # priority=priority,
         created_at=now,
         updated_at=now,
     )
@@ -348,10 +348,11 @@ def update_note(note_id):
             elif note.status == "resolved" and new_status != "resolved":
                 note.resolved_at = None
         note.status = new_status
-    if "priority" in data and data["priority"] in PRIORITY_CHOICES:
-        if data["priority"] != note.priority:
-            diff_parts.append(f"優先度: {note.priority} → {data['priority']}")
-        note.priority = data["priority"]
+    # TODO: Move priority to category in later tasks
+    # if "priority" in data and data["priority"] in PRIORITY_CHOICES:
+    #     if data["priority"] != note.priority:
+    #         diff_parts.append(f"優先度: {note.priority} → {data['priority']}")
+    #     note.priority = data["priority"]
 
     # 編輯鎖檢查：如果被別人鎖定（非過期），拒絕
     is_locked, locker = _lock_status(note)

@@ -17,7 +17,7 @@ def _mk_note(db_session, status="resolved", resolved_at=None, user_id=None):
         content="c",
         store=None,
         status=status,
-        priority="medium",
+        category="unclassified",
     )
     n.resolved_at = resolved_at
     db_session.add(n)
