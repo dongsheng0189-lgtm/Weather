@@ -36,15 +36,17 @@
 .status-pending     { background: #ecf0f1; color: #7f8c8d; }
 .status-in_progress { background: #d6eaf8; color: #2980b9; }
 .status-resolved    { background: #d5f5e3; color: #27ae60; }
+.category-badge { display:inline-block; padding:.1rem .5rem; border-radius:10px; font-size:.72rem; font-weight:700; color:#fff; }
+.category-badge.category-employee    { background:#3498db; }
+.category-badge.category-customer    { background:#e67e22; }
+.category-badge.category-misc        { background:#95a5a6; }
+.category-badge.category-personal    { background:#9b59b6; }
+.category-badge.category-unclassified{ background:#bdc3c7; color:#555; }
 .status-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .range-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
 /* 隱私黑幕 */
 #privacy-screen { position: fixed; inset: 0; background: #000; z-index: 9999; display: none; cursor: pointer; opacity: 0; transition: opacity .4s ease; }
 #privacy-screen.visible { display: block; opacity: 1; }
-.priority-badge { display: inline-block; padding: .1rem .45rem; border-radius: 10px; font-size: .72rem; font-weight: 700; color: #fff; }
-.priority-high   { background: #e74c3c; }
-.priority-medium { background: #e67e22; }
-.priority-low    { background: #95a5a6; }
 </style>
 {% endblock %}
 {% block content %}
@@ -58,8 +60,8 @@
 <div class="toolbar">
   <h2>我的筆記</h2>
   <div style="display:flex;gap:.5rem;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;">
-    <a href="{{ url_for('notes.new_note') }}" class="btn btn-primary">+ 新增筆記</a>
-    <a href="{{ url_for('notes.new_note', type='checklist') }}" class="btn btn-primary" style="background:#27ae60;">☑ 新增確認表單</a>
+    <button type="button" class="btn btn-primary" onclick="openCategoryModal('note')">+ 新增筆記</button>
+    <button type="button" class="btn btn-primary" style="background:#27ae60;" onclick="openCategoryModal('checklist')">☑ 新增確認表單</button>
   </div>
 </div>
 
@@ -109,33 +111,36 @@
   <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">清除</a>
   {% endif %}
 </form>
-{% set priority_labels = {'':'全部優先權','high':'高','medium':'中','low':'低'} %}
+{% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('misc','雜事'),('personal','個人'),('unclassified','未分類')] %}
 <div class="range-tabs">
-  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">優先權：</span>
-  {% for val, label in priority_labels.items() %}
-  <a href="{{ url_for('notes.index', store=current_store, priority=val) }}"
-     class="store-tab {% if active_filter == 'priority' and current_priority == val %}active{% endif %}"
-     style="{% if active_filter == 'priority' and current_priority == val %}background:#e74c3c;color:#fff;{% endif %}">{{ label }}</a>
+  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">種類：</span>
+  {% for val, label in cat_tab_labels %}
+  <a href="{{ url_for('notes.index', store=current_store, category=val) }}"
+     class="store-tab {% if current_category == val %}active{% endif %}"
+     style="{% if current_category == val and val %}background:#3498db;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
 <div class="range-tabs">
-  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">日期範圍：</span>
+  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">時間：</span>
   {% set range_labels = [('today','今天'),('3d','近3天'),('7d','近7天'),('30d','近月')] %}
   {% for val, label in range_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, range=val) }}"
-     class="store-tab {% if active_filter == 'range' and current_range == val %}active{% endif %}"
-     style="{% if active_filter == 'range' and current_range == val %}background:#2c3e50;color:#fff;{% endif %}">{{ label }}</a>
+  <a href="{{ url_for('notes.index', store=current_store, category=current_category, range=val) }}"
+     class="store-tab {% if current_range == val %}active{% endif %}"
+     style="{% if current_range == val %}background:#2c3e50;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
-{% set status_labels = {'':'全部狀態','pending':'待處理','in_progress':'待討論','resolved':'已解決'} %}
+{% set status_labels = [('','全部'),('pending','待處理'),('in_progress','待討論'),('resolved','已解決')] %}
 <div class="status-tabs">
-  {% for val, label in status_labels.items() %}
-  <a href="{{ url_for('notes.index', store=current_store, status=val) }}"
-     class="store-tab {% if active_filter == 'status' and current_status == val %}active{% endif %}"
-     style="{% if val == '' and active_filter == 'status' and current_status == val %}background:#2c3e50;color:#fff;
-            {% elif val == 'pending' and active_filter == 'status' and current_status == val %}background:#95a5a6;color:#fff;
-            {% elif val == 'in_progress' and active_filter == 'status' and current_status == val %}background:#3498db;color:#fff;
-            {% elif val == 'resolved' and active_filter == 'status' and current_status == val %}background:#27ae60;color:#fff;
+  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">狀態：</span>
+  {% for val, label in status_labels %}
+  <a href="{{ url_for('notes.index', store=current_store, category=current_category, range=current_range, status=val) }}"
+     class="store-tab {% if current_status == val %}active{% endif %}"
+     style="{% if current_status == val %}
+              {% if val == '' %}background:#2c3e50;color:#fff;
+              {% elif val == 'pending' %}background:#95a5a6;color:#fff;
+              {% elif val == 'in_progress' %}background:#3498db;color:#fff;
+              {% elif val == 'resolved' %}background:#27ae60;color:#fff;
+              {% endif %}
             {% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
@@ -157,8 +162,7 @@
       {% if note.store %}<span class="store-badge badge-{{ note.store }}">{{ note.store }}</span>{% endif %}
       {% set slabels = {'pending':'待處理','in_progress':'待討論','resolved':'已解決'} %}
       <span class="status-badge status-{{ note.status or 'pending' }}">{{ slabels.get(note.status or 'pending', note.status) }}</span>
-      {% set plabels = {'high':'高','medium':'中','low':'低'} %}
-      <span class="priority-badge priority-{{ note.priority or 'medium' }}">{{ plabels.get(note.priority or 'medium', note.priority) }}</span>
+      <span class="category-badge category-{{ note.category or 'unclassified' }}">{{ category_labels.get(note.category or 'unclassified', note.category) }}</span>
     </div>
     <div class="meta" style="margin-top:.2rem;">
       <span style="font-size:.85rem;color:#888;font-weight:600;">{{ note.display_author or '—' }} · {{ note.created_at | fmt_date }}</span>
@@ -169,7 +173,7 @@
 {% if pagination.pages > 1 %}
 <div style="display:flex;justify-content:center;align-items:center;gap:.5rem;margin-top:1.5rem;flex-wrap:wrap;">
   {% if pagination.has_prev %}
-  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, priority=current_priority, q=current_keyword, page=pagination.prev_num) }}"
+  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, q=current_keyword, page=pagination.prev_num) }}"
      style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">‹ 上一頁</a>
   {% endif %}
   {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
@@ -177,7 +181,7 @@
       {% if p == pagination.page %}
       <span style="padding:.4rem .8rem;border-radius:6px;background:#2c3e50;color:#fff;font-size:.9rem;font-weight:600;">{{ p }}</span>
       {% else %}
-      <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, priority=current_priority, q=current_keyword, page=p) }}"
+      <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, q=current_keyword, page=p) }}"
          style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">{{ p }}</a>
       {% endif %}
     {% else %}
@@ -185,7 +189,7 @@
     {% endif %}
   {% endfor %}
   {% if pagination.has_next %}
-  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, priority=current_priority, q=current_keyword, page=pagination.next_num) }}"
+  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, q=current_keyword, page=pagination.next_num) }}"
      style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">下一頁 ›</a>
   {% endif %}
   <span style="font-size:.82rem;color:#999;margin-left:.5rem;">共 {{ pagination.total }} 筆</span>
@@ -197,6 +201,43 @@
   <a href="{{ url_for('notes.new_note') }}" class="btn btn-primary" style="margin-top:1rem;">新增第一篇筆記</a>
 </div>
 {% endif %}
+
+<dialog id="category-modal" style="padding:1.5rem; border-radius:12px; border:none; box-shadow:0 10px 40px rgba(0,0,0,0.15); max-width:360px;">
+  <h3 style="margin:0 0 1rem 0;">選擇類別</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:.6rem;">
+    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('employee')" style="background:#3498db;">員工</button>
+    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('customer')" style="background:#e67e22;">客人</button>
+    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('misc')" style="background:#95a5a6;">雜事</button>
+    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('personal')" style="background:#9b59b6;">個人</button>
+  </div>
+  <div style="text-align:right; margin-top:1rem;">
+    <button type="button" class="btn btn-secondary" onclick="closeCategoryModal()" style="font-size:.85rem;">取消</button>
+  </div>
+</dialog>
+
+<script>
+var _pendingType = 'note';
+function openCategoryModal(type) {
+  _pendingType = type;
+  var dlg = document.getElementById('category-modal');
+  if (dlg && dlg.showModal) dlg.showModal();
+}
+function closeCategoryModal() {
+  var dlg = document.getElementById('category-modal');
+  if (dlg && dlg.close) dlg.close();
+}
+function chooseCategoryAndGo(cat) {
+  var qs = '?type=' + encodeURIComponent(_pendingType) + '&category=' + encodeURIComponent(cat);
+  window.location.href = '/notes/new' + qs;
+}
+document.addEventListener('DOMContentLoaded', function() {
+  var dlg = document.getElementById('category-modal');
+  if (!dlg) return;
+  dlg.addEventListener('click', function(e) {
+    if (e.target === dlg) closeCategoryModal();
+  });
+});
+</script>
 
 <!-- Face enroll modal -->
 <div id="enroll-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:2rem 0;">
