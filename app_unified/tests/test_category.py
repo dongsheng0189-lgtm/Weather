@@ -162,15 +162,15 @@ def test_put_api_updates_category(app, client, db_session):
 def test_filter_by_category(app, client, db_session):
     u = _mk_user(db_session, role="super_admin", store="B")
     _login(client, u)
-    _mk_note(db_session, u, category="employee", title="e1")
-    _mk_note(db_session, u, category="customer", title="c1")
-    _mk_note(db_session, u, category="misc", title="m1")
+    _mk_note(db_session, u, category="employee", title="emp_note_uniqXYZ")
+    _mk_note(db_session, u, category="customer", title="cust_note_uniqXYZ")
+    _mk_note(db_session, u, category="misc", title="misc_note_uniqXYZ")
     r = client.get("/notes/?category=employee&range=30d")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    assert "e1" in html
-    assert "c1" not in html
-    assert "m1" not in html
+    assert "emp_note_uniqXYZ" in html
+    assert "cust_note_uniqXYZ" not in html
+    assert "misc_note_uniqXYZ" not in html
 
 
 def test_filter_unclassified_visible(app, client, db_session):
