@@ -6,7 +6,6 @@ from extensions import db
 from crypto import EncryptedText
 
 STATUS_CHOICES = ["pending", "in_progress", "resolved"]
-PRIORITY_CHOICES = ["high", "medium", "low"]  # DEPRECATED: use CATEGORY_* instead
 CATEGORY_CHOICES = ["employee", "customer", "misc", "personal", "unclassified"]
 CATEGORY_LABELS = {
     "employee": "員工",

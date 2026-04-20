@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, PRIORITY_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE
+from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE
 from admin.routes import call_llm
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/notes")
@@ -1217,6 +1217,6 @@ def edit_note(note_id):
         _acquire_lock(note)
         db.session.commit()
     return render_template("notes/editor.html", note=note, stores=stores,
-                           status_choices=STATUS_CHOICES, priority_choices=PRIORITY_CHOICES,
+                           status_choices=STATUS_CHOICES,
                            is_readonly=is_locked,
                            locker_name=locker.username if locker else None)
