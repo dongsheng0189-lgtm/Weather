@@ -56,3 +56,58 @@ def test_category_constants_defined():
     assert CATEGORY_LABELS["personal"] == "個人"
     assert CATEGORY_LABELS["unclassified"] == "未分類"
     assert CATEGORY_CREATABLE == ["employee", "customer", "misc", "personal"]
+
+
+def test_new_note_with_category_employee(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    r = client.get("/notes/new?type=note&category=employee")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    # default_title 應為 "M/D 員工"（不帶 username）
+    assert "員工" in html
+    # 找 title-input 的 value，驗證不含 username
+    import re
+    m = re.search(r'id="title-input"[^>]*value="([^"]*)"', html)
+    assert m, "找不到 title-input"
+    title_val = m.group(1)
+    assert "員工" in title_val
+    assert u.username not in title_val, f"employee 類別不該帶 username，但 title={title_val!r}"
+
+
+def test_new_note_with_category_personal(app, client, db_session):
+    u = _mk_user(db_session, username="alice")
+    _login(client, u)
+    r = client.get("/notes/new?type=note&category=personal")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "alice筆記" in html
+
+
+def test_new_checklist_with_category_customer(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    r = client.get("/notes/new?type=checklist&category=customer")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "客人" in html
+
+
+def test_new_note_without_category(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    r = client.get("/notes/new?type=note")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    # fallback unclassified → 帶 username（沿用舊 default）
+    assert u.username in html
+
+
+def test_new_note_invalid_category(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    r = client.get("/notes/new?type=note&category=hacker")
+    assert r.status_code == 200
+    # 防禦 fallback unclassified → 帶 username
+    html = r.get_data(as_text=True)
+    assert u.username in html

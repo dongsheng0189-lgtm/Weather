@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, PRIORITY_CHOICES
+from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, PRIORITY_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE
 from admin.routes import call_llm
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/notes")
@@ -196,12 +196,24 @@ def new_note():
     note_type = request.args.get("type", "note")
     if note_type not in ("note", "checklist"):
         note_type = "note"
+    category = request.args.get("category", "unclassified")
+    if category not in CATEGORY_CREATABLE:
+        category = "unclassified"
+
     today = datetime.now(_TW).strftime("%-m/%-d")
     type_label = "確認表單" if note_type == "checklist" else "筆記"
-    default_title = f"{today} {current_user.username}{type_label}"
+    if category in ("personal", "unclassified"):
+        default_title = f"{today} {current_user.username}{type_label}"
+    else:
+        default_title = f"{today} {CATEGORY_LABELS[category]}"
+
     return render_template("notes/editor.html", note=None, stores=stores,
-                           status_choices=STATUS_CHOICES, priority_choices=PRIORITY_CHOICES,
-                           default_title=default_title, note_type=note_type)
+                           status_choices=STATUS_CHOICES,
+                           category_choices=CATEGORY_CHOICES,
+                           category_labels=CATEGORY_LABELS,
+                           default_title=default_title,
+                           note_type=note_type,
+                           default_category=category)
 
 
 @notes_bp.route("/api", methods=["GET"])
