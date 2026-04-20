@@ -150,36 +150,37 @@ else:
 ### 檔案：`migrations/versions/006_replace_priority_with_category.py`
 
 沿用 005 的部署模式（`cd /app && python migrations/versions/006_xxx.py`）。
+**DB 是 PostgreSQL**（生產）/ SQLite in-memory（test）。Migration 用 PostgreSQL syntax（跟 003、005 一致，用 `psycopg2`）。
 
 ### 步驟（依序，每步 idempotent）
 
 1. **新增 `category` column**
-   ```python
-   cols = [r[1] for r in db.session.execute(text("PRAGMA table_info(note)")).fetchall()]
-   if 'category' not in cols:
-       db.session.execute(text(
-           "ALTER TABLE note ADD COLUMN category TEXT NOT NULL DEFAULT 'unclassified'"
-       ))
+   ```sql
+   ALTER TABLE notes ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'unclassified'
    ```
    新舊 row 都自動填 `unclassified`。
 
 2. **Drop `priority` column**
-   ```python
-   try:
-       db.session.execute(text("ALTER TABLE note DROP COLUMN priority"))
-   except Exception:
-       logger.warning("DROP COLUMN priority failed; leaving column in place")
+   ```sql
+   ALTER TABLE notes DROP COLUMN IF EXISTS priority
    ```
-   SQLite DROP COLUMN 從 3.35 起支援。若版本太舊，code 不再讀 priority，留著也無害。
+   PostgreSQL 9.0+ 原生支援 `DROP COLUMN IF EXISTS`，失敗直接 throw。
 
 3. **不碰任何加密欄位**：title / content / author_name / ai_summary 完全不動。migration 只動 schema。
 
 ### 程式端清理
 
-- `notes/routes.py`：刪 `PRIORITY_CHOICES`、刪 `priority_filter` 所有相關程式碼
-- `templates/notes/editor.html`：刪 priority-selector 區塊
-- `templates/notes/index.html`：priority badge 改 category badge
+- `models.py:9`：刪 `PRIORITY_CHOICES`，加 `CATEGORY_CHOICES` / `CATEGORY_LABELS` / `CATEGORY_CREATABLE`
 - `models.py:97`：刪 `priority` 欄位，加 `category`
+- `notes/routes.py`：刪所有 `PRIORITY_CHOICES` import 和 `priority_filter` 邏輯（7 處）；加 category 對應邏輯
+- `notes/ws.py`：同 routes.py，刪所有 `PRIORITY_CHOICES` / `priority` 處理（5 處），改 category
+- `templates/notes/editor.html`：刪 priority-selector 的 CSS、HTML、JS 變數、selectPriority() 函式、save body payload，全改 category
+- `templates/notes/index.html`：
+  - 按鈕改 modal 觸發（`+ 新增筆記` / `☑ 新增確認表單`）
+  - 篩選 tab：刪 priority tab、加 category tab、重組順序
+  - badge 改 category badge
+  - pagination href 同步改
+  - 底部加 `<dialog>` modal
 
 ### 遷移後行為保證
 
@@ -213,14 +214,15 @@ else:
 | `test_filter_keyword_exclusive` | `?q=xxx&category=employee` → 只套用 keyword，category 被忽略 |
 | `test_filter_unclassified_visible` | 建一筆 unclassified → `?category=unclassified` 篩得到 |
 
-### Migration 測試：`tests/test_migration_006.py`
+### Migration 測試
 
-| Test | 目的 |
-|---|---|
-| `test_migration_adds_category_column` | 跑 up → `PRAGMA table_info` 有 `category` |
-| `test_migration_idempotent` | 連跑兩次不出錯 |
-| `test_migration_preserves_existing_data` | 事前建 3 筆，跑 migration 後筆數、title、content 不變 |
-| `test_migration_drops_priority_column` | 跑 up → `priority` column 不存在（或至少不被 code 讀到）|
+Test DB 是 SQLite in-memory，Migration 是 PostgreSQL-only（用 psycopg2）。不在 pytest 裡跑 migration SQL。改為：
+
+- Model 層測試：新建 Note 時 `category` 預設 `unclassified`，可寫入所有合法 enum 值（已在 `test_filter_by_category` 等涵蓋）
+- Migration 手動驗證（部署前）：在 local 開一個 PostgreSQL container，跑 up，驗證：
+  1. `\d notes` 顯示 `category` column 存在、`priority` 不存在
+  2. 連跑兩次不出錯（`IF NOT EXISTS` / `IF EXISTS` 保證）
+  3. 事前 INSERT 幾筆 note，跑 migration 後 SELECT 筆數、title、content 不變
 
 ### 手動驗收清單（部署後）
 
