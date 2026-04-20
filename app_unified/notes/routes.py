@@ -258,7 +258,7 @@ def list_notes():
         "id": n.id, "title": n.title, "content": n.content,
         "note_type": n.note_type or "note",
         "store": n.store, "status": n.status or "pending",
-        "priority": n.priority or "medium",
+        "category": n.category or "unclassified",
         "author": n.display_author,
         "created_at": n.created_at.isoformat() if n.created_at else "",
         "updated_at": n.updated_at.isoformat() if n.updated_at else "",
@@ -278,7 +278,7 @@ def create_note():
     else:
         store = current_user.store if current_user.store in stores else None
     status = data.get("status") if data.get("status") in STATUS_CHOICES else "pending"
-    # priority = data.get("priority") if data.get("priority") in PRIORITY_CHOICES else "medium"
+    category = data.get("category") if data.get("category") in CATEGORY_CHOICES else "unclassified"
     note_type = data.get("note_type") if data.get("note_type") in ("note", "checklist") else "note"
     note = Note(
         user_id=current_user.id,
@@ -288,7 +288,7 @@ def create_note():
         content=data.get("content", ""),
         store=store,
         status=status,
-        # priority=priority,
+        category=category,
         created_at=now,
         updated_at=now,
     )
@@ -317,7 +317,7 @@ def get_note(note_id):
         "id": note.id, "title": note.title, "content": note.content,
         "note_type": note.note_type or "note",
         "store": note.store, "status": note.status or "pending",
-        "priority": note.priority or "medium",
+        "category": note.category or "unclassified",
         "ai_summary": note.ai_summary, "ai_outline": note.ai_outline,
         "updated_by": updater,
         "created_at": note.created_at.isoformat() if note.created_at else "",
@@ -360,11 +360,10 @@ def update_note(note_id):
             elif note.status == "resolved" and new_status != "resolved":
                 note.resolved_at = None
         note.status = new_status
-    # TODO: Move priority to category in later tasks
-    # if "priority" in data and data["priority"] in PRIORITY_CHOICES:
-    #     if data["priority"] != note.priority:
-    #         diff_parts.append(f"優先度: {note.priority} → {data['priority']}")
-    #     note.priority = data["priority"]
+    if "category" in data and data["category"] in CATEGORY_CHOICES:
+        if data["category"] != note.category:
+            diff_parts.append(f"類別: {note.category} → {data['category']}")
+        note.category = data["category"]
 
     # 編輯鎖檢查：如果被別人鎖定（非過期），拒絕
     is_locked, locker = _lock_status(note)

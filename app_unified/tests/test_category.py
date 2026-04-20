@@ -111,3 +111,49 @@ def test_new_note_invalid_category(app, client, db_session):
     # 防禦 fallback unclassified → 帶 username
     html = r.get_data(as_text=True)
     assert u.username in html
+
+
+def test_post_api_accepts_valid_category(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    r = client.post("/notes/api", json={
+        "title": "T", "content": "C",
+        "category": "employee", "status": "pending", "note_type": "note",
+    })
+    assert r.status_code == 201
+    nid = r.get_json()["id"]
+    db_session.expire_all()
+    n = Note.query.get(nid)
+    assert n.category == "employee"
+
+
+def test_post_api_rejects_invalid_category_fallback(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    r = client.post("/notes/api", json={
+        "title": "T", "content": "C",
+        "category": "hacker", "status": "pending", "note_type": "note",
+    })
+    assert r.status_code == 201  # fallback unclassified, not 400
+    nid = r.get_json()["id"]
+    db_session.expire_all()
+    assert Note.query.get(nid).category == "unclassified"
+
+
+def test_get_api_returns_category(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    n = _mk_note(db_session, u, category="customer")
+    r = client.get(f"/notes/api/{n.id}")
+    assert r.status_code == 200
+    assert r.get_json()["category"] == "customer"
+
+
+def test_put_api_updates_category(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    n = _mk_note(db_session, u, category="unclassified")
+    r = client.put(f"/notes/api/{n.id}", json={"category": "misc"})
+    assert r.status_code == 200
+    db_session.expire_all()
+    assert Note.query.get(n.id).category == "misc"
