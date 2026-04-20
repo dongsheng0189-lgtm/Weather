@@ -132,7 +132,7 @@ def index():
     store_filter = request.args.get("store", "")
     status_filter = request.args.get("status", "")
     range_param = request.args.get("range", "")
-    priority_filter = request.args.get("priority", "")
+    category_filter = request.args.get("category", "")
     keyword = request.args.get("q", "").strip()
     page = request.args.get("page", 1, type=int)
     per_page = 20
@@ -140,7 +140,7 @@ def index():
 
     query = Note.query
 
-    # 店別範圍
+    # 店別範圍（不變）
     if current_user.is_super_admin():
         if store_filter in stores:
             query = query.filter_by(store=store_filter)
@@ -149,22 +149,19 @@ def index():
     else:
         query = query.filter_by(store=current_user.store)
 
-    # 互斥篩選：關鍵字 > 優先權 > 狀態 > 日期範圍
-    active_filter = None
+    # keyword 互斥：有 keyword 時忽略其他篩選
     keyword_mode = False
+    active_filter = None
     if keyword:
         active_filter = 'keyword'
-        keyword_mode = True   # title/content 已加密，無法 SQL ilike → Python 端 filter
-    elif priority_filter and priority_filter in PRIORITY_CHOICES:
-        active_filter = 'priority'
-        query = query.filter_by(priority=priority_filter)
-    elif status_filter is not None and 'status' in request.args:
-        active_filter = 'status'
+        keyword_mode = True
+    else:
+        # AND 組合：category + status + range
+        active_filter = 'combined'
+        if category_filter in CATEGORY_CHOICES:
+            query = query.filter_by(category=category_filter)
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
-        # status='' (全部狀態) → 不加 filter，顯示全部
-    else:
-        active_filter = 'range'
         if not range_param:
             range_param = 'today'
         query = _date_filter(query, range_param)
@@ -182,11 +179,12 @@ def index():
                            current_store=store_filter,
                            current_status=status_filter,
                            current_range=range_param,
-                           current_priority=priority_filter,
+                           current_category=category_filter,
                            current_keyword=keyword,
                            active_filter=active_filter,
                            status_choices=STATUS_CHOICES,
-                           priority_choices=PRIORITY_CHOICES)
+                           category_choices=CATEGORY_CHOICES,
+                           category_labels=CATEGORY_LABELS)
 
 
 @notes_bp.route("/new", methods=["GET"])
@@ -222,7 +220,7 @@ def list_notes():
     store_filter = request.args.get("store", "")
     status_filter = request.args.get("status", "")
     range_param = request.args.get("range", "")
-    priority_filter = request.args.get("priority", "")
+    category_filter = request.args.get("category", "")
     keyword = request.args.get("q", "").strip()
     stores = _get_stores()
 
@@ -238,8 +236,8 @@ def list_notes():
     keyword_mode = False
     if keyword:
         keyword_mode = True   # title/content 加密 → Python 端 filter
-    elif priority_filter and priority_filter in PRIORITY_CHOICES:
-        query = query.filter_by(priority=priority_filter)
+    elif category_filter and category_filter in CATEGORY_CHOICES:
+        query = query.filter_by(category=category_filter)
     elif 'status' in request.args:
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)

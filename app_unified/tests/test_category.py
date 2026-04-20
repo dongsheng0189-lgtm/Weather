@@ -157,3 +157,81 @@ def test_put_api_updates_category(app, client, db_session):
     assert r.status_code == 200
     db_session.expire_all()
     assert Note.query.get(n.id).category == "misc"
+
+
+def test_filter_by_category(app, client, db_session):
+    u = _mk_user(db_session, role="super_admin", store="B")
+    _login(client, u)
+    _mk_note(db_session, u, category="employee", title="e1")
+    _mk_note(db_session, u, category="customer", title="c1")
+    _mk_note(db_session, u, category="misc", title="m1")
+    r = client.get("/notes/?category=employee&range=30d")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "e1" in html
+    assert "c1" not in html
+    assert "m1" not in html
+
+
+def test_filter_unclassified_visible(app, client, db_session):
+    u = _mk_user(db_session, role="super_admin", store="B")
+    _login(client, u)
+    _mk_note(db_session, u, category="unclassified", title="old_note_abc")
+    r = client.get("/notes/?category=unclassified&range=30d")
+    assert r.status_code == 200
+    assert "old_note_abc" in r.get_data(as_text=True)
+
+
+def test_filter_keyword_exclusive(app, client, db_session):
+    """有 keyword 時,category/status/range 全部忽略"""
+    u = _mk_user(db_session, role="super_admin", store="B")
+    _login(client, u)
+    _mk_note(db_session, u, category="employee", title="hello_world_A", content="x")
+    _mk_note(db_session, u, category="customer", title="hello_universe_B", content="y")
+    r = client.get("/notes/?q=hello&category=employee")
+    html = r.get_data(as_text=True)
+    assert "hello_world_A" in html
+    assert "hello_universe_B" in html
+
+
+def test_filter_category_and_status_combined(app, client, db_session):
+    u = _mk_user(db_session, role="super_admin", store="B")
+    _login(client, u)
+    _mk_note(db_session, u, category="employee", status="pending", title="noteA")
+    _mk_note(db_session, u, category="employee", status="resolved", title="noteB")
+    _mk_note(db_session, u, category="customer", status="pending", title="noteC")
+    r = client.get("/notes/?category=employee&status=pending&range=30d")
+    html = r.get_data(as_text=True)
+    assert "noteA" in html
+    assert "noteB" not in html
+    assert "noteC" not in html
+
+
+def test_filter_cascade_category_link_resets_time(app, client, db_session):
+    """category tab href 應該 reset range (不帶 range 或 range=)"""
+    u = _mk_user(db_session, role="super_admin", store="B")
+    _login(client, u)
+    r = client.get("/notes/?category=employee&range=7d&status=pending")
+    html = r.get_data(as_text=True)
+    import re
+    # 找 category=customer 的 tab href
+    m = re.search(r'href="([^"]*category=customer[^"]*)"', html)
+    assert m, "找不到 category=customer tab"
+    href = m.group(1)
+    # href 應該不含 range=7d 也不含 status=pending
+    assert "range=7d" not in href
+    assert "status=pending" not in href
+
+
+def test_filter_cascade_time_link_preserves_category_resets_status(app, client, db_session):
+    """range tab href 應維持 category 但 reset status"""
+    u = _mk_user(db_session, role="super_admin", store="B")
+    _login(client, u)
+    r = client.get("/notes/?category=employee&range=today&status=pending")
+    html = r.get_data(as_text=True)
+    import re
+    m = re.search(r'href="([^"]*range=3d[^"]*)"', html)
+    assert m, "找不到 range=3d tab"
+    href = m.group(1)
+    assert "category=employee" in href
+    assert "status=pending" not in href
