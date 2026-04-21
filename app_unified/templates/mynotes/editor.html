@@ -71,11 +71,8 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
       {% elif note_type == 'todo_note' %}📝 筆記
       {% else %}☑️ 清單{% endif %}
     </span>
-    {% if note_type == 'todo_checklist' %}
-      <button class="btn btn-primary" id="btn-save" onclick="doSave()">儲存</button>
-    {% endif %}
     {% if note %}<button class="btn btn-danger" onclick="doDelete()">刪除</button>{% endif %}
-    <span class="ed-save-status" id="save-status">{% if note_type != 'todo_checklist' %}自動儲存{% endif %}</span>
+    <span class="ed-save-status" id="save-status">自動儲存</span>
   </div>
 
   <input class="ed-title" id="title-input" placeholder="標題..." value="{{ note.title if note else default_title }}">
@@ -211,7 +208,7 @@ function doSave() {
         history.replaceState(null, '', '/mynotes/' + NOTE_ID);
       }
       setStatus('✓ 已儲存', '#27ae60');
-      setTimeout(function(){ setStatus(NOTE_TYPE === 'todo_checklist' ? '' : '自動儲存'); }, 1500);
+      setTimeout(function(){ setStatus('自動儲存'); }, 1500);
       return NOTE_ID;
     }
     setStatus('儲存失敗：' + (d.message || ''), '#e74c3c');
@@ -234,9 +231,9 @@ function scheduleAutoSave(delay) {
 }
 
 // beforeunload：若還有 pending 自動儲存，立刻 flush（用 keepalive fetch）
-// 清單類型不自動儲存，不需要 flush
+// 清單類型在尚未建立 note 前不 flush（避免產生空 note）
 window.addEventListener('beforeunload', function() {
-  if (NOTE_TYPE === 'todo_checklist') return;
+  if (NOTE_TYPE === 'todo_checklist' && !NOTE_ID) return;
   if (_autosaveTimer) {
     clearTimeout(_autosaveTimer);
     try {
@@ -257,11 +254,14 @@ window.addEventListener('beforeunload', function() {
   }
 });
 
-// 綁定 input 事件做自動儲存（清單類型不自動儲存）
+// 綁定 input 事件做自動儲存
+// 清單類型的 title 也自動存，但只在已建立 note 時觸發（避免空筆記）
 (function bindAutoSave() {
-  if (NOTE_TYPE === 'todo_checklist') return;
   var t = document.getElementById('title-input');
-  if (t) t.addEventListener('input', function(){ scheduleAutoSave(800); });
+  if (t) t.addEventListener('input', function(){
+    if (NOTE_TYPE === 'todo_checklist' && !NOTE_ID) return;
+    scheduleAutoSave(800);
+  });
   var c = document.getElementById('content-area');
   if (c) c.addEventListener('input', function(){ scheduleAutoSave(1000); });
   var rd = document.getElementById('reminder-date');
