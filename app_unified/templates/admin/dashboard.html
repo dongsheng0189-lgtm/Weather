@@ -494,10 +494,20 @@ async function renameUser(uid, oldName) {
 
 async function deleteUser(id, username) {
   if (!confirm(`確定要刪除員工「${username}」？\n該員工的筆記會保留，作者會顯示為「${username}（帳號已刪除）」。`)) return;
-  const res = await fetch(`/admin/users/${id}`, { method: 'DELETE' });
-  const data = await res.json();
+  let res = await fetch(`/admin/users/${id}`, { method: 'DELETE' });
+  let data = await res.json();
+  if (res.status === 409 && data.status === 'confirm_required') {
+    const lines = (data.devices || []).map(d => `• ${d.device_name}${d.is_approved ? '' : '（未核准）'}`).join('\n');
+    const ok = confirm(
+      `「${username}」綁定 ${data.devices.length} 個裝置：\n${lines}\n\n刪除使用者會一併刪除這些裝置（換手機請改用單獨刪除裝置）。\n確定繼續？`
+    );
+    if (!ok) return;
+    res = await fetch(`/admin/users/${id}?confirm=1`, { method: 'DELETE' });
+    data = await res.json();
+  }
   if (data.status === 'ok') {
     document.getElementById(`user-${id}`)?.remove();
+    if (data.devices_deleted) loadDevices();
   } else {
     alert(data.message || '刪除失敗');
   }

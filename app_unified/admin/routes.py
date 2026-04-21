@@ -233,6 +233,20 @@ def delete_user(user_id):
     if user.id == current_user.id:
         return jsonify({"status": "error", "message": "不可刪除自己"}), 400
     from models import NoteLog, NoteAttachment, LoginToken, ChecklistItem, TrustedDevice
+
+    # 先查綁定裝置；有裝置且未帶 confirm=1 → 回 409 讓前端二次確認
+    bound_devices = TrustedDevice.query.filter_by(user_id=user.id).all()
+    confirm = request.args.get("confirm") == "1"
+    if bound_devices and not confirm:
+        return jsonify({
+            "status": "confirm_required",
+            "message": f"此使用者綁定 {len(bound_devices)} 個裝置",
+            "devices": [
+                {"id": d.id, "device_name": d.device_name, "is_approved": d.is_approved}
+                for d in bound_devices
+            ],
+        }), 409
+
     # 筆記保留：確保 author_name 快照已存（顯示為「帳號 (帳號已刪除)」）
     Note.query.filter_by(user_id=user.id, author_name=None).update({"author_name": user.username})
     Note.query.filter_by(user_id=user.id).update({"user_id": None})
@@ -242,12 +256,17 @@ def delete_user(user_id):
     NoteLog.query.filter_by(user_id=user.id).update({"user_id": None})
     NoteAttachment.query.filter_by(user_id=user.id).update({"user_id": None})
     ChecklistItem.query.filter_by(checked_by=user.id).update({"checked_by": None})
-    TrustedDevice.query.filter_by(user_id=user.id).update({"user_id": None})
+    # 綁定裝置：與 user 一併刪除（使用者已確認），避免產生 orphan device
+    for d in bound_devices:
+        db.session.delete(d)
     LoginToken.query.filter_by(user_id=user.id).delete()
-    _log_user_action("delete", user, detail=f"role={user.role}, store={user.store or '—'}")
+    _log_user_action(
+        "delete", user,
+        detail=f"role={user.role}, store={user.store or '—'}, devices_deleted={len(bound_devices)}",
+    )
     db.session.delete(user)
     db.session.commit()
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "devices_deleted": len(bound_devices)})
 
 
 @admin_bp.route("/users/<int:user_id>/set-role", methods=["POST"])
