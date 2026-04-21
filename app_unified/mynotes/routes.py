@@ -358,7 +358,7 @@ def delete_item(item_id):
 @mynotes_bp.route("/api/attachments/upload", methods=["POST"])
 @login_required
 def upload_attachment_api():
-    from storage import upload_attachment, ALLOWED_CONTENT_TYPES, MAX_FILE_SIZE
+    from storage import upload_attachment, ALLOWED_CONTENT_TYPES_MYNOTES as ALLOWED_CONTENT_TYPES, MAX_FILE_SIZE
     file = request.files.get("file")
     note_id = request.form.get("note_id", type=int)
     item_id = request.form.get("item_id", type=int)

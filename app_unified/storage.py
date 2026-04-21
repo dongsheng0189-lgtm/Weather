@@ -53,6 +53,8 @@ ALLOWED_CONTENT_TYPES = {
     'image/jpeg', 'image/png', 'image/gif', 'image/webp',
     'video/mp4', 'video/quicktime', 'video/webm',
 }
+# 私人筆記額外接受 PDF（店務筆記不開放）
+ALLOWED_CONTENT_TYPES_MYNOTES = ALLOWED_CONTENT_TYPES | {'application/pdf'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
