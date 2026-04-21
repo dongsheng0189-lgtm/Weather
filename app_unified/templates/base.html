@@ -143,23 +143,31 @@
         : 5 * 60 * 1000;
       var lastActivity = Date.now();
       var kicking = false;
+      var cover = null;
 
       function resetTimer() { lastActivity = Date.now(); }
+
+      // 鎖屏時 JS 會被瀏覽器暫停；解鎖時先 paint 舊畫面才 fire visibilitychange，
+      // 所以必須在頁面變 hidden 的瞬間就先蓋黑幕，避免解鎖那一兩幀閃到筆記。
+      function showCover() {
+        if (cover && cover.isConnected) return;
+        cover = document.createElement('div');
+        cover.style.cssText = 'position:fixed;inset:0;background:#000;z-index:2147483647;';
+        document.documentElement.appendChild(cover);
+      }
+
+      function hideCover() {
+        if (cover && cover.isConnected) cover.remove();
+        cover = null;
+      }
 
       function coverAndLogout() {
         if (kicking) return;
         kicking = true;
-        // 立刻蓋上不透明黑幕，防止導航過程中筆記內容閃現
-        var cover = document.createElement('div');
-        cover.style.cssText = 'position:fixed;inset:0;background:#000;z-index:2147483647;';
-        document.documentElement.appendChild(cover);
-        // 清掉前端 session 殘留（保留 device_uid）
+        showCover();
         try {
-          var uid = localStorage.getItem('device_uid');
           sessionStorage.clear();
-          // 若未來有額外前端 session 資料要清，可在此加
         } catch (e) {}
-        // 下一幀再導航，確保黑幕已上螢幕
         requestAnimationFrame(function() {
           window.location.href = '/auth/logout';
         });
@@ -169,20 +177,30 @@
         if (Date.now() - lastActivity >= IDLE_LIMIT) coverAndLogout();
       }
 
-      // 偵測使用者操作
       document.addEventListener('mousemove', resetTimer);
       document.addEventListener('mousedown', resetTimer);
       document.addEventListener('keydown', resetTimer);
       document.addEventListener('touchstart', resetTimer);
       document.addEventListener('scroll', resetTimer);
 
-      // 每 30 秒檢查一次
       setInterval(checkIdle, 30000);
 
-      // 手機從口袋拿出來（螢幕亮起）時立即檢查
       document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) checkIdle();
+        if (document.hidden) {
+          // 鎖屏／切走 app 前預蓋黑幕
+          showCover();
+        } else {
+          // 回來時判斷：超時就登出（維持黑幕），沒超時就移除黑幕繼續用
+          if (Date.now() - lastActivity >= IDLE_LIMIT) {
+            coverAndLogout();
+          } else {
+            hideCover();
+          }
+        }
       });
+
+      // bfcache / PWA 背景化的備援
+      window.addEventListener('pagehide', showCover);
     })();
 
     // ── WebSocket 連接 + 流量填充 ──
