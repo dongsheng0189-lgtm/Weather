@@ -736,5 +736,5 @@ def get_logs():
         "operator": l.operator.username if l.operator else "?",
         "action": l.action,
         "diff": l.diff,
-        "created_at": l.created_at.strftime("%Y/%m/%d %H:%M") if l.created_at else "",
+        "created_at": (l.created_at.replace(tzinfo=timezone.utc).astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")) if l.created_at else "",
     } for l in logs])
