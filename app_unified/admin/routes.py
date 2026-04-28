@@ -32,7 +32,7 @@ except BaseException as _e:
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
-def _call_gemini(prompt: str, max_tokens: int) -> str:
+def _call_gemini(prompt: str, max_tokens: int, system_instruction: str = "") -> str:
     """Gemini 2.5 Flash（免費方案），含 429 retry"""
     api_key = current_app.config.get("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -46,6 +46,8 @@ def _call_gemini(prompt: str, max_tokens: int) -> str:
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": max_tokens},
     }
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
     for attempt in range(5):
         resp = _req.post(url, json=payload, timeout=120)
         if resp.status_code == 429:
@@ -99,25 +101,32 @@ def call_llm(prompt: str, max_tokens: int = 8192) -> str:
     logger = logging.getLogger("call_llm")
 
     safe_prompt, pii_map = redact(prompt)
+    sys_instr = ""
     if pii_map:
         logger.warning("=== LLM: redacted %d PII (types: %s) ===",
                        len(pii_map),
                        sorted({k.strip("[]").rstrip("0123456789") for k in pii_map}))
-        # 告知 LLM：這些 placeholder 是已遮罩的客戶識別資訊，必須完整保留
-        # 否則會被 LLM 當 metadata 過濾掉，restore 時就還原不出原值
-        safe_prompt = (
-            "# 個資遮罩說明（系統自動加入，請務必遵守）\n"
-            "以下內容中的 [id1] [id2] [tel1] [email1] [card1] [ph1] 等"
-            "中括號代號，代表已遮罩的客戶識別資訊"
-            "（身分證 / 手機 / Email / 信用卡 / 市話）。\n"
-            "**請在摘要輸出中完整保留這些代號原文**（不要省略、不要改寫格式、"
-            "不要加空白），系統會在輸出後自動還原成真實值。\n\n"
-            + safe_prompt
+        # 用 Gemini 的 systemInstruction 欄位（比 prompt 內文權重高），
+        # 並給明確範例，要求 LLM 把代號完整帶進摘要輸出
+        sys_instr = (
+            "輸入內容中會出現 [id1] [id2] [tel1] [email1] [card1] [ph1] 這類"
+            "小寫英文+數字的中括號代號，這是系統替使用者遮罩過的客戶識別資訊"
+            "（身分證 / 手機 / Email / 信用卡 / 市話）。\n\n"
+            "**重要規則：在你輸出的摘要中，只要原文有提到這些代號，"
+            "必須一字不差地把代號完整帶進摘要**（保持 [id1] 這種格式：含中括號、"
+            "全小寫、數字接續，中間不加空白）。代號等同於人物姓名，是必要識別資訊，"
+            "不可省略、不可改寫、不可翻譯。\n\n"
+            "範例輸入：「友人陪同[id1]許先生來」\n"
+            "範例輸出：「[id1]（許先生）來訪，由友人陪同」← 注意 [id1] 完整保留\n\n"
+            "錯誤範例：「許先生來訪」← 漏掉 [id1] 是錯的\n"
+            "錯誤範例：「[ID1] 來訪」← 改成大寫是錯的\n"
+            "錯誤範例：「[id 1] 來訪」← 加空白是錯的\n\n"
+            "系統會在你輸出後自動把代號還原成真實值給使用者看。"
         )
 
     logger.warning("=== LLM: calling Gemini ===")
     t0 = time.time()
-    result = _call_gemini(safe_prompt, max_tokens)
+    result = _call_gemini(safe_prompt, max_tokens, system_instruction=sys_instr)
     elapsed = time.time() - t0
     logger.warning("=== LLM: Gemini OK, %.1f sec, %d chars ===", elapsed, len(result))
 
@@ -129,7 +138,7 @@ def call_llm(prompt: str, max_tokens: int = 8192) -> str:
             "若多筆輸入資料描述相同事件，請合併為單一條目。"
         )
         t0 = time.time()
-        result2 = _call_gemini(retry_prompt, max_tokens)
+        result2 = _call_gemini(retry_prompt, max_tokens, system_instruction=sys_instr)
         elapsed = time.time() - t0
         logger.warning("=== LLM: retry OK, %.1f sec, %d chars ===", elapsed, len(result2))
         if not _is_output_looping(result2):
