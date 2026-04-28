@@ -311,24 +311,39 @@
     poll();
   }
 
-  function fetchWeather(url) {
+  function fetchWithTimeout(url, opts, ms) {
+    opts = opts || {};
     var controller = new AbortController();
-    var timeout = setTimeout(function() { controller.abort(); }, 10000);
-    fetch(url, {
-      signal: controller.signal,
+    var timer = setTimeout(function() { controller.abort(); }, ms);
+    opts.signal = controller.signal;
+    return fetch(url, opts).finally(function() { clearTimeout(timer); });
+  }
+
+  function fetchAQI(lat, lon) {
+    return fetchWithTimeout('/weather/api/air_quality?lat=' + lat + '&lon=' + lon, {}, 6000)
+      .then(function(r) { return r.json(); })
+      .then(function(aqiData) {
+        if (aqiData && aqiData.list && aqiData.list[0]) renderAQI(aqiData.list[0]);
+      })
+      .catch(function() {});
+  }
+
+  function fetchWeather(url) {
+    fetchWithTimeout(url, {
       headers: {
         'X-Device-FP': window.__deviceFP || '',
         'X-Device-UID': window.__deviceUID || ''
       }
-    })
+    }, 10000)
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        clearTimeout(timeout);
         renderWeatherCard(data);
         registerDevice();
+        if (data && data.coord && data.coord.lat != null && data.coord.lon != null) {
+          fetchAQI(data.coord.lat, data.coord.lon);
+        }
       })
       .catch(function(err) {
-        clearTimeout(timeout);
         loadingBlock.style.display = 'none';
         errorBlock.style.display = 'block';
         var msg = err.name === 'AbortError' ? '\u8f09\u5165\u900e\u6642\uff0c\u8acb\u91cd\u65b0\u6574\u7406' : '\u7121\u6cd5\u8f09\u5165\u5929\u6c23\u8cc7\u6599';
@@ -337,35 +352,39 @@
   }
 
   function loadWeatherByCoords(lat, lon) {
-    var weatherPromise = fetch('/weather/api/weather?lat=' + lat + '&lon=' + lon, {
+    var weatherPromise = fetchWithTimeout('/weather/api/weather?lat=' + lat + '&lon=' + lon, {
       headers: {
         'X-Device-FP': window.__deviceFP || '',
         'X-Device-UID': window.__deviceUID || ''
       }
-    }).then(function(r) { return r.json(); });
+    }, 10000).then(function(r) { return r.json(); });
 
-    var namePromise = fetch(
-      'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon + '&format=json&accept-language=zh-TW'
+    var namePromise = fetchWithTimeout(
+      'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon + '&format=json&accept-language=zh-TW',
+      {}, 3000
     ).then(function(r) { return r.json(); })
      .then(function(geo) { return (geo.address && (geo.address.city || geo.address.county || geo.address.state)) || null; })
      .catch(function() { return null; });
 
-    var aqiPromise = fetch('/weather/api/air_quality?lat=' + lat + '&lon=' + lon)
+    var aqiPromise = fetchWithTimeout('/weather/api/air_quality?lat=' + lat + '&lon=' + lon, {}, 6000)
       .then(function(r) { return r.json(); })
       .catch(function() { return null; });
 
-    Promise.all([weatherPromise, namePromise, aqiPromise]).then(function(results) {
-      var data = results[0];
-      var chineseName = results[1];
-      var aqiData = results[2];
-      if (chineseName) data.name = chineseName;
-      renderWeatherCard(data);
+    Promise.allSettled([weatherPromise, namePromise, aqiPromise]).then(function(results) {
+      var weather = results[0].status === 'fulfilled' ? results[0].value : null;
+      var chineseName = results[1].status === 'fulfilled' ? results[1].value : null;
+      var aqiData = results[2].status === 'fulfilled' ? results[2].value : null;
+
+      if (!weather) {
+        loadingBlock.style.display = 'none';
+        errorBlock.style.display = 'block';
+        errorBlock.innerHTML = '<div class="weather-error">\u7121\u6cd5\u8f09\u5165\u5929\u6c23\u8cc7\u6599</div>';
+        return;
+      }
+      if (chineseName) weather.name = chineseName;
+      renderWeatherCard(weather);
       if (aqiData && aqiData.list && aqiData.list[0]) renderAQI(aqiData.list[0]);
       registerDevice();
-    }).catch(function() {
-      loadingBlock.style.display = 'none';
-      errorBlock.style.display = 'block';
-      errorBlock.innerHTML = '<div class="weather-error">\u7121\u6cd5\u8f09\u5165\u5929\u6c23\u8cc7\u6599</div>';
     });
   }
 
@@ -394,7 +413,7 @@
   }
 
   function fallbackToIP() {
-    fetch('https://ip-api.com/json?fields=city,status', { cache: 'no-store' })
+    fetchWithTimeout('https://ip-api.com/json?fields=city,status', { cache: 'no-store' }, 2000)
       .then(function(r) { return r.json(); })
       .then(function(geo) {
         if (geo.status === 'success' && geo.city) {
