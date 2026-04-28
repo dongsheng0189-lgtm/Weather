@@ -88,19 +88,31 @@ def _is_output_looping(text: str) -> bool:
 
 
 def call_llm(prompt: str, max_tokens: int = 8192) -> str:
-    """使用 Gemini 2.5 Flash。偵測到 repetition loop 會自動重試一次。"""
+    """使用 Gemini 2.5 Flash。偵測到 repetition loop 會自動重試一次。
+
+    送出前會把 PII（身分證/手機/email/信用卡/市話）替換成 placeholder，
+    回收後再把 placeholder 還原回原值。
+    """
     import time
     import logging
+    from pii_redact import redact, restore
     logger = logging.getLogger("call_llm")
+
+    safe_prompt, pii_map = redact(prompt)
+    if pii_map:
+        logger.warning("=== LLM: redacted %d PII (types: %s) ===",
+                       len(pii_map),
+                       sorted({k.strip("[]").rstrip("0123456789") for k in pii_map}))
+
     logger.warning("=== LLM: calling Gemini ===")
     t0 = time.time()
-    result = _call_gemini(prompt, max_tokens)
+    result = _call_gemini(safe_prompt, max_tokens)
     elapsed = time.time() - t0
     logger.warning("=== LLM: Gemini OK, %.1f sec, %d chars ===", elapsed, len(result))
 
     if _is_output_looping(result):
         logger.warning("=== LLM: output repetition loop detected, retrying once ===")
-        retry_prompt = prompt + (
+        retry_prompt = safe_prompt + (
             "\n\n# 再次提醒\n"
             "請絕對避免在輸出中連續重複同一句話。每個事項只能列出一次。"
             "若多筆輸入資料描述相同事件，請合併為單一條目。"
@@ -110,9 +122,9 @@ def call_llm(prompt: str, max_tokens: int = 8192) -> str:
         elapsed = time.time() - t0
         logger.warning("=== LLM: retry OK, %.1f sec, %d chars ===", elapsed, len(result2))
         if not _is_output_looping(result2):
-            return result2
-        return "⚠️ AI 產生結果異常（偵測到重複迴圈），以下為重試結果，建議再按一次：\n\n" + result2
-    return result
+            return restore(result2, pii_map)
+        return "⚠️ AI 產生結果異常（偵測到重複迴圈），以下為重試結果，建議再按一次：\n\n" + restore(result2, pii_map)
+    return restore(result, pii_map)
 
 
 def require_admin():
