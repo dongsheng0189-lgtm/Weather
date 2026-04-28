@@ -146,6 +146,15 @@
             {% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
+{% set sort_labels = [('updated','照更新'),('created','照日期')] %}
+<div class="status-tabs">
+  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">排列：</span>
+  {% for val, label in sort_labels %}
+  <a href="{{ url_for('notes.index', store=current_store, category=current_category, range=current_range, status=current_status, sort=val) }}"
+     class="store-tab {% if current_sort == val %}active{% endif %}"
+     style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">{{ label }}</a>
+  {% endfor %}
+</div>
 
 {% if notes %}
 <div class="notes-grid">

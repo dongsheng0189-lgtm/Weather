@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, request, jsonify, render_template, current_app
+from flask import Blueprint, request, jsonify, render_template, current_app, session
 from flask_login import login_required, current_user
 from extensions import db
 from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE
@@ -138,6 +138,15 @@ def index():
     per_page = 20
     stores = _get_stores()
 
+    # 排序偏好：URL 帶就更新 session、套用；URL 沒帶 → 讀 session，否則預設 updated
+    sort_param = request.args.get("sort", "")
+    if sort_param in ("updated", "created"):
+        session["notes_sort"] = sort_param
+        current_sort = sort_param
+    else:
+        current_sort = session.get("notes_sort", "updated")
+    sort_order = Note.created_at.desc() if current_sort == "created" else Note.updated_at.desc()
+
     query = Note.query
 
     # 店別範圍（不變）
@@ -167,12 +176,12 @@ def index():
         query = _date_filter(query, range_param)
 
     if keyword_mode:
-        all_rows = query.order_by(Note.updated_at.desc()).all()
+        all_rows = query.order_by(sort_order).all()
         kl = keyword.lower()
         filtered = [n for n in all_rows if _note_matches(n, kl)]
         pagination = _PyPagination(filtered, page=page, per_page=per_page)
     else:
-        pagination = query.order_by(Note.updated_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+        pagination = query.order_by(sort_order).paginate(page=page, per_page=per_page, error_out=False)
 
     return render_template("notes/index.html", notes=pagination.items, pagination=pagination,
                            stores=stores,
@@ -181,6 +190,7 @@ def index():
                            current_range=range_param,
                            current_category=category_filter,
                            current_keyword=keyword,
+                           current_sort=current_sort,
                            active_filter=active_filter,
                            status_choices=STATUS_CHOICES,
                            category_choices=CATEGORY_CHOICES,
