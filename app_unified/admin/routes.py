@@ -103,6 +103,17 @@ def call_llm(prompt: str, max_tokens: int = 8192) -> str:
         logger.warning("=== LLM: redacted %d PII (types: %s) ===",
                        len(pii_map),
                        sorted({k.strip("[]").rstrip("0123456789") for k in pii_map}))
+        # 告知 LLM：這些 placeholder 是已遮罩的客戶識別資訊，必須完整保留
+        # 否則會被 LLM 當 metadata 過濾掉，restore 時就還原不出原值
+        safe_prompt = (
+            "# 個資遮罩說明（系統自動加入，請務必遵守）\n"
+            "以下內容中的 [id1] [id2] [tel1] [email1] [card1] [ph1] 等"
+            "中括號代號，代表已遮罩的客戶識別資訊"
+            "（身分證 / 手機 / Email / 信用卡 / 市話）。\n"
+            "**請在摘要輸出中完整保留這些代號原文**（不要省略、不要改寫格式、"
+            "不要加空白），系統會在輸出後自動還原成真實值。\n\n"
+            + safe_prompt
+        )
 
     logger.warning("=== LLM: calling Gemini ===")
     t0 = time.time()
