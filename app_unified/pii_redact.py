@@ -14,17 +14,23 @@ import re
 from typing import Dict, List, Tuple
 
 
+# 不用 \b：Python 3 Unicode 模式下中文也算 word char，
+# 「同P124..」「4許」之間沒有 word boundary 會匹不到。
+# 改用 lookaround：前後不能是 ASCII 英數。
+_NB = r"(?<![A-Za-z0-9])"   # not-bounded by ASCII alnum (前)
+_NA = r"(?![A-Za-z0-9])"    # not-followed by ASCII alnum (後)
+
 # regex 順序很重要：長度最特殊的先匹配，避免被短的搶走
 # email 用 @ 識別，不會跟數字撞
-_EMAIL_RE = re.compile(r"\b[\w.+%-]+@[\w-]+(?:\.[\w-]+)+\b")
+_EMAIL_RE = re.compile(rf"{_NB}[A-Za-z0-9._+%-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+{_NA}")
 # 信用卡：4-4-4-4 數字（允許短横/空白）
-_CARD_RE = re.compile(r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b")
-# 身分證：1 字母 + 第二碼 1/2 + 8 數字（嚴格版，避免誤觸）
-_TWID_RE = re.compile(r"\b[A-Z][12]\d{8}\b")
+_CARD_RE = re.compile(rf"{_NB}\d{{4}}[- ]?\d{{4}}[- ]?\d{{4}}[- ]?\d{{4}}{_NA}")
+# 身分證：1 字母 + 第二碼 1/2 + 8 數字（嚴格版，含 ARC 第二碼 1/2 也適用）
+_TWID_RE = re.compile(rf"{_NB}[A-Z][12]\d{{8}}{_NA}")
 # 手機：09 開頭 10 位（允許 0912-345-678 / 0912 345 678）
-_MOBILE_RE = re.compile(r"\b09\d{2}[- ]?\d{3}[- ]?\d{3}\b")
+_MOBILE_RE = re.compile(rf"{_NB}09\d{{2}}[- ]?\d{{3}}[- ]?\d{{3}}{_NA}")
 # 市話：02-08 區碼 + 7~8 位（排除 09 行動 / 0800 / 01）
-_PHONE_RE = re.compile(r"\b0[2-8]-?\d{6,8}\b")
+_PHONE_RE = re.compile(rf"{_NB}0[2-8]-?\d{{6,8}}{_NA}")
 
 
 # (key 前綴, regex) — 順序即偵測優先序

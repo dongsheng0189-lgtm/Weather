@@ -14,6 +14,31 @@ def test_taiwan_id_single():
     assert m == {"[id1]": "A123456789"}
 
 
+def test_taiwan_id_adjacent_chinese():
+    """中文字緊鄰身分證號碼（無空白）— Python \\b 在 Unicode 下不行，
+    必須用 lookaround 排除 ASCII 英數才能正確匹配。"""
+    text = "友人陪同P124464394許先生來"
+    out, m = redact(text)
+    assert "[id1]" in out
+    assert m["[id1]"] == "P124464394"
+    assert "P124464394" not in out
+
+
+def test_mobile_adjacent_chinese():
+    """手機號碼前後緊鄰中文"""
+    text = "電話0912345678請聯絡"
+    out, m = redact(text)
+    assert "[tel1]" in out
+    assert m["[tel1]"] == "0912345678"
+
+
+def test_email_adjacent_chinese():
+    text = "請寄foo@bar.com確認"
+    out, m = redact(text)
+    assert "[email1]" in out
+    assert m["[email1]"] == "foo@bar.com"
+
+
 def test_taiwan_id_multiple_distinct():
     text = "A123456789 來辦會員，B234567890 已離開"
     out, m = redact(text)
