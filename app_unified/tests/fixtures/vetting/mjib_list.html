@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="zh-tw">
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>外逃通緝犯查詢系統 - 法務部調查局</title>
+    <link rel="shortcut icon" href="/images/favicon.png">
+
+<meta name="DC.Title" content="調查局網頁" />   
+<meta name="DC.Creator" content="調查局" />         
+<meta name="DC.Subject" content="調查局網頁" /> 
+<meta name="DC.Type" content="網頁" />              
+<meta name="DC.Publisher" content="法務部調查局" /> 
+<meta name="DC.Identifier" content="A11010000F" />  
+<meta name="DC.Date" content="2015-11-30" />        
+<meta name="Category.Theme" content="300" />        
+<meta name="Category.Cake" content="J30" />         
+<meta name="Category.Service" content="I00" />      
+
+    
+
+<!-- Chrome, Firefox OS and Opera -->
+<meta name="theme-color" content="#187be0">
+<!-- Windows Phone -->
+<meta name="msapplication-navbutton-color" content="#187be0">
+<!-- 標準（Chrome / Android / 新版瀏覽器） -->
+<meta name="mobile-web-app-capable" content="yes">
+<!-- Apple iOS Safari-->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-D2BJKWG2WY"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+
+    gtag('config', 'G-D2BJKWG2WY');
+</script>
+
+
+    <!-- CSS FILES -->
+    
+    
+    
+    <link href="/Content/bootstrap.min.css" rel="stylesheet"/>
+<link href="/css/PagedList.css" rel="stylesheet"/>
+<link href="/css/all.min.css" rel="stylesheet"/>
+<link href="/css/swiper-bundle.min.css" rel="stylesheet"/>
+<link href="/css/home.css" rel="stylesheet"/>
+
+    
+    <link rel="stylesheet" href="/css/crimes.css" />
+
+    <script src="/Scripts/jquery-3.7.1.js"></script>
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+         <script src="/js/html5shiv.js"></script>
+         <script src="/js/respond.min.js"></script>
+       <![endif]-->
+    <!--[if (gte IE 6)&(lte IE 8)]>
+      <script type="text/javascript" src="~/scripts/selectivizr.js"></script>
+    <![endif]-->
+    <meta name="description" content="The description of my page" />
+</head>
+<body>
+    <noscript>您的瀏覽器不支援JavaScript功能，若網頁功能無法正常使用時，請開啟瀏覽器JavaScript狀態</noscript>
+    <div class="container-fluid p-0 page-wrapper d-flex flex-column">
+        <!--Header-->
+        <header id="header" class="order-2 order-lg-1">
+            <div class="header-top d-flex justify-content-end home-padding">
+                <a accesskey="U" href="#header" title="上方導覽" class="p-1">:::</a>
+                <div class="p-1">
+                    <a class="fb py-0 px-1" target="_blank" href="https://www.facebook.com/taiwanmjib/?fref=ts" data-placement="top" data-bs-toggle="tooltip" title="Facebook(另開新視窗)">
+                        <i class="fa-brands fa-facebook"></i>
+                    </a>
+                    <a class="youtube py-0 px-1" target="_blank" href="https://www.youtube.com/channel/UCKdIZ6DedFLz-YXa6X-uEYA" data-placement="top" data-bs-toggle="tooltip" title="Youtube(另開新視窗)">
+                        <i class="fa-brands fa-youtube"></i>
+                    </a>
+                </div>
+                <div class="p-1">
+                    <a accesskey="R" class="py-0 px-1" title="網站導覽" href="/TreeView/Chinese"><i class="fa-solid fa-sitemap"></i></a>
+                    <a title="常見問答" class="py-0 px-1" href="/EditPage/?PageID=a339c7af-8f7a-4131-be7d-9a46edeb3483"><i class="fa-solid fa-circle-question"></i></a>
+                </div>
+                <div class="d-none d-sm-block p-1 FontZoomArea">
+                    <a class="py-0 px-1" href="javascript:FontZoom(1.5)">大</a>
+                    <a class="py-0 px-1" href="javascript:FontZoom(1)">中</a>
+                    <a class="py-0 px-1" href="javascript:FontZoom(0.8)">小</a>
+                </div>
+                <div class="d-none d-sm-block p-1">
+                    <a class="py-0 px-1" title="English" href="/en">EN</a>
+                </div>
+            </div>
+            <!--LOGO-->
+            <div class="logo-bar d-flex justify-content-start align-items-center home-padding">
+                <div class="logo col">
+                    <a href="/"><img src="/images/mjib_logoWhite.svg" alt="法務部調查局"></a>
+                </div>
+                <div class="searchArea d-none d-lg-block">
+                    <form class="row gx-3 gy-2 justify-content-end">
+                        <div class="input-group" style="width:55%">
+                            <label for="searchText" class="d-none">搜尋關鍵字</label>
+                            <input type="text" id="searchText" name="searchText" class="form-control" placeholder="搜尋關鍵字..." aria-label="關鍵字">
+                            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-magnifying-glass"></i></button>
+                        </div>
+                        <div class="input-group" style="width:30%">
+                            <button type="submit" class="btn btn-secondary more-search-btn">進階搜尋<i class="fa-solid fa-arrow-right ms-1"></i></button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <!--Nav button-->
+            <button class="navbar-toggler d-lg-none mobile-menu-btn border-radius-4 p-2" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
+                <span><i class="fa-solid fa-bars"></i></span>
+            </button>
+        </header>
+        <!--Nav-->
+<!--Nav-->
+<nav id="navArea" class="navbar navbar-expand-lg navbar-light order-1 order-lg-2 home-padding">
+    <div class="container-fluid">
+        <div class="collapse navbar-collapse" id="navbarNavDropdown">
+        <ul   class="navbar-nav"  >
+                <li class="nav-item dropdown">
+                        <a href="/EditPage/?PageID=6f9619ff-8b86-d011-b42d-00c04fc964ff" class="nav-link dropdown-toggle" id="navbarDropdownMenuLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            本局簡介
+                        </a>
+                            <ul   class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink"   >
+                <li class="">
+                        <a href="/EditPage/?PageID=8493a027-12e4-468f-8cb7-0b5281e13b30" class="dropdown-item" >
+                            局長介紹
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=08d9a71a-4c64-4b36-bcba-659b71d90591" class="dropdown-item" >
+                            歷史沿革
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=750fb6eb-aad6-440e-84e8-6d3689b13e6f" class="dropdown-item" >
+                            重大政策
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/Home/org" class="dropdown-item" >
+                            組織架構
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=68997624-8ae6-4d5d-955c-dd97c5ca1f87" class="dropdown-item" >
+                            調查局所屬單位地圖
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=3be8afbb-f505-48d6-a184-b5e080aa612e" class="dropdown-item" >
+                            局徽說明
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=92585757-bbb9-434f-ad4d-1a494e55b112" class="dropdown-item" >
+                            720環景導覽
+                        </a>
+                    
+                </li>
+        </ul>
+
+                </li>
+                <li class="nav-item dropdown">
+                        <a href="/news/Index?Module=1" class="nav-link dropdown-toggle" id="navbarDropdownMenuLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            新聞活動
+                        </a>
+                            <ul   class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink"   >
+                <li class="">
+                        <a href="/news/Index?Module=1" class="dropdown-item" >
+                            新聞快報
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/news/Index?Module=2" class="dropdown-item" >
+                            最新消息
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/news/Index?Module=29" class="dropdown-item" >
+                            澄清專區
+                        </a>
+                    
+                </li>
+        </ul>
+
+                </li>
+                <li class="nav-item dropdown">
+                        <a href="/EditPage/?PageID=4c520d45-99a4-4c17-94ee-dd57ccfad60d" class="nav-link dropdown-toggle" id="navbarDropdownMenuLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            工作重點
+                        </a>
+                            <ul   class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink"   >
+                <li class="">
+                        <a href="/EditPage/?PageID=a7b7e634-6e27-4ee1-87dc-a7cc9f2b79cf" class="dropdown-item" >
+                            維護國家安全及利益
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=b006bc65-a1b1-467d-8e9a-a7be04c21331" class="dropdown-item" >
+                            廉政
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="https://www.mjib.gov.tw/news/Details/4/88" class="dropdown-item" >
+                            經濟犯罪防制
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=805dbe9e-210b-439b-8501-aefbe4771a9c" class="dropdown-item" >
+                            毒品防制
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/mlpc" class="dropdown-item" >
+                            洗錢及資恐防制
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="https://www.mjib.gov.tw/news/Details/7/119" class="dropdown-item" >
+                            全國安全防護工作
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=9c6125ad-8e9b-453b-a8fc-31eeafb00ad1" class="dropdown-item" >
+                            鑑識科技
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=60306028-2aaf-47ca-9c42-eb537b4749bc" class="dropdown-item" >
+                            資通安全
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=85631920-f741-4f90-b196-f645d909e9a2" class="dropdown-item" >
+                            兩岸情勢研析
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=4a21882a-dc99-45d8-ac27-f359c484b318" class="dropdown-item" >
+                            通訊監察
+                        </a>
+                    
+                </li>
+        </ul>
+
+                </li>
+                <li class="nav-item dropdown">
+                        <a href="/eBooks/eBooks_CategoryList?UpCID=1" class="nav-link dropdown-toggle" id="navbarDropdownMenuLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            電子書櫃及宣導
+                        </a>
+                            <ul   class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink"   >
+                <li class="">
+                        <a href="/eBooks/eBooks_CategoryList?UpCID=1" class="dropdown-item" >
+                            電子出版品
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/eBooks/eBooks_CategoryList?UpCID=8" class="dropdown-item" >
+                            工作年報
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/eBooks/eBooks_CategoryList?UpCID=17" class="dropdown-item" >
+                            宣導資料
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=204a59f0-4e4e-4da6-be34-074179dec3b7" class="dropdown-item" >
+                            徵稿說明
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=a9d595cf-7be8-4076-a9ad-075d6f9cf794" class="dropdown-item" >
+                            全民安全防護宣導影片
+                        </a>
+                    
+                </li>
+        </ul>
+
+                </li>
+                <li class="nav-item dropdown">
+                        <a href="/EditPage/?PageID=7cfb7f3f-263c-4b95-9838-694e78fba9ae" class="nav-link dropdown-toggle" id="navbarDropdownMenuLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            調查人員特考
+                        </a>
+                            <ul   class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink"   >
+                <li class="">
+                        <a href="/EditPage/?PageID=ecdd6e89-c0d7-447d-bc2e-4bb46648bf18" class="dropdown-item" >
+                            特考資訊
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=ca41bc83-3450-498b-9904-6a935f8bb500" class="dropdown-item" >
+                            展抱山莊
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=0a0a23bd-1394-4cce-8049-9fbc229b56dd" class="dropdown-item" >
+                            人員訓練
+                        </a>
+                    
+                </li>
+        </ul>
+
+                </li>
+                <li class="nav-item dropdown">
+                        <a href="/EditPage/?PageID=e8106a15-00a9-45c5-88a7-0905b326d314" class="nav-link dropdown-toggle" id="navbarDropdownMenuLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            為民服務
+                        </a>
+                            <ul   class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink"   >
+                <li class="">
+                        <a href="/EditPage/?PageID=57187e88-2e2d-4977-a5c2-aae3cbbd7952" class="dropdown-item" >
+                            陳情檢舉管道
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=32f804bb-271b-47b3-b4b3-577ac75ec097" class="dropdown-item" >
+                            檢舉專用地址電話一覽表
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=cca02333-3bb7-4366-9c3e-0302560fd11d" class="dropdown-item" >
+                            接待參觀服務
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=85631920-f741-4f90-b196-f645d909e9a2#3" class="dropdown-item" >
+                            資料參閱
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=27ed90a4-dd61-4334-99aa-5d8be779ad48" class="dropdown-item" >
+                            親子血緣關係鑑定
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=819e87b6-b1ce-4b0d-ba38-0c678fd15734" class="dropdown-item" >
+                            退休人員專區
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=0dced059-3888-4361-be46-23f14bb9ab88" class="dropdown-item" >
+                            公示送達
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="https://www.thcw.moj.gov.tw/CriminalWanted/default.html" class="dropdown-item" >
+                            追緝外逃
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=bac38e59-0022-488e-9422-437034535b3e" class="dropdown-item" >
+                            就業資訊
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=adf9b60f-98af-4b65-b996-4f74145a4cd0" class="dropdown-item" >
+                            假訊息查證參考資訊
+                        </a>
+                    
+                </li>
+        </ul>
+
+                </li>
+                <li class="nav-item dropdown">
+                        <a href="/EditPage/?PageID=407005b4-6b06-4054-9aee-ec2cef76d411" class="nav-link dropdown-toggle" id="navbarDropdownMenuLink" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            資訊公開
+                        </a>
+                            <ul   class="dropdown-menu" aria-labelledby="navbarDropdownMenuLink"   >
+                <li class="">
+                        <a href="/EditPage/?PageID=1713b1da-72df-4cb5-a9b0-326b62d6d1bd" class="dropdown-item" >
+                            政府資訊申請
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/InfoOpen/List?Module=1" class="dropdown-item" >
+                            法務部調查局「資訊公開」目錄一覽表
+                        </a>
+                    
+                </li>
+                <li class="">
+                        <a href="/EditPage/?PageID=76a971b9-d165-4874-902d-0d53237ff574" class="dropdown-item" >
+                            資訊圖像化
+                        </a>
+                    
+                </li>
+        </ul>
+
+                </li>
+        </ul>
+
+        </div>
+    </div>
+</nav>
+
+
+    </div>
+
+    <!--wrapper 開始-->
+    <div class="rwd_bg">
+        <section class="wrapper" id="wrapper">
+            
+
+
+<div id="editpage-Area">
+    <div class="editpage-title" id="">
+        <div class="mb-2 area-title-text">
+            <div class="d-flex flex-column align-items-center">
+                <div class="divider">
+                    <img src="/images/_%e5%88%86%e9%9b%a2%e6%a8%a1%e5%bc%8f.svg" alt="" />
+                </div>
+            </div>
+        </div>
+        <!--麵包屑-->
+            <div class="title-area px-3">
+        <h1 class="text-center m-0">外逃通緝犯查詢系統</h1>
+        <p class="text-center m-0 mt-3">
+                        <a href="#">外逃通緝犯查詢系統</a>
+
+        </p>
+    </div>
+
+    </div>
+    <div class="editpage-content m-3" id="">
+        <div class="d-flex flex-column justify-content-center first-div">
+            <div class="editpage-content-text">
+                <div class="more-text">
+                    <div class="text-center"><h3><a href="/Crimes/RecentList" class="btn btn-primary">最近更新資料 / RecentList</a></h3></div>
+                    <hr />
+                    <form id="Crimes_List" method="post" action="/Crimes/Crimes_List">
+    
+    <div class="row flex-nowrap  g-3 justify-content-center">
+
+        <!-- 關鍵字 -->
+        
+        <div class="col-4 qrystringDiv d-flex gap-2">
+            <label for="qrystring" class="form-label fw-bold ">關鍵字</label>
+            <input class="form-control" id="qrystring" name="qrystring" placeholder="請輸入關鍵字" type="text" value="" />
+        </div>
+        <!-- 地區 -->
+        <div class="col-5 AreaDiv gap-2">
+            <label for="Area" class="form-label fw-bold">地區</label>
+            <select class="form-select" name="Area" id="Area">
+                <!--潛逃地區選項-->
+                <option value="false">請選擇地區</option>
+                <option value="大陸地區" >大陸地區</option>
+                <option value="港澳地區" >港澳地區</option>
+                <option value="美洲" >美洲</option>
+                <option value="非洲" >非洲</option>
+                <option value="大洋洲" >大洋洲</option>
+                <option value="亞洲" >亞洲</option>
+                <option value="歐洲" >歐洲</option>
+                <option value="紐澳" >紐澳</option>
+                <option value="其他" >其他</option>
+            </select>
+        </div>
+
+        <!-- 查詢按鈕 -->
+        <div class="col-auto d-flex  btnDiv  align-items-center">
+            <button type="submit" class="btn btn-primary btn-lg d-flex align-items-center gap-2 px-4 justify-content-center" style="  width: 80px; margin: 0 5px">
+                <i class="fa fa-search" style=""></i> 查詢
+            </button>
+        </div>
+
+
+    </div>
+</form>
+                    <!-- 捲動生成區塊  -->
+                    <div class="scroll">
+                        <div class="d-flex flex-wrap gap-3 justify-content-center">
+
+
+
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=462"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/100f35bd7b1042bb96b6ef6dad6281ca.jpg" class="card-img-top object-fit-cover" alt="林肯帝 照片 / LIN,KEN-TI photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">林肯帝</h5>
+                                            <div class="small text-muted">LIN,KEN-TI</div>
+
+                                            <div class="mt-2 small">
+A12336****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1978                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=461"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/fbb46a59829246f7bdccc3e1ef28b3bc.jpg" class="card-img-top object-fit-cover" alt="陳昌平 照片 / CHEN, CHANG-PING photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">陳昌平</h5>
+                                            <div class="small text-muted">CHEN, CHANG-PING</div>
+
+                                            <div class="mt-2 small">
+E10154****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1950                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=460"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/1119610f241a4bf0854cc29d6b2636f2.JPG" class="card-img-top object-fit-cover" alt="王晨光 照片 / WANG, CHEN-KUANG photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">王晨光</h5>
+                                            <div class="small text-muted">WANG, CHEN-KUANG</div>
+
+                                            <div class="mt-2 small">
+D12114****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1978                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=459"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/59203131ef694cfb82a8619a55b9c408.JPG" class="card-img-top object-fit-cover" alt="管在煥 照片 / GUAN, TSAI-HUAN photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">管在煥</h5>
+                                            <div class="small text-muted">GUAN, TSAI-HUAN</div>
+
+                                            <div class="mt-2 small">
+T12049****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1959                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=458"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/904d062358dd42bc8993b50c3c0451b6.JPG" class="card-img-top object-fit-cover" alt="温志強 照片 / WEN, CHIH-CHIANG photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">温志強</h5>
+                                            <div class="small text-muted">WEN, CHIH-CHIANG</div>
+
+                                            <div class="mt-2 small">
+K12112****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1970                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=457"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/840a20a147144646a636d6d0746e44af.JPG" class="card-img-top object-fit-cover" alt="張家銘 照片 / CHANG, CHIA-MING photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">張家銘</h5>
+                                            <div class="small text-muted">CHANG, CHIA-MING</div>
+
+                                            <div class="mt-2 small">
+R12218****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1972                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=456"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/8f2d8132a56f4bc881bb10bc357a0a69.JPG" class="card-img-top object-fit-cover" alt="張家輔 照片 / CHANG, CHIA-FU photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">張家輔</h5>
+                                            <div class="small text-muted">CHANG, CHIA-FU</div>
+
+                                            <div class="mt-2 small">
+G12172****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1984                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=455"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/e4dd245bff894537ae5dab1dcb2fdbef.JPG" class="card-img-top object-fit-cover" alt="徐偉銘 照片 / HSU, WEI-MING photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">徐偉銘</h5>
+                                            <div class="small text-muted">HSU, WEI-MING</div>
+
+                                            <div class="mt-2 small">
+J12271****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1994                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=454"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/eb4a19be47444a49937ae18a2e7963a6.JPG" class="card-img-top object-fit-cover" alt="楊清男 照片 / YANG, CHING-NAN photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">楊清男</h5>
+                                            <div class="small text-muted">YANG, CHING-NAN</div>
+
+                                            <div class="mt-2 small">
+J12162****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1978                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+                                <div class="card crimes-card col-12 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+
+                                    <a href="/Crimes/Crimes_Detail?uid=453"
+                                       class="text-decoration-none text-dark h-100 d-flex flex-column">
+                                            <!--原路徑~/images/crime.jpg-->
+                                            <img src="/FileUploads/prisoner_pic/12d97b9ae3d0420d80b3a4a79ce6fb09.png" class="card-img-top object-fit-cover" alt="黃又岑 照片 / HUANG,YOW-CHYN photo" />
+
+                                        <div class="card-body d-flex flex-column">
+                                            <h5 class="card-title mb-1">黃又岑</h5>
+                                            <div class="small text-muted">HUANG,YOW-CHYN</div>
+
+                                            <div class="mt-2 small">
+A12058****                                            </div>
+
+                                            <div class="mt-auto small text-muted">
+                                                <i class="fas fa-birthday-cake"></i>
+1956                                            </div>
+                                        </div>
+
+                                    </a>
+                                </div>
+
+                        </div>
+                        <div class="pagination-container"><ul class="pagination"><li class="active"><a>1</a></li><li><a href="/Crimes/Crimes_List?page=2">2</a></li><li><a href="/Crimes/Crimes_List?page=3">3</a></li><li><a href="/Crimes/Crimes_List?page=4">4</a></li><li><a href="/Crimes/Crimes_List?page=5">5</a></li><li><a href="/Crimes/Crimes_List?page=6">6</a></li><li><a href="/Crimes/Crimes_List?page=7">7</a></li><li><a href="/Crimes/Crimes_List?page=8">8</a></li><li><a href="/Crimes/Crimes_List?page=9">9</a></li><li><a href="/Crimes/Crimes_List?page=10">10</a></li><li class="disabled PagedList-ellipses"><a>&#8230;</a></li><li class="PagedList-skipToNext"><a href="/Crimes/Crimes_List?page=2" rel="next">»</a></li><li class="PagedList-skipToLast"><a href="/Crimes/Crimes_List?page=30">»»</a></li></ul></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+        </section>
+    </div>
+    <!--end wrapper-->
+    <!--Footer-->
+    <div class="container-fluid p-0">
+        <!--查查-->
+        <div id="mascotArea" class="d-flex justify-content-center">
+            <a href="/EditPage/?PageID=125A4AC4-3E14-4FAE-AADE-6D94D498923F" title="關於查查頁面介紹" target="_blank" ><img src="/images/mascot/moscot-bottom.svg" /></a>
+        </div>
+        <!--頁尾資訊-->
+        <div id="footerArea" class="home-padding">
+            
+
+
+<div class="footerArea1 mx-3 row flex-wrap justify-content-start justify-content-lg-center">
+    <div class="col-12 col-lg-4 footerArea1-contact">
+        <img src="/images/mjib_logoBlack.svg" alt="" class="footer-logo" />
+        <div class="footer-contact">
+            <p class="m-0 my-1"><i class="fa-solid fa-phone-flip border-radius-4"></i>總機:(02)2911-2241</p><!--總機：(02)2911-2241-->
+            <p class="m-0 my-1"><i class="fa-solid fa-fax border-radius-4"></i>傳真:(02)2918-8888</p><!--傳真：(02)2918-8888-->
+            <p class="m-0 my-1"><i class="fa-solid fa-location-dot border-radius-4"></i>地址：231209 新北市新店區中華路74號</p><!--地址：231209 新北市新店區中華路74號-->
+        </div>
+        <div class="footer-contact-btn">
+            <a class="btn btn-white" href="tel:(02)2917-7777"><i class="fa-solid fa-phone-flip border-radius-4"></i>檢舉專線電話：(02)2917-7777</a><!--檢舉專線電話：(02)2917-7777-->
+            <a class="btn btn-white" href="tel:0800-007-007"><i class="fa-solid fa-phone-flip border-radius-4"></i>免付費檢舉專線：0800-007-007</a><!--免付費檢舉專線：0800-007-007-->
+        </div>
+    </div>
+    <div class="col-12 col-lg-8 footerArea1-map">
+        <div class="row">
+            <div class="col-12 col-lg-7">
+                <iframe class="lazyload border-radius-4 iframe-map" data-src="https://www.google.com/maps/embed?pb=!1m14!1m8!1m3!1d14467.531650540855!2d121.53902500000001!3d24.970098!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x346801f517b95e69%3A0x701854bfe6ce52f7!2zMjMx5paw5YyX5biC5paw5bqX5Y2A5Lit6I-v6LevNzTomZ8!5e0!3m2!1szh-TW!2stw!4v1517565707112" title="地址:新北市新店區中華路74號" width="500" height="300" style="width:100%;border:0" allowfullscreen></iframe>
+            </div>
+            <div class="col-12 col-lg-5 footer-other">
+                <div>
+                    <a href="/EditPage/?PageID=0513b043-dfff-4847-8e5b-f40cef67613f">資料開放宣告</a>
+                    <a href="/EditPage/?PageID=45a23953-ef7b-4a6a-a488-a3d57d9018d5">隱私權保護宣告</a>
+                    <a href="/EditPage/?PageID=4c1e5006-cbb4-40d6-8a34-73c1389db7ff">資訊安全政策宣告</a>
+                    <a href="/en">English</a>
+                </div>
+                <div>
+                    <p class="m-0">對本網站有任何意見，敬請來電指教</p><!--對本網站有任何意見，敬請來電指教-->
+                    <p class="m-0">瀏覽本網站請使用 Internet Explorer 11 以上版本或 Chrome 瀏覽器</p><!--瀏覽本網站請使用 Internet Explorer 11 以上版本或 Chrome 瀏覽器-->
+                    <p class="m-0">更新日期 2026/04/29</p><!--更新日期2025/11/20-->
+                    
+                </div>
+                <div class="d-flex">
+                    <a href="https://accessibility.moda.gov.tw/Applications/DetectLog/182163" target="_blank" title="無障礙AA標籤(另開新視窗)">
+                        <img src="/images/accessibility21aa.png" />
+                    </a>
+                    <img src="https://jigsaw.w3.org/css-validator/images/vcss-blue" alt="Valid CSS!" style="border:0;width:88px;height:31px">
+                    <a href="https://www.gov.tw/" title="E政府"><img alt="E政府" src="/images/egov.png"></a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+<div class="footerArea2 mx-3">
+    <p>
+        <button class="btn btn-primary collapse-btn" type="button" data-bs-toggle="collapse" data-bs-target="#collapsefooter" aria-expanded="false" aria-controls="collapseExample">
+            <span>
+全站導覽            </span>
+        </button>
+    </p>
+    <div class="collapse" id="collapsefooter">
+        <div class="collapse-body row row-cols-1 row-cols-lg-5 g-3">
+        <div class="col mt-0">
+            <h4 class="mt-4"><a href="/EditPage/?PageID=6f9619ff-8b86-d011-b42d-00c04fc964ff">本局簡介</a></h4>
+            <ul class="list-unstyled mb-0 ps-3">
+                        <li class="pb-1">
+            <a href="/EditPage/?PageID=8493a027-12e4-468f-8cb7-0b5281e13b30" >局長介紹</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=08d9a71a-4c64-4b36-bcba-659b71d90591" >歷史沿革</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=750fb6eb-aad6-440e-84e8-6d3689b13e6f" >重大政策</a>
+        </li>
+        <li class="pb-1">
+            <a href="/Home/org" >組織架構</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=68997624-8ae6-4d5d-955c-dd97c5ca1f87" >調查局所屬單位地圖</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=3be8afbb-f505-48d6-a184-b5e080aa612e" >局徽說明</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=92585757-bbb9-434f-ad4d-1a494e55b112" >720環景導覽</a>
+        </li>
+
+            </ul>
+        </div>
+        <div class="col mt-0">
+            <h4 class="mt-4"><a href="/news/Index?Module=1">新聞活動</a></h4>
+            <ul class="list-unstyled mb-0 ps-3">
+                        <li class="pb-1">
+            <a href="/news/Index?Module=1" >新聞快報</a>
+        </li>
+        <li class="pb-1">
+            <a href="/news/Index?Module=2" >最新消息</a>
+        </li>
+        <li class="pb-1">
+            <a href="/news/Index?Module=29" >澄清專區</a>
+        </li>
+
+            </ul>
+        </div>
+        <div class="col mt-0">
+            <h4 class="mt-4"><a href="/EditPage/?PageID=4c520d45-99a4-4c17-94ee-dd57ccfad60d">工作重點</a></h4>
+            <ul class="list-unstyled mb-0 ps-3">
+                        <li class="pb-1">
+            <a href="/EditPage/?PageID=a7b7e634-6e27-4ee1-87dc-a7cc9f2b79cf" >維護國家安全及利益</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=b006bc65-a1b1-467d-8e9a-a7be04c21331" >廉政</a>
+        </li>
+        <li class="pb-1">
+            <a href="https://www.mjib.gov.tw/news/Details/4/88" >經濟犯罪防制</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=805dbe9e-210b-439b-8501-aefbe4771a9c" >毒品防制</a>
+        </li>
+        <li class="pb-1">
+            <a href="/mlpc" >洗錢及資恐防制</a>
+        </li>
+        <li class="pb-1">
+            <a href="https://www.mjib.gov.tw/news/Details/7/119" >全國安全防護工作</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=9c6125ad-8e9b-453b-a8fc-31eeafb00ad1" >鑑識科技</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=60306028-2aaf-47ca-9c42-eb537b4749bc" >資通安全</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=85631920-f741-4f90-b196-f645d909e9a2" >兩岸情勢研析</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=4a21882a-dc99-45d8-ac27-f359c484b318" >通訊監察</a>
+        </li>
+
+            </ul>
+        </div>
+        <div class="col mt-0">
+            <h4 class="mt-4"><a href="/eBooks/eBooks_CategoryList?UpCID=1">電子書櫃及宣導</a></h4>
+            <ul class="list-unstyled mb-0 ps-3">
+                        <li class="pb-1">
+            <a href="/eBooks/eBooks_CategoryList?UpCID=1" >電子出版品</a>
+        </li>
+        <li class="pb-1">
+            <a href="/eBooks/eBooks_CategoryList?UpCID=8" >工作年報</a>
+        </li>
+        <li class="pb-1">
+            <a href="/eBooks/eBooks_CategoryList?UpCID=17" >宣導資料</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=204a59f0-4e4e-4da6-be34-074179dec3b7" >徵稿說明</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=a9d595cf-7be8-4076-a9ad-075d6f9cf794" >全民安全防護宣導影片</a>
+        </li>
+
+            </ul>
+        </div>
+        <div class="col mt-0">
+            <h4 class="mt-4"><a href="/EditPage/?PageID=7cfb7f3f-263c-4b95-9838-694e78fba9ae">調查人員特考</a></h4>
+            <ul class="list-unstyled mb-0 ps-3">
+                        <li class="pb-1">
+            <a href="/EditPage/?PageID=ecdd6e89-c0d7-447d-bc2e-4bb46648bf18" >特考資訊</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=ca41bc83-3450-498b-9904-6a935f8bb500" >展抱山莊</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=0a0a23bd-1394-4cce-8049-9fbc229b56dd" >人員訓練</a>
+        </li>
+
+            </ul>
+        </div>
+        <div class="col mt-0">
+            <h4 class="mt-4"><a href="/EditPage/?PageID=e8106a15-00a9-45c5-88a7-0905b326d314">為民服務</a></h4>
+            <ul class="list-unstyled mb-0 ps-3">
+                        <li class="pb-1">
+            <a href="/EditPage/?PageID=57187e88-2e2d-4977-a5c2-aae3cbbd7952" >陳情檢舉管道</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=32f804bb-271b-47b3-b4b3-577ac75ec097" >檢舉專用地址電話一覽表</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=cca02333-3bb7-4366-9c3e-0302560fd11d" >接待參觀服務</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=85631920-f741-4f90-b196-f645d909e9a2#3" >資料參閱</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=27ed90a4-dd61-4334-99aa-5d8be779ad48" >親子血緣關係鑑定</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=819e87b6-b1ce-4b0d-ba38-0c678fd15734" >退休人員專區</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=0dced059-3888-4361-be46-23f14bb9ab88" >公示送達</a>
+        </li>
+        <li class="pb-1">
+            <a href="https://www.thcw.moj.gov.tw/CriminalWanted/default.html" >追緝外逃</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=bac38e59-0022-488e-9422-437034535b3e" >就業資訊</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=adf9b60f-98af-4b65-b996-4f74145a4cd0" >假訊息查證參考資訊</a>
+        </li>
+
+            </ul>
+        </div>
+        <div class="col mt-0">
+            <h4 class="mt-4"><a href="/EditPage/?PageID=407005b4-6b06-4054-9aee-ec2cef76d411">資訊公開</a></h4>
+            <ul class="list-unstyled mb-0 ps-3">
+                        <li class="pb-1">
+            <a href="/EditPage/?PageID=1713b1da-72df-4cb5-a9b0-326b62d6d1bd" >政府資訊申請</a>
+        </li>
+        <li class="pb-1">
+            <a href="/InfoOpen/List?Module=1" >法務部調查局「資訊公開」目錄一覽表</a>
+        </li>
+        <li class="pb-1">
+            <a href="/EditPage/?PageID=76a971b9-d165-4874-902d-0d53237ff574" >資訊圖像化</a>
+        </li>
+
+            </ul>
+        </div>
+
+        </div>
+    </div>
+
+</div>
+
+        </div>
+    </div>
+
+    <link href="/css/AfterBody.css" rel="stylesheet"/>
+
+    <script src="/Scripts/bootstrap.bundle.min.js"></script>
+
+    <script src="/js/swiper-bundle.min.js"></script>
+
+    <script src="/js/jquery-scrolltofixed-min.js"></script>
+<script src="/js/jquery.easing.1.3.js"></script>
+<script src="/Scripts/lazysizes.min.js"></script>
+<script src="/Scripts/jquery.ez-plus.js"></script>
+
+    
+    <script type="text/javascript">
+        $(function () {
+            $('.pagination>li>a[href]').each(function (i, item) {
+                var page = $(item).attr('href').replace(location.pathname + '?page=', '');
+                $(item).attr('href', 'javascript:postPage(' + page + ')');
+            });
+        });
+
+        function postPage(page) {
+            var targetFormId = '#Crimes_List';
+            if ($(targetFormId) != null) {
+                $('<input>')
+                    .attr({ type: 'hidden', id: 'page', name: 'page', value: page })
+                    .appendTo($(targetFormId));
+                $(targetFormId).submit();
+            }
+        };
+    </script>
+
+    <script src="/Scripts/UUEI.js"></script>
+<script src="/js/main.js"></script>
+
+</body>
+</html>

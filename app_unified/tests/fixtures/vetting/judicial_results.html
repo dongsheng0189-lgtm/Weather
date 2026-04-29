@@ -1,0 +1,481 @@
+
+
+<!DOCTYPE html>
+
+<html lang="zh-TW">
+<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><meta http-equiv="X-UA-Compatible" content="IE=edge" /><meta http-equiv="CACHE-CONTROL" content="NO-CACHE" />
+    <meta property="og:image" content="https://judgment.judicial.gov.twfblogo.png">
+    <title>
+	查詢結果列表
+</title><link rel="stylesheet" href="../css/bootstrap.min.css" /><link rel="stylesheet" href="../css/font-awesome.min.css" /><link rel="stylesheet" href="../css/iframe.css" />
+    <script type="text/javascript" src="/js/jquery-3.6.0.min.js"></script>    
+    <script type="text/javascript" src="/js/isMobile.js"></script>
+    <!--引用司法院內網的網頁字型 javascript -->
+    <script type="text/javascript" src="https://tpjwebfont2.judicial.gov.tw/WebFont/cmexwebfont.js"></script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-100643133-1"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+
+        gtag('config', 'UA-100643133-1');
+    </script>
+
+    <!-- Google tag (gtag.js) --> <script async src="https://www.googletagmanager.com/gtag/js?id=G-NB3N15LK5E"></script>
+    <script> window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'G-NB3N15LK5E'); </script>		
+	
+    
+    <meta name="robots" content="noindex">
+    <link rel="stylesheet" href="../css/result.css">
+    <link rel="stylesheet" href="../css/pagination.css">
+    <script>
+        $(document).ready(function () {
+            subset(".tdCut", "sung");
+        });
+        function cookieId(id, ro, q, gy, gc, sort, jt) {
+            document.cookie = "FJUEQRYParamsCookie_out=id=" + id + "&q=" + q + "&gy=" + gy + "&gc=" + gc + "&sort=" + sort + "&ro=" + ro  + "&jt=" + jt + ";";//domain=law.intraj;secure;
+        }
+    </script>
+</head>
+<body>
+    <form method="post" action="./qryresultlst.aspx?ty=JUDBOOK&amp;q=629f80cb0c7ab1fe64eb5064cd1a6c4e" id="form1">
+<div class="aspNetHidden">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="0ExU1f0ZALecSdcI81a9w6i+C7I8ieP6KInT0yRLn+aWMZqAIsSbU14Lb8TdnFMVp0Rqcw==" />
+</div>
+
+<div class="aspNetHidden">
+
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="71F44E97" />
+	<input type="hidden" name="__VIEWSTATEENCRYPTED" id="__VIEWSTATEENCRYPTED" value="" />
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="wvUkHPD7ySoAvUx1NokwjbkuMMS+2wuGlR98w40PntH7cvWURR95OcfUiG59OR7DBQoBYJY5Em+sFd7aVOeA/NqLABwU0GT+Gu2y+nNQxt/G4D2m5UXKt3FNtled6BH7l5aym8eFBag9siQnvRsgLLLK3axEI0iFpi2UvFzotbfLTarjGMaDJyLmIxElheA5Jz6TURVWShM/LUDo65MDZfOzQNG5oDdB69hmMTEAOWkWapORup4+JG053x0cHF6ZJ/Pa2JqEAYc7LQxI+njTXp319RAdfSR+8I9imkhsWgvzk303gpRNw7uLGruqEEzjuuyoVIaD0QFcOlWzmts58KQNXCDoHJJZwr7Yq5JKejF9471p" />
+</div>
+    <div class="container">
+        <h1 style="display:none"></h1>
+        
+    <div class="result-list">
+        <div class="result-heading">
+            <div class="result-title">查詢結果列表</div>
+            <a href="#" id="closeCut" class="btn btn-basic memoBtn">隱藏摘要</a>
+        </div>
+        
+        <div class="list-pager">
+            <div class="dropdown pull-left">
+                排序：<button class="btn btn-default btn-xs" type="button" id="dropdown-menu-sort" data-toggle="dropdown">
+				    日期新到舊
+				    <i class="fa fa-sort"></i>
+			    </button>
+			    <ul class="dropdown-menu">
+                    <li><a href="qryresultlst.aspx?sort=DS">裁判日期新到舊</a></li>
+                    <li><a href="qryresultlst.aspx?sort=DB">裁判日期舊到新</a></li>
+                    <li><a href="qryresultlst.aspx?sort=LG" class="courtsort">法院層級大到小</a></li>
+                    <li><a href="qryresultlst.aspx?sort=LB" class="courtsort">法院層級小到大</a></li><!--公示催告、簡易案件沒有法院層級分別(都是地院)-->
+                    <li><a href="qryresultlst.aspx?sort=KG">裁判大小大到小</a></li>
+                    <li><a href="qryresultlst.aspx?sort=KB">裁判大小小到大</a></li>
+			    </ul>
+            </div>
+            
+<script type="text/javascript">
+    function GoPage(ddl) {
+        location.href = ddl.value;
+    }
+</script>
+<div id="plPager" class="pull-right">
+	
+	<span>共 134 筆 . 現在第 1 / 7 頁</span>
+    <span>
+	    
+        
+        <a id="hlNext" class="page" href="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;page=2">下一頁</a>
+        <a id="hlLast" class="page" href="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;page=7">最末頁</a>
+	跳至
+        <select name="ctl00$cp_content$ucPagerTop$ddlPage" id="ddlPage" class="btn btn-default btn-xs" onchange="GoPage(this)">
+		<option selected="selected" value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=1">1</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=2">2</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=3">3</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=4">4</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=5">5</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=6">6</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=7">7</option>
+
+	</select>
+頁
+    </span>
+
+</div>
+<div class="clearfix"></div>
+        </div>
+        
+            <table id="jud" class="jub-table">
+                <tr>
+                    <th>序號</th>
+                    <th>裁判字號 （內容大小）</th>
+                    <th>裁判日期 </th>
+                    <th>裁判案由 </th>
+                </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">1.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCDM%2c114%2c%e9%87%91%e8%a8%b4%2c3392%2c20251229%2c1&#39;,&#39;0&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCDM%2c114%2c%e9%87%91%e8%a8%b4%2c3392%2c20251229%2c1&#39;,&#39;0&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCDM%2c114%2c%e9%87%91%e8%a8%b4%2c3392%2c20251229%2c1&amp;ot=in">臺灣臺中地方法院 114 年度 金訴 字第 3392 號刑事判決</a>（29K）</td>
+                <td>114.12.29</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...之刑。應執行有期徒刑貳年捌月。扣案之犯罪所得新臺幣壹萬參仟貳佰參拾陸元沒收。犯罪事實一、王永慶（LINE、微信及飛機通訊軟體暱稱「<span class="highlight">王小明</span>」）自民國112年9月間某日起，加入真實姓名年籍不詳LINE、微信及飛機通訊軟體暱稱「小小」之人及微信通訊軟體暱稱「9」之人所屬之...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">2.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TPHM%2c114%2c%e4%b8%8a%e8%a8%b4%2c502%2c20251224%2c2&#39;,&#39;1&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TPHM%2c114%2c%e4%b8%8a%e8%a8%b4%2c502%2c20251224%2c2&#39;,&#39;1&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TPHM%2c114%2c%e4%b8%8a%e8%a8%b4%2c502%2c20251224%2c2&amp;ot=in">臺灣高等法院 114 年度 上訴 字第 502 號刑事判決</a>（61K）</td>
+                <td>114.12.24</td>
+                <td width="30%">毒品危害防制條例等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...軟體大頭照查認方正真實姓名為張翃華；陳耀達及吳敬哲則於警詢時均供出「王小明」，經警方就其2人筆錄及手機通訊錄間相互搭配、推論始得知<span class="highlight">王小明</span>真實姓名為王首槐；至於曾威諭及陳耀達於警詢時雖供出暱稱「方正」之人，惟專案小組已先依黃騰奕之供述及人臉辨識系統知悉張翃華之身分，曾...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">3.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;CTDM%2c113%2c%e9%87%91%e6%98%93%2c164%2c20251208%2c1&#39;,&#39;2&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;CTDM%2c113%2c%e9%87%91%e6%98%93%2c164%2c20251208%2c1&#39;,&#39;2&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=CTDM%2c113%2c%e9%87%91%e6%98%93%2c164%2c20251208%2c1&amp;ot=in">臺灣橋頭地方法院 113 年度 金易 字第 164 號刑事判決</a>（11K）</td>
+                <td>114.12.08</td>
+                <td width="30%">洗錢防制法等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...轉交予詐欺集團使用、被告劉宗穎有分別交付合庫帳戶之對價予證人楊建城、同案被告潘信維等情可採，亦無客觀證據佐證Telegram暱稱「<span class="highlight">王小明</span>」即為被告劉宗穎使用之暱稱或帳號，自無從認定被告劉宗穎有公訴意旨所認之詐欺取財、洗錢或幫助詐欺取財、幫助洗錢等犯行。五、綜上所述，...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">4.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TPHV%2c114%2c%e8%a8%b4%e6%98%93%2c27%2c20250916%2c1&#39;,&#39;3&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TPHV%2c114%2c%e8%a8%b4%e6%98%93%2c27%2c20250916%2c1&#39;,&#39;3&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TPHV%2c114%2c%e8%a8%b4%e6%98%93%2c27%2c20250916%2c1&amp;ot=in">臺灣高等法院 114 年度 訴易 字第 27 號民事判決</a>（30K）</td>
+                <td>114.09.16</td>
+                <td width="30%">侵權行為損害賠償</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...,000元 18 108年11月11日 吳書晴 莊小明 10,920元 3年 30,000元 19 108年11月25日 黃紘毅 <span class="highlight">王小明</span> 5,460元 2年 20,000元 小計： 300,636元 小計：99年 小計： 99萬...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">5.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCHM%2c114%2c%e4%b8%8a%e8%a8%b4%2c571%2c20250812%2c1&#39;,&#39;4&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCHM%2c114%2c%e4%b8%8a%e8%a8%b4%2c571%2c20250812%2c1&#39;,&#39;4&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCHM%2c114%2c%e4%b8%8a%e8%a8%b4%2c571%2c20250812%2c1&amp;ot=in">臺灣高等法院 臺中分院 114 年度 上訴 字第 571 號刑事判決</a>（33K）</td>
+                <td>114.08.12</td>
+                <td width="30%">違反個人資料保護法等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...金之折算標準，以資懲儆。肆、免訴部分一、公訴意旨另以：被告基於違反個人資料保護法之犯意，於112年5月27日在「蘋果新聞網」，以「<span class="highlight">王小明</span>」名義，刊登並張貼乙女照片，於網路上供不特定人士瀏覽，以此等方式對不特定第三人洩漏乙女及所就讀學校班級，並損害乙女利益，因認被告此...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">6.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TNDM%2c114%2c%e9%87%91%e8%a8%b4%2c1977%2c20250805%2c2&#39;,&#39;5&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TNDM%2c114%2c%e9%87%91%e8%a8%b4%2c1977%2c20250805%2c2&#39;,&#39;5&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TNDM%2c114%2c%e9%87%91%e8%a8%b4%2c1977%2c20250805%2c2&amp;ot=in">臺灣臺南地方法院 114 年度 金訴 字第 1977 號刑事判決</a>（27K）</td>
+                <td>114.08.05</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...言恩」印章蓋印在上開「現金收據單」及簽寫「趙言恩」署名於其上後，隨於112年7月17日10時許，在臺南市○○區○○路0段000號「<span class="highlight">王小明</span>親子遊樂園」，假冒「盈昌投資股份有限公司」外務員「趙言恩」，向馮麗娟出示上開「工作證」並交付上開「現金收據單」而行使之，致馮麗娟誤...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">7.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TNDM%2c114%2c%e9%87%91%e8%a8%b4%2c1977%2c20250722%2c1&#39;,&#39;6&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TNDM%2c114%2c%e9%87%91%e8%a8%b4%2c1977%2c20250722%2c1&#39;,&#39;6&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TNDM%2c114%2c%e9%87%91%e8%a8%b4%2c1977%2c20250722%2c1&amp;ot=in">臺灣臺南地方法院 114 年度 金訴 字第 1977 號刑事判決</a>（13K）</td>
+                <td>114.07.22</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...言恩」印章蓋印在上開「現金收據單」及簽寫「趙言恩」署名於其上後，隨於112年7月17日10時許，在臺南市○○區○○路0段000號「<span class="highlight">王小明</span>親子遊樂園」，假冒「盈昌投資有限公司」外務員「趙言恩」，向馮麗娟出示上開「工作證」並交付上開「現金收據單」而行使之，致馮麗娟誤信丙...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">8.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c2527%2c20250626%2c1&#39;,&#39;7&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c2527%2c20250626%2c1&#39;,&#39;7&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c2527%2c20250626%2c1&amp;ot=in">臺灣臺南地方法院 113 年度 金訴 字第 2527 號刑事判決</a>（113K）</td>
+                <td>114.06.26</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...8 Plus工作機1支(內含門號+00000000000號SIM卡1張) 蘇威丞供本案犯罪所用之物(綁定通訊軟體TELEGRAM「<span class="highlight">王小明</span>」聯繫本案共犯)，應依詐欺犯罪危害防制條例第48條第1項規定，宣告沒收。 19 iPhone7工作機1支(內含門號00000000...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">9.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c1963%2c20250626%2c1&#39;,&#39;8&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c1963%2c20250626%2c1&#39;,&#39;8&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c1963%2c20250626%2c1&amp;ot=in">臺灣臺南地方法院 113 年度 金訴 字第 1963 號刑事判決</a>（113K）</td>
+                <td>114.06.26</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...8 Plus工作機1支(內含門號+00000000000號SIM卡1張) ｐ○○供本案犯罪所用之物(綁定通訊軟體TELEGRAM「<span class="highlight">王小明</span>」聯繫本案共犯)，應依詐欺犯罪危害防制條例第48條第1項規定，宣告沒收。 19 iPhone7工作機1支(內含門號00000000...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">10.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCDM%2c114%2c%e9%87%91%e9%87%8d%e8%a8%b4%2c115%2c20250506%2c2&#39;,&#39;9&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCDM%2c114%2c%e9%87%91%e9%87%8d%e8%a8%b4%2c115%2c20250506%2c2&#39;,&#39;9&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCDM%2c114%2c%e9%87%91%e9%87%8d%e8%a8%b4%2c115%2c20250506%2c2&amp;ot=in">臺灣臺中地方法院 114 年度 金重訴 字第 115 號刑事判決</a>（175K）</td>
+                <td>114.05.06</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...涉及到此案子你就不會跟我接觸上了 口氣不佳的部分我先跟你說聲抱歉 因為我氣憤呀...針對案件我還是必須得釐清 為什麼要你來？要告訴<span class="highlight">王小明</span>呀...幾月幾號在哪裡？為什麼會這樣呢？為什麼成為專案？為什麼必須來長沙？什麼叫做調查是我們的工作？我們的調查工作就是需要涉案人員...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">11.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e9%87%8d%e8%a8%b4%2c1392%2c20250506%2c5&#39;,&#39;10&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e9%87%8d%e8%a8%b4%2c1392%2c20250506%2c5&#39;,&#39;10&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCDM%2c113%2c%e9%87%91%e9%87%8d%e8%a8%b4%2c1392%2c20250506%2c5&amp;ot=in">臺灣臺中地方法院 113 年度 金重訴 字第 1392 號刑事判決</a>（175K）</td>
+                <td>114.05.06</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...涉及到此案子你就不會跟我接觸上了 口氣不佳的部分我先跟你說聲抱歉 因為我氣憤呀...針對案件我還是必須得釐清 為什麼要你來？要告訴<span class="highlight">王小明</span>呀...幾月幾號在哪裡？為什麼會這樣呢？為什麼成為專案？為什麼必須來長沙？什麼叫做調查是我們的工作？我們的調查工作就是需要涉案人員...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">12.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c2547%2c20250225%2c1&#39;,&#39;11&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c2547%2c20250225%2c1&#39;,&#39;11&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TNDM%2c113%2c%e9%87%91%e8%a8%b4%2c2547%2c20250225%2c1&amp;ot=in">臺灣臺南地方法院 113 年度 金訴 字第 2547 號刑事判決</a>（14K）</td>
+                <td>114.02.25</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...用暱稱「李金土」、「願真」等LINE帳號，向甲○○施以假投資之詐術，致甲○○陷於錯誤，而同意在址設臺南市○○區○○路0段000號之<span class="highlight">王小明</span>親子遊樂園面交新臺幣（下同）50萬元。乙○○及周芃逸遂按詐欺集團不詳成員以TELEGRAM暱稱「五億探長」帳號所為之指示，於民國1...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">13.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;CHDM%2c113%2c%e8%a8%b4%2c999%2c20250225%2c1&#39;,&#39;12&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;CHDM%2c113%2c%e8%a8%b4%2c999%2c20250225%2c1&#39;,&#39;12&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=CHDM%2c113%2c%e8%a8%b4%2c999%2c20250225%2c1&amp;ot=in">臺灣彰化地方法院 113 年度 訴 字第 999 號刑事判決</a>（19K）</td>
+                <td>114.02.25</td>
+                <td width="30%">違反個人資料保護法等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...生甲女隱私權之損害，並以上揭內容指謫傳述足以妨害甲女名譽之事，致生甲女名譽之損害。㈡基於恐嚇危害安全、實施跟蹤騷擾行為之犯意，以「<span class="highlight">王小明</span>」名義，接續對甲女為恐嚇及違反其意願且與性別有關之跟蹤騷擾行為，致甲女心生畏怖，足以影響其日常生活或社會活動：⒈於112年4月17...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">14.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TYDM%2c113%2c%e5%a3%a2%e5%8e%9f%e7%b0%a1%2c187%2c20250207%2c1&#39;,&#39;13&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TYDM%2c113%2c%e5%a3%a2%e5%8e%9f%e7%b0%a1%2c187%2c20250207%2c1&#39;,&#39;13&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TYDM%2c113%2c%e5%a3%a2%e5%8e%9f%e7%b0%a1%2c187%2c20250207%2c1&amp;ot=in">臺灣桃園地方法院 113 年度 壢原簡 字第 187 號刑事判決</a>（8K）</td>
+                <td>114.02.07</td>
+                <td width="30%">毒品危害防制條例</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...，依法不得持有之，竟基於持有第二級毒品之犯意，於民國113年6月19日中午時，在桃園市中壢區強國路某處，向一真實姓名年籍不詳自稱「<span class="highlight">王小明</span>」之男子，購得第二級毒品甲基安非他命之1包後，即攜持在身。嗣於113年7月2日下午5時30分許，董沛睛騎乘機車行經桃園市中壢區日新...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">15.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c1745%2c20250108%2c3&#39;,&#39;14&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c1745%2c20250108%2c3&#39;,&#39;14&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c1745%2c20250108%2c3&amp;ot=in">臺灣臺中地方法院 113 年度 金訴 字第 1745 號刑事判決</a>（18K）</td>
+                <td>114.01.08</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...如下：江偉豪基於參與犯罪組織犯意，自民國112年11月、12月間某日起，加入通訊軟體微信暱稱「A瑞丽市彩虹珠宝」、「9」、「明哥（<span class="highlight">王小明</span>）」及其他不詳年籍、姓名之成年成員所屬之三人以上以實施詐術為手段，具有持續性、牟利性之有結構性詐欺集團之犯罪組織（下稱本案詐欺集團...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">16.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c1745%2c20250108%2c4&#39;,&#39;15&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c1745%2c20250108%2c4&#39;,&#39;15&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c1745%2c20250108%2c4&amp;ot=in">臺灣臺中地方法院 113 年度 金訴 字第 1745 號刑事判決</a>（33K）</td>
+                <td>114.01.08</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...院判處罪刑）基於參與犯罪組織犯意，自民國112年11月、12月間某日起，加入通訊軟體微信暱稱「A瑞丽市彩虹珠宝」、「9」、「明哥（<span class="highlight">王小明</span>）」及其他不詳年籍、姓名之成年成員所屬之三人以上以實施詐術為手段，具有持續性、牟利性之有結構性詐欺集團之犯罪組織（下稱本案詐欺集團...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">17.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TNDM%2c113%2c%e7%b0%a1%2c4416%2c20241231%2c1&#39;,&#39;16&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TNDM%2c113%2c%e7%b0%a1%2c4416%2c20241231%2c1&#39;,&#39;16&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TNDM%2c113%2c%e7%b0%a1%2c4416%2c20241231%2c1&amp;ot=in">臺灣臺南地方法院 113 年度 簡 字第 4416 號刑事判決</a>（4K）</td>
+                <td>113.12.31</td>
+                <td width="30%">偽造文書</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...淇為避免駕駛其所有之車牌號碼000-0000號自小客車違規遭舉發，而基於行使偽造車牌之犯意，於民國113年6月13日，向臉書暱稱「<span class="highlight">王小明</span>」之人購得BJL-9658號偽造車牌2面2面懸掛在BAF-9569號自小客車上使用，足生損害於公路監理機關對於車籍管理之正確性。嗣...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">18.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TPHM%2c113%2c%e4%b8%8a%e6%98%93%2c1692%2c20241112%2c1&#39;,&#39;17&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TPHM%2c113%2c%e4%b8%8a%e6%98%93%2c1692%2c20241112%2c1&#39;,&#39;17&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TPHM%2c113%2c%e4%b8%8a%e6%98%93%2c1692%2c20241112%2c1&amp;ot=in">臺灣高等法院 113 年度 上易 字第 1692 號刑事判決</a>（22K）</td>
+                <td>113.11.12</td>
+                <td width="30%">背信等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...,000元 18 108年11月11日 吳書晴 莊小明 10,920元 3年 30,000元 19 108年11月25日 黃紘毅 <span class="highlight">王小明</span> 5,460元 2年 20,000元總計 300,636元990,000...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">19.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c2388%2c20240910%2c1&#39;,&#39;18&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c2388%2c20240910%2c1&#39;,&#39;18&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c2388%2c20240910%2c1&amp;ot=in">臺灣臺中地方法院 113 年度 金訴 字第 2388 號刑事判決</a>（29K）</td>
+                <td>113.09.10</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...刑。應執行有期徒刑參年。扣案如附表三編號3①至㉓所示之物，均沒收之。事實一、王永慶（通訊軟體LINE、微信及Telegram暱稱「<span class="highlight">王小明</span>」）自民國112年9月間某日起，基於參與犯罪組織之犯意，加入由真實姓名、年籍不詳、暱稱「小小」、「9」、「A瑞麗市彩虹珠寶」、「S...</span></td>
+            </tr>
+        
+            <tr>
+                <td width="1%" nowrap="nowrap">20.</td>
+                <td><a id="hlTitle" class="hlTitle_scroll" onClick="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c2251%2c20240910%2c1&#39;,&#39;19&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" onmousedown="cookieId(&#39;TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c2251%2c20240910%2c1&#39;,&#39;19&#39;,&#39;629f80cb0c7ab1fe64eb5064cd1a6c4e&#39;,&#39;&#39;,&#39;&#39;,&#39;DS&#39;,&#39;1&#39;)" href="data.aspx?ty=JD&amp;id=TCDM%2c113%2c%e9%87%91%e8%a8%b4%2c2251%2c20240910%2c1&amp;ot=in">臺灣臺中地方法院 113 年度 金訴 字第 2251 號刑事判決</a>（29K）</td>
+                <td>113.09.10</td>
+                <td width="30%">詐欺等</td>
+            </tr>
+            <tr class="summary">
+                <th id="jud-s"></th>
+                <td colspan="3" headers="jud-s"><span class="tdCut">...刑。應執行有期徒刑參年。扣案如附表三編號3①至㉓所示之物，均沒收之。事實一、王永慶（通訊軟體LINE、微信及Telegram暱稱「<span class="highlight">王小明</span>」）自民國112年9月間某日起，基於參與犯罪組織之犯意，加入由真實姓名、年籍不詳、暱稱「小小」、「9」、「A瑞麗市彩虹珠寶」、「S...</span></td>
+            </tr>
+        </table>
+        <div class="list-pager">
+        
+<script type="text/javascript">
+    function GoPage(ddl) {
+        location.href = ddl.value;
+    }
+</script>
+<div id="plPager" class="pull-right">
+	
+	<span>共 134 筆 . 現在第 1 / 7 頁</span>
+    <span>
+	    
+        
+        <a id="hlNext" class="page" href="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;page=2">下一頁</a>
+        <a id="hlLast" class="page" href="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;page=7">最末頁</a>
+	跳至
+        <select name="ctl00$cp_content$ucPagerButtom$ddlPage" id="ddlPage" class="btn btn-default btn-xs" onchange="GoPage(this)">
+		<option selected="selected" value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=1">1</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=2">2</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=3">3</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=4">4</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=5">5</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=6">6</option>
+		<option value="/FJUD/qryresultlst.aspx?q=629f80cb0c7ab1fe64eb5064cd1a6c4e&amp;sort=DS&amp;&amp;Page=7">7</option>
+
+	</select>
+頁
+    </span>
+
+</div>
+<div class="clearfix"></div>
+        </div>
+    </div>
+
+    </div>
+    </form>
+</body>
+</html>
+<script type="text/javascript" src="/js/bootstrap.min.js"></script>
+<script type="text/javascript" src="/js/iframeautohight.js"></script>
+<script type="text/javascript" src="/js/functions.js"></script>
+<script>
+    $(".hlTitle_scroll").click(function () {
+        var expires = new Date();
+        //有效時間保存 3分鐘 3*60*1000
+        expires.setTime(expires.getTime() + 180000);
+        var scroll = parent.document.documentElement.scrollTop;
+        document.cookie = "yPos=!~" + scroll + "~!" + ";expires=" + expires.toGMTString() + ";path=/";
+    });
+
+    $(function () {
+        if (!!window.performance && window.performance.navigation.type === 2) {
+            //!! 用來檢查 window.performance 是否存在
+            //window.performance.navigation.type ===2 表示使用 back or forward
+            var strCook = document.cookie;
+            if (strCook.indexOf("!~") != 0) {
+                var intS = strCook.indexOf("!~");
+                var intE = strCook.indexOf("~!");
+                var strPos = strCook.substring(intS + 2, intE);
+                top.$("body,html").animate({ scrollTop: strPos }, 0);
+                document.cookie = "";
+            }
+        }
+        else
+        {
+            //iframe換頁後，必須至頂
+            if (parent.document.documentElement.scrollTop != 0) { top.$("body,html").animate({ scrollTop: 0 }, 0); }
+        }
+        //避免XFS攻擊
+        if (top.location.hostname != self.location.hostname) { top.location = self.location; }
+        //如果法規放在iframe裡，那Master要改用iframe.master
+        if ($("#iframe-data", window.parent.document) != undefined) {
+            var queryVars = { 'ot': 'in' };
+         
+            $("a:not(.eng)").each(function (index) {
+                var url = $(this).attr("href");
+                var target = $(this).attr("target");
+                /*
+                if (url.indexOf("https://cons-test.judicial.gov.tw/") >= 0)
+                {
+                    return;
+                }
+                */
+                try {
+                    if (url != undefined && url.substring(0, 1) != "#" && target != "_blank" && target != "_parent") {
+                        if (url.indexOf('ot=in') == -1) {
+                            var separator = url.indexOf('?') !== -1 ? "&" : "?";
+                            url = url + separator + "ot=in";
+                            $(this).attr("href", url);
+                        }
+                    }
+                } catch (err) {
+                    alert(err.message);
+                }
+            });
+        }
+    });
+</script>
+
+    <script>
+        var ShortMemo = "1";
+        //排序
+        //var ty = getUrlParameter("ty");
+        var gy = getUrlParameter("gy");
+        var gc = getUrlParameter("gc");
+        //var qUrl = "&ty=" + ty + "&gy=" + gy + "&gc=" + gc + "&q=629f80cb0c7ab1fe64eb5064cd1a6c4e";
+        var qUrl = "&gy=" + gy + "&gc=" + gc + "&q=629f80cb0c7ab1fe64eb5064cd1a6c4e";
+
+        $(".dropdown-menu a").on("click", function (e) {
+            e.preventDefault();
+            window.location.href = $(this).attr("href") + qUrl;
+        });
+
+        $(function () {
+            if (document.cookie.indexOf("showcut=1") > -1) {
+                $(".tdCut").hide();
+                ShortMemo = "0";
+                $("#closeCut").text("顯示摘要");
+            }
+            else {
+                $(".tdCut").show();
+                ShortMemo = "1";
+                $("#closeCut").text("隱藏摘要");
+                document.cookie = "showcut=; expires=Thu, 01 Jan 1970 00:00:00 GMT" + ";path=/";
+            }
+        });
+
+        $("#closeCut").click(function () {
+            if (ShortMemo == "1") {
+                var d = new Date();
+                d.setTime(d.getTime() + (1 * 24 * 60 * 60 * 1000));//保存1個月
+                var expires = "expires=" + d.toGMTString();
+                //加入cookie
+                document.cookie = "showcut=1; expires=" + expires + ";path=/";
+                $(".tdCut").hide();
+                ShortMemo = "0";
+                $("#closeCut").text("顯示摘要");
+            }
+            else {
+                $(".tdCut").show();
+                ShortMemo = "1";
+                $("#closeCut").text("隱藏摘要");
+                document.cookie = "showcut=; expires=Thu, 01 Jan 1970 00:00:00 GMT" + ";path=/";
+            }
+        });
+    </script>

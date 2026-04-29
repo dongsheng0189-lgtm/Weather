@@ -1,24 +1,26 @@
 # 人員查詢 (Safety Vetting) 設計
 
-**日期**：2026-04-29
+**日期**：2026-04-29（修訂版：2026-04-29 實機 recon 後重整）
 **模組名稱**：vetting（內部 key）/ 人員查詢（UI label）
 **初期權限**：admin 帳號（is_root_admin）測試；未來放給有 `vetting` feature 的使用者
 
 ## 動機
 
-協助使用者對特定姓名做兩項即時安全性查詢：
-1. 司法院刑事判決（搜尋 + 深度掃描關鍵字 + 顯示遮蔽身分證讓使用者自行比對）
-2. 法務部調查局通緝/嫌疑人名單（按姓名匹配）
+協助使用者對特定人員做即時安全性查詢，整合三個公開資料源：
+1. **司法院刑事判決**（搜尋 + 深度掃描關鍵字）
+2. **法務部調查局通緝/嫌疑人名單**（按姓名匹配，含遮蔽身分證可人工比對）
+3. **警政署外逃通緝犯**（按姓名 + 身分證查詢）
 
 不存查詢結果、不留紀錄；每次查詢即時打外部站，結果只在當下 response 回去。
 
 ## 範圍
 
-- 輸入：**僅姓名**（不收身分證——不做 ID 比對，使用者自己看判決書內遮蔽 ID 比）
-- 輸出：兩段結果
-  - 司法院命中清單（案由 / 字號 / 日期 / 法院 / 命中關鍵字 / 遮蔽 ID）
-  - MJIB 命中清單（罪名 / 公告照片 / 詳情連結）
-- 不做：歷史紀錄、PDF 匯出、批次查詢、後端結果存檔（YAGNI）
+- **輸入**：姓名 + 身分證（後者主要給 NPA 用，司法院/MJIB 只用姓名）
+- **輸出**：三段結果
+  - 司法院命中清單（案由 / 字號 / 日期 / 法院 / 命中關鍵字）
+  - MJIB 命中清單（姓名 / 英文名 / **遮蔽身分證**（人工比對） / 出生年 / 照片 / 詳情連結）
+  - NPA 命中清單（罪名 / 通緝資訊 / 詳情連結）
+- **不做**：歷史紀錄、PDF 匯出、批次查詢、後端結果存檔（YAGNI）
 
 ## 模組隔離（依專案規則）
 
@@ -27,261 +29,179 @@
 - 新 templates 目錄：`templates/vetting/`
 - **不需要新 DB 表**（不存資料）
 - **不需要 R2 儲存**（不存附件）
-- features.py 新增：
-  ```python
-  {
-      "key": "vetting",
-      "label": "人員查詢",
-      "emoji": "🛡️",
-      "url": "/vetting/",
-      "enabled": True,
-  }
-  ```
-- `vetting_bp.before_request` 統一呼叫 `require_feature("vetting")`
+- features.py 新增 vetting entry
+- `vetting_bp.before_request` 統一呼叫 `user_has_feature("vetting")` 檢查
 - admin (`is_root_admin`) bypass，初期實質上等於 admin only
+
+## 各外部站結構（實機 recon 結果）
+
+### 1. 司法院 `judgment.judicial.gov.tw/FJUD/`
+- 首頁：`GET /FJUD/default.aspx` → ASP.NET form (有 `__VIEWSTATE`/`__EVENTVALIDATION`/`judtype`/`whosub` 等 hidden 欄位)
+- 送出：`POST /FJUD/default.aspx`，body 含原本 hidden 欄位 + `txtKW=<姓名>`
+- 回應：HTML 內含 `<iframe src="qryresultlst.aspx?ty=JUDBOOK&q=<hash>">`
+- **無驗證碼**（簡化大關鍵發現）
+- 結果列表：`GET /FJUD/qryresultlst.aspx?ty=JUDBOOK&q=<hash>` → 表格 `<tr>` 每兩列一筆
+  - 奇數列：序號 / 「法院 + 案號 + 案件類型」 + 日期 + 案由
+  - 偶數列：判決書摘要文字
+  - 詳情連結：奇數列裡的 `<a href="data.aspx?ty=JD&id=...">`
+- 詳情頁：`GET /FJUD/data.aspx?ty=JD&id=...` → 完整判決書 HTML
+- **判決書內已不含遮蔽身分證**（隱私強化），只有遮蔽人名（如 `王○○`）與遮蔽地址。**Spec 原本「ID 比對」拿掉**
+
+### 2. MJIB `www.mjib.gov.tw/Crimes/Crimes_List`
+- 直接 `GET` 取整頁，含分頁但首頁已有 ~10 筆
+- **無驗證碼**
+- 列表是 `<div class="card crimes-card ...">`，每張卡含：
+  - `<img src="/FileUploads/prisoner_pic/...">` 照片
+  - `<h5 class="card-title">姓名</h5>`
+  - `<div>英文名</div>`
+  - `<div>遮蔽身分證 e.g. A12336****</div>` ← **可拿來人工比對**
+  - `<div>出生年</div>`
+  - `<a href="/Crimes/Crimes_Detail?uid=N">` 詳情連結
+- 過濾：Python 端依姓名做 `in` 比對
+
+### 3. NPA `eze8.npa.gov.tw/NpaE8ServerRWD/`
+- 首頁：`GET /CE_Query.jsp` → 含 `<meta name="_csrf" content="...">` + `<input id="_key">`
+- **有驗證碼**：頁面 JS 在 init 時呼叫 `reloadCaptcha("1")` 從某 endpoint 拿驗證碼
+- 送出：JS 動態加 hidden inputs 後 form submit 到 `POST /NpaE8ServerRWD/doCEQuery`，body：
+  - `QS_NAME` + `QS_NAMEA`（雙寫）
+  - `QS_ID` + `QS_IDA`（雙寫）
+  - `answer` + `answerA`（驗證碼，雙寫）
+  - `Authorization` 欄位（值 = `Bearer ` + localStorage 的 `_tok`）
+  - `_csrf` token（由首頁 meta 取）
+- 規則：姓名/ID 擇一（系統不檢核），但本實作要求兩個都送
+- **NPA 是唯一需要驗證碼接力的來源**
 
 ## 架構
 
 ```
 ┌─ Browser ───────────────────────────────────────────┐
-│ /vetting/ (姓名表單)                                 │
-│   ↓ POST /vetting/start  {name}                      │
-│ /vetting/captcha (顯示 captcha image)                │
-│   ↓ POST /vetting/submit  {query_id, captcha_text}   │
-│ /vetting/result (兩段結果)                           │
+│ /vetting/  (姓名 + 身分證 表單)                       │
+│   ↓ POST /vetting/start  {name, id}                  │
+│   ↓                                                  │
+│ /vetting/captcha (NPA 驗證碼)                        │
+│   ↓ POST /vetting/submit  {query_id, captcha}        │
+│ /vetting/result (三段結果)                           │
 └──────────────────────────────────────────────────────┘
                 ↕ HTTP only (requests + BeautifulSoup)
 ┌─ External ──────────────────────────────────────────┐
-│ judgment.judicial.gov.tw  (有 captcha)              │
-│ www.mjib.gov.tw/Crimes/Crimes_List  (無 captcha)    │
+│ judgment.judicial.gov.tw/FJUD/  (no captcha)        │
+│ www.mjib.gov.tw/Crimes/         (no captcha)        │
+│ eze8.npa.gov.tw/NpaE8ServerRWD/ (captcha relay)     │
 └──────────────────────────────────────────────────────┘
 ```
 
-**為何純 HTTP（不用 Playwright）**：
-- Zeabur 容器無 GUI，Playwright headless 又重又難維運
-- 司法院 captcha 用「網頁接力」UX（後端拿圖、前端輸入），不需 GUI 自動化
-- MJIB 無 captcha → 直接 GET + parse
+純 HTTP，不用 Playwright/Chromium（Zeabur 容器跑 OK）。
 
-## UI 流程
+## UI 流程（三步驟 SPA）
 
-### Step 1 — 姓名輸入頁 (`GET /vetting/`)
-- 單一 input：姓名
-- 提示文字：「將同時查詢司法院刑事判決與調查局通緝名單」
+### Step 1 — 姓名 + 身分證輸入 (`GET /vetting/`)
+- 兩個 input：姓名（必填）+ 身分證（必填，給 NPA）
 - 「開始查詢」按鈕
 
-### Step 2 — 司法院驗證碼接力 (`POST /vetting/start`)
-
+### Step 2 — NPA 驗證碼接力 (`POST /vetting/start`)
 後端做：
-1. `GET https://judgment.supreme.court.gov.tw/wkw/commonQuery.jsp`
-2. 從 HTML 抓出表單必要 hidden 欄位（具體名稱以實機抓為準，JSP 站常見：seq/csrf/session token）
-3. 抓 captcha image URL → `GET` 圖片 → 取 bytes
-4. 把 cookie + 必要欄位 + captcha image bytes 暫存到記憶體 dict（key = 隨機 `query_id`，TTL 5 分鐘自動清）
-5. 回 JSON：`{query_id, captcha_b64}`
+1. `GET` NPA 首頁 → 取 `_csrf` meta + `_key` + cookie
+2. 嘗試取得 NPA 的 `_tok`（看是否 cookie 帶、或某 endpoint 回）
+3. `GET` NPA 驗證碼 image endpoint → bytes
+4. 把 (cookies, _csrf, _key, _tok, captcha_bytes) + 使用者輸入的 (name, id) 暫存到 process-local dict（`query_id` key、TTL 5 分鐘）
+5. **同步**地：先打 司法院 + MJIB（兩者無驗證碼，可平行先做）並把結果暫存
+6. 回 JSON：`{query_id, captcha_b64}` 給前端顯示驗證碼
 
-前端：
-- 顯示 captcha image（`<img src="data:image/jpeg;base64,...">`）
-- 「重整」按鈕 → 重打 `/vetting/start`
-- 輸入框 + 送出
+> **設計選擇**：把 司法院 + MJIB 的查詢提前在 `/start` 階段做完，使用者輸驗證碼期間結果就回來了。也可以放到 `/submit` 階段，但會讓使用者多等幾秒。
 
-### Step 3 — 結果頁 (`POST /vetting/submit`)
+### Step 3 — NPA 送出 + 結果頁 (`POST /vetting/submit`)
+帶 `{query_id, captcha_text}`：
+1. 從 query_state 取出 cookies + tokens + 已查好的 司法院/MJIB 結果
+2. POST `doCEQuery` 帶 captcha + name + id + token + csrf
+3. 解析 NPA 回應
+4. 三段結果整合回前端
 
-帶 `{query_id, name, captcha_text}`：
-
-1. 從記憶體 dict 取出 cookie/viewstate
-2. POST 司法院搜尋表單（`姓名`、`law_class=刑事`、captcha）
-3. 解結果頁 → N 筆 `{案由, 字號, 日期, 法院, detail_url}`
-4. 對每筆 GET 詳情頁 → 解析出：
-   - 關鍵字命中：`詐欺` / `洗錢` / `有期徒刑` / `定讞`
-   - 馬賽克 ID：regex `[A-Z][12]\d{2,3}\*+\d{3,4}` 抓出來
-5. 同時 GET MJIB Crimes_List（地區=全選，看實際 form 怎麼帶 → 必要時帶所有 region 值）
-6. Python 端過濾出姓名包含使用者輸入的列 → 抓 `{罪名, 照片 URL, 詳情 URL}`
-7. 把兩段結果一次回前端
-
-**同步處理**（不開背景 job）：
-- 預估 10 筆判決書 ≈ 10-15 秒、MJIB 1-2 秒、總計 < 30 秒
-- Flask 預設 timeout 夠
-- 前端 spinner + 「查詢中（最多 30 秒）...」訊息
-
-### 結果頁顯示
+## 結果頁顯示
 
 ```
 A. 司法院刑事判決（N 筆，⚠ 為命中關鍵字）
-
-  1. ⚠ 詐欺
-     字號：113年度上易字第123號  日期：113/03/15  法院：臺灣高等法院
-     命中關鍵字：詐欺 / 有期徒刑 / 定讞
-     判決書內 ID（遮蔽）：A12****5678 ← 自行比對
-     [展開判決書全文 ▾]
-  2. 竊盜
-     字號：...
-     ...
+   1. ⚠ 詐欺
+      字號：113上易123  日期：113/03/15  法院：高等法院
+      命中關鍵字：詐欺 / 有期徒刑 / 定讞
+      [→ 開原判決書]
+   ...
 
 B. 法務部調查局通緝/嫌疑人名單
+   ⚠ 命中 1 筆：
+      姓名：王○○ (LIN, KEN-TI)
+      遮蔽身分證：A12336****  ← 自行比對
+      出生年：1978
+      [照片] [→ 詳情]
 
-  ⚠ 命中 1 筆 / ✅ 查無
-     罪名：xxx
-     [照片預覽] [前往詳情]
+C. 警政署外逃通緝犯
+   ✅ 查無 / ⚠ 命中 N 筆：
+      罪名：xxx
+      [→ 詳情]
 ```
-
-無命中時顯示「查無紀錄」。
 
 ## 後端模組分工
 
 | 檔案 | 責任 |
 |------|------|
 | `vetting/__init__.py` | blueprint object |
-| `vetting/routes.py` | HTTP routes（start/submit）、暫存 query_state dict |
-| `vetting/judicial.py` | 司法院相關：拿 captcha、送表單、解結果頁、深度掃描詳情頁 |
-| `vetting/mjib.py` | MJIB Crimes_List 抓取與姓名過濾 |
-| `vetting/parser.py` | 共用解析 helper（regex、BeautifulSoup utility） |
-
-每個檔小而專注，方便單元測試。
-
-## 外部連線細節
-
-### 司法院
-- Base URL：`https://judgment.supreme.court.gov.tw/wkw/commonQuery.jsp`
-- 法院類別：「全台法院」、判別類別：「刑事」（具體 form 欄位名以實機抓為準）
-- User-Agent：用一般 Chrome UA，避免被擋
-
-### MJIB
-- URL：`https://www.mjib.gov.tw/Crimes/Crimes_List`
-- 請求方式：先 GET 一次看 form 結構；若是 query string 帶 region → 一次帶全部地區值；若是 POST + 多選 → 用 `requests` POST 全選
-- 解析：每筆通緝對應一個 `<div>` 或 `<tr>`，提取姓名/罪名/照片/詳情連結
+| `vetting/routes.py` | HTTP routes + query_state dict |
+| `vetting/http_client.py` | `make_session()` 真人 headers + `throttle_sleep()` |
+| `vetting/judicial.py` | 司法院 search + iframe + 結果 parse + 詳情頁深掃 |
+| `vetting/mjib.py` | MJIB Crimes_List GET + 姓名過濾 + 解析卡片 |
+| `vetting/npa.py` | NPA 首頁取 token + captcha image + doCEQuery POST + 結果 parse |
 
 ## 暫存 query_state
 
-簡單的 process-local dict：
-
-```python
-# vetting/routes.py
-_QUERY_STATE = {}  # {query_id: {"cookies": ..., "viewstate": ..., "expires_at": ...}}
-
-def _gc_expired():
-    now = time.time()
-    for qid in list(_QUERY_STATE.keys()):
-        if _QUERY_STATE[qid]["expires_at"] < now:
-            del _QUERY_STATE[qid]
-
-def _put_state(state):
-    qid = secrets.token_urlsafe(16)
-    state["expires_at"] = time.time() + 300  # 5 min TTL
-    _QUERY_STATE[qid] = state
-    _gc_expired()
-    return qid
-```
-
-僅 process-local，重啟即清空、跨 worker 不共享 → 對單機 Zeabur deploy 沒問題。未來多 worker 部署再考慮 Redis。
+簡單的 process-local dict，5 分鐘 TTL（同先前設計）。
 
 ## 錯誤處理
 
-- 司法院連線逾時 / 5xx → 回前端「司法院系統暫時無法連線，請稍後再試」
-- MJIB 連線失敗 → 不擋整個流程，回司法院結果 + MJIB 段落顯示「無法取得通緝名單」
-- captcha 錯誤 → 回前端「驗證碼錯誤，請重整圖片再試」
+- 各外部站 timeout / 5xx → 該段顯示「無法取得」，不影響其他段
+- captcha 錯誤（NPA） → 回前端「驗證碼錯誤，請重整圖片再試」
 - query_id 過期 → 回「查詢逾時（5 分鐘），請重新開始」
 
 ## 防誤判機器人 / 不被外部站擋
 
-公部門站點都有反爬蟲機制，必須像「真人在瀏覽」才不會被 IP block 或 rate limit。具體措施：
+（內容同前一版 spec 的「防誤判機器人」段落）
 
-### 1. 真人化的 HTTP headers
-全部外部請求都帶完整 browser headers，**不留 `python-requests/x.y` 痕跡**：
+- 真人 headers (`vetting/http_client.py`)
+- 每筆詳情頁間 `throttle_sleep()`
+- Flask-Limiter：每使用者每分鐘最多 1 次完整查詢
+- 偵測 429/403 立即停止
+- 不平行打 / 不重試 / 不存資料
 
-```python
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
-```
-
-每筆深層詳情頁的 GET 還要帶 `Referer`（指回上一頁的搜尋結果頁），完全模擬瀏覽器導覽行為。
-
-### 2. 請求節流（不爆衝）
-- **同一查詢內**：詳情頁 N 筆，每筆之間 sleep `random.uniform(0.5, 1.2)` 秒，模擬人手點擊
-- **同 user / 同模組**：用既有 Flask-Limiter，限 **每分鐘 1 次查詢**（Limiter 已在 `extensions.py` 註冊）
-
-```python
-@vetting_bp.route("/submit", methods=["POST"])
-@limiter.limit("1/minute", key_func=lambda: f"vet:{current_user.id}")
-@login_required
-def submit():
-    ...
-```
-
-### 3. 透過 captcha 已證明是人
-司法院搜尋階段：使用者**真的**輸入了驗證碼，server 視我們為合法 session，這已經是最強反 bot 證明。後續詳情頁 GET 沿用 captcha 後的 session cookie 即可。
-
-### 4. 收到擋人訊號就停
-- HTTP 429（Too Many Requests）→ 立即停止所有後續 GET，回前端「外部站暫時限流，請 5 分鐘後再試」
-- HTTP 403（Forbidden）/ 連續 timeout → 同上，**不重試**（避免被進一步加深 block）
-
-### 5. 尊重 robots.txt
-實作前先 GET：
-- `https://judgment.supreme.court.gov.tw/robots.txt`
-- `https://www.mjib.gov.tw/robots.txt`
-
-確認查詢用的路徑沒被 disallow。**目前推測都是 public crawlable 但要實機確認**。如有 disallow，重新評估或改用其他公開資料源。
-
-### 6. 量級估算
-- admin 一個人測試：每天 ~10 次查詢
-- 每次深掃 10 筆詳情：100 GETs/day
-- 換算 0.07 GETs/min 平均，遠低於任何合理 rate limit
-- → 加上前述措施後，被當機器人擋的機率極低
-
-### 7. 後端 fallback
-若實作後實機測試發現某段被 block，先：
-1. 用 admin 自己手動瀏覽器測，看一般人是否也被擋（可能是站點維護）
-2. 看回應內容是否含 captcha challenge / Cloudflare ban 頁
-3. 必要時用 Zeabur logs 看請求/回應 headers 排查
-
-### 8. 不做的（避免被當作惡意用途）
-- **不做** parallel 查詢（同時打多個 detail 頁）
-- **不做** 自動重試（429/403 之外的錯誤也只給 1 次重試上限）
-- **不做** 結果存檔（避免變成個資資料庫，本身就是抓取目的曖昧的訊號）
-- **不做** 任何形式的「批次姓名輸入」
+司法院 + MJIB 沒驗證碼，唯一通過驗證碼的證明是 NPA — 但每次只查一個人、頻率極低，被擋的機率仍極低。
 
 ## PII / 安全
 
 - **不存查詢紀錄**：不寫 DB、不寫檔
-- 既有 admin log 只記「執行人員查詢」+ 時間，**不記姓名**
+- 既有 admin log 只記「執行人員查詢」+ 時間，**不記姓名/ID**
 - 結果頁瀏覽器不快取（既有 `Cache-Control: no-store` 全站套用）
 - captcha image 用 base64 inline 顯示，**不存檔**
 - 入口 feature gate：未授權 abort(404)（看不見即不存在）
+- 身分證在 query_state 裡暫存最多 5 分鐘，過期即 GC（不寫檔、不入 log）
 
 ## 測試
 
-`tests/test_vetting.py`：
+`tests/test_vetting_*.py`：
 
-1. **司法院 captcha 抓取**（mock HTML）
-   - 給定首頁 HTML 字串 → `judicial.fetch_captcha_state()` 回 `{cookies, viewstate, captcha_bytes}`
-2. **司法院結果頁解析**（mock HTML）
-   - 給定結果頁 HTML → `judicial.parse_results()` 回 N 個 dict
-3. **司法院深度掃描**（mock 詳情頁 HTML）
-   - 含「詐欺/有期徒刑/定讞」→ 命中清單 ✓
-   - 含遮蔽 ID `A12****5678` → 抓出 `A12****5678`
-   - 不含關鍵字 → 命中清單空
-4. **MJIB parsing**（mock HTML）
-   - 列表含某姓名 → `mjib.search_by_name("王小明")` 回該筆
-   - 列表不含 → 回空 list
-5. **routes integration**（用 `requests-mock` 或 `responses` 假外部站）
-   - `/vetting/start` 流程
-   - `/vetting/submit` 流程
-   - 過期 query_id 處理
+- `test_vetting_routes.py`：feature gate + start/submit endpoints
+- `test_vetting_http.py`：headers + throttle
+- `test_vetting_judicial.py`：parse_home_state / parse_results / scan_detail_html
+- `test_vetting_mjib.py`：parse_list / search_by_name_in_html / 遮蔽 ID 抓取
+- `test_vetting_npa.py`：parse_home_tokens / parse_results
 
-不打真實外部 URL，所有測試 mock。
+每個 parser test 用本地 fixture HTML（`tests/fixtures/vetting/*.html`），**不打真實外部站**。
 
 ## 已決策
 
 - 純 HTTP，不用 Playwright/Chromium
 - 同步處理（30 秒內）不開背景 job
-- 不存任何查詢紀錄（PII 顧慮）
-- 司法院 captcha 用網頁接力（後端拿圖、前端輸入）
-- MJIB 用 `mjib.gov.tw/Crimes/Crimes_List`（不是 spec 原寫的警政署）
+- 不存任何查詢紀錄
+- 司法院**無驗證碼** → 流程簡化（recon 後修正）
+- MJIB **無驗證碼** → GET + 過濾
+- NPA **有驗證碼** → 是唯一需要接力的來源
+- 司法院判決書內**已不放遮蔽身分證**（隱私強化），ID 比對改靠 MJIB 的遮蔽 ID
 - 入口 admin only（`is_root_admin` bypass）；未來 feature 開關控管
 
 ## 不做（YAGNI）
@@ -289,8 +209,8 @@ def submit():
 - 查詢歷史 / 收藏
 - PDF 匯出
 - 多筆姓名批次
-- Pandas 匯總（spec 原本提，實際用不到）
-- 把 MJIB 照片下載到 server（直接連結原站）
+- Pandas 匯總
+- 把 MJIB/NPA 照片下載到 server（直接連結原站）
 - 自動驗證碼解碼（2Captcha 等）
 - Playwright fallback
-- 多 worker 共享 query_state（未來再說）
+- 多 worker 共享 query_state
