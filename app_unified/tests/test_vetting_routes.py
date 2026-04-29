@@ -63,6 +63,41 @@ def test_vetting_index_200_for_root_admin(app, client, db_session):
     assert 'id="vet-name"' in body
 
 
+def test_vetting_index_404_for_super_admin_role(app, client, db_session):
+    """super_admin 角色但 username 不是 'admin' → 不能進。"""
+    u = _mk_user(db_session, username="boss", role="super_admin")
+    _login(client, u)
+    res = client.get("/vetting/")
+    assert res.status_code == 404
+
+
+def test_vetting_index_404_for_admin_role(app, client, db_session):
+    """admin 角色但 username 不是 'admin' → 不能進。"""
+    u = _mk_user(db_session, username="manager", role="admin")
+    _login(client, u)
+    res = client.get("/vetting/")
+    assert res.status_code == 404
+
+
+def test_vetting_nav_hidden_from_super_admin_role(app, client, db_session):
+    """nav 內不會出現「人員查詢」連結給 super_admin（非 root admin）。"""
+    u = _mk_user(db_session, username="boss2", role="super_admin")
+    _login(client, u)
+    res = client.get("/notes/")  # 任一其他可進入的頁面
+    body = res.get_data(as_text=True)
+    # nav 不該有人員查詢的連結（emoji 或 label）
+    assert "人員查詢" not in body
+    assert "/vetting/" not in body
+
+
+def test_vetting_nav_visible_to_root_admin(app, client, db_session):
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    res = client.get("/notes/")
+    body = res.get_data(as_text=True)
+    assert "人員查詢" in body
+
+
 def test_start_endpoint_returns_query_id_and_captcha(app, client, db_session, monkeypatch):
     u = _mk_user(db_session, root_admin=True)
     _login(client, u)

@@ -81,6 +81,7 @@
       {% if current_user.is_authenticated %}
         {% if has_feature('notes') %}<a href="{{ url_for('notes.index') }}">店務筆記</a>{% endif %}
         {% if has_feature('mynotes') %}<a href="{{ url_for('mynotes.index') }}">私人筆記</a>{% endif %}
+        {% if has_feature('vetting') %}<a href="{{ url_for('vetting.index') }}">🛡️ 人員查詢</a>{% endif %}
         <a href="{{ url_for('weather.index') }}">天氣</a>
         {% if multi_feature %}<a href="{{ url_for('auth.module_picker') }}">切換模組</a>{% endif %}
         {% if current_user.is_admin() %}
@@ -99,6 +100,7 @@
       {% if current_user.is_authenticated %}
         {% if has_feature('notes') %}<a href="{{ url_for('notes.index') }}">店務筆記</a>{% endif %}
         {% if has_feature('mynotes') %}<a href="{{ url_for('mynotes.index') }}">私人筆記</a>{% endif %}
+        {% if has_feature('vetting') %}<a href="{{ url_for('vetting.index') }}">🛡️ 人員查詢</a>{% endif %}
         <a href="{{ url_for('weather.index') }}">天氣</a>
         {% if multi_feature %}<a href="{{ url_for('auth.module_picker') }}">切換模組</a>{% endif %}
         {% if current_user.is_admin() %}
