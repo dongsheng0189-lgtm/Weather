@@ -94,9 +94,9 @@
 
 {% if current_user.is_super_admin() %}
 <div class="store-tabs">
-  <a href="{{ url_for('notes.index', status=current_status, range=current_range) }}" class="store-tab {% if not current_store %}active{% endif %}" data-store="">全部</a>
+  <a href="{{ url_for('notes.index') }}" class="store-tab {% if not current_store %}active{% endif %}" data-store="">全部</a>
   {% for s in stores %}
-  <a href="{{ url_for('notes.index', store=s, status=current_status, range=current_range) }}" class="store-tab {% if current_store == s %}active{% endif %}" data-store="{{ s }}">{{ s }}</a>
+  <a href="{{ url_for('notes.index', store=s) }}" class="store-tab {% if current_store == s %}active{% endif %}" data-store="{{ s }}">{{ s }}</a>
   {% endfor %}
 </div>
 {% elif current_user.store %}
@@ -122,11 +122,20 @@
      style="{% if current_category == val and val %}background:#3498db;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
+{% set shift_tab_labels = [('none','不需要'),('A','A'),('B','B'),('N','N')] %}
+<div class="range-tabs">
+  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">班別：</span>
+  {% for val, label in shift_tab_labels %}
+  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=val) }}"
+     class="store-tab {% if current_shift == val %}active{% endif %}"
+     style="{% if current_shift == val %}background:#16a085;color:#fff;{% endif %}">{{ label }}</a>
+  {% endfor %}
+</div>
 <div class="range-tabs">
   <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">時間：</span>
   {% set range_labels = [('today','今天'),('3d','近3天'),('7d','近7天'),('30d','近月')] %}
   {% for val, label in range_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=current_category, range=val) }}"
+  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=val) }}"
      class="store-tab {% if current_range == val %}active{% endif %}"
      style="{% if current_range == val %}background:#2c3e50;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
@@ -135,7 +144,7 @@
 <div class="status-tabs">
   <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">狀態：</span>
   {% for val, label in status_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=current_category, range=current_range, status=val) }}"
+  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=val) }}"
      class="store-tab {% if current_status == val %}active{% endif %}"
      style="{% if current_status == val %}
               {% if val == '' %}background:#2c3e50;color:#fff;
@@ -150,7 +159,7 @@
 <div class="status-tabs">
   <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">排列：</span>
   {% for val, label in sort_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=current_category, range=current_range, status=current_status, sort=val) }}"
+  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=current_status, sort=val) }}"
      class="store-tab {% if current_sort == val %}active{% endif %}"
      style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
@@ -184,7 +193,7 @@
 {% if pagination.pages > 1 %}
 <div style="display:flex;justify-content:center;align-items:center;gap:.5rem;margin-top:1.5rem;flex-wrap:wrap;">
   {% if pagination.has_prev %}
-  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, q=current_keyword, page=pagination.prev_num) }}"
+  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, page=pagination.prev_num) }}"
      style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">‹ 上一頁</a>
   {% endif %}
   {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
@@ -192,7 +201,7 @@
       {% if p == pagination.page %}
       <span style="padding:.4rem .8rem;border-radius:6px;background:#2c3e50;color:#fff;font-size:.9rem;font-weight:600;">{{ p }}</span>
       {% else %}
-      <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, q=current_keyword, page=p) }}"
+      <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, page=p) }}"
          style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">{{ p }}</a>
       {% endif %}
     {% else %}
@@ -200,7 +209,7 @@
     {% endif %}
   {% endfor %}
   {% if pagination.has_next %}
-  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, q=current_keyword, page=pagination.next_num) }}"
+  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, page=pagination.next_num) }}"
      style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">下一頁 ›</a>
   {% endif %}
   <span style="font-size:.82rem;color:#999;margin-left:.5rem;">共 {{ pagination.total }} 筆</span>
