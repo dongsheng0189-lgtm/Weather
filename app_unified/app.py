@@ -3,13 +3,22 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.WARNING,
-    format="%(asctime)s %(name)s %(levelname)s: %(message)s",
-    force=True,
-)
+_TW_TZ = ZoneInfo("Asia/Taipei")
+
+
+class _TaipeiFormatter(logging.Formatter):
+    """讓 %(asctime)s 印台灣時間，與部署容器的 TZ 解耦（Zeabur 預設 UTC）。"""
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=_TW_TZ)
+        return dt.strftime(datefmt) if datefmt else dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(_TaipeiFormatter("%(asctime)s %(name)s %(levelname)s: %(message)s"))
+logging.basicConfig(level=logging.WARNING, handlers=[_handler], force=True)
 
 from datetime import timedelta
 from flask import Flask, redirect, url_for, render_template, request, session
@@ -312,9 +321,13 @@ def create_app():
     @app.before_request
     def _enforce_session_idle():
         """伺服器端閒置強制登出。
-        路徑判定 max idle：
-        - /mynotes/* 在筆電（非 mobile UA）→ 30 分鐘
-        - 其他（含 /mynotes/* 在手機）→ 5 分鐘
+        max idle：
+        - 桌機（非 mobile UA）且最近 30 分鐘內曾請求 /mynotes/* → 30 分鐘
+        - 其他 → 5 分鐘
+
+        以「mynotes grace」追蹤：每次 /mynotes/* 桌機請求把 grace 推到 now+30min，
+        grace 期間任何路徑（含 /auth/ping、跨頁切到 /weather）都享 30 分鐘 idle，
+        避免使用者離開 mynotes 後第一個請求就被 5 分鐘規則踢出。
 
         僅對已登入使用者作用；靜態資源、SW、登出端點略過。
         """
@@ -327,10 +340,13 @@ def create_app():
             return
         ua = (request.headers.get("User-Agent") or "").lower()
         is_mobile = any(k in ua for k in ("iphone", "ipad", "ipod", "android"))
-        is_mynotes_laptop = p.startswith("/mynotes/") and not is_mobile
-        max_idle = 30 * 60 if is_mynotes_laptop else 5 * 60
+        on_mynotes = (p == "/mynotes" or p.startswith("/mynotes/"))
         import time
         now = int(time.time())
+        if on_mynotes and not is_mobile:
+            session["_mynotes_grace_until"] = now + 30 * 60
+        in_mynotes_grace = (not is_mobile) and now < session.get("_mynotes_grace_until", 0)
+        max_idle = 30 * 60 if in_mynotes_grace else 5 * 60
         last = session.get("_last_request_at")
         if last is not None and now - last > max_idle:
             logout_user()
