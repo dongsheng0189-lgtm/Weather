@@ -1,14 +1,28 @@
 """Tests for vetting blueprint routes + feature gate."""
+import base64
 import uuid
 import pytest
 from unittest.mock import MagicMock
 from models import User
-from extensions import db
+from extensions import db, limiter
+
+
+@pytest.fixture(autouse=True)
+def _reset_limiter(app):
+    """Clear flask-limiter state between tests (avoid cross-test rate limits)."""
+    with app.app_context():
+        limiter.reset()
+    yield
 
 
 def _mk_user(db_session, username=None, role="user", root_admin=False):
+    target_name = "admin" if root_admin else (username or f"u_{uuid.uuid4().hex[:6]}")
+    # Reuse existing 'admin' user if already created by a prior test
+    existing = User.query.filter_by(username=target_name).first()
+    if existing:
+        return existing
     u = User(
-        username="admin" if root_admin else (username or f"u_{uuid.uuid4().hex[:6]}"),
+        username=target_name,
         role=role,
         store="B",
         is_active=True,
@@ -47,3 +61,103 @@ def test_vetting_index_200_for_root_admin(app, client, db_session):
     assert "人員查詢" in body
     # 表單只有姓名一個 input
     assert 'id="vet-name"' in body
+
+
+def test_start_endpoint_returns_query_id_and_captcha(app, client, db_session, monkeypatch):
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+
+    fake_npa_session = MagicMock()
+    fake_tokens = {"_csrf": "abc", "_csrf_header": "X-CSRF-TOKEN", "_key": "k123"}
+
+    def fake_npa_home(sess=None):
+        return fake_tokens, fake_npa_session
+    monkeypatch.setattr("vetting.routes.npa.fetch_home_state", fake_npa_home)
+    monkeypatch.setattr("vetting.routes.npa.fetch_auth_token",
+                        lambda sess, tok: "JWT_FAKE")
+    monkeypatch.setattr("vetting.routes.npa.fetch_captcha_bytes",
+                        lambda sess: b"\xff\xd8\xff\xe0FAKE_JPEG")
+    # 司法院 + MJIB 模擬無事發生
+    monkeypatch.setattr("vetting.routes.judicial.fetch_home_state",
+                        lambda sess=None: ({"form_action": "x", "hidden_fields": {}}, MagicMock()))
+    monkeypatch.setattr("vetting.routes.judicial.submit_search",
+                        lambda sess, state, name: [])
+    monkeypatch.setattr("vetting.routes.mjib.search_by_name",
+                        lambda name, session=None: [])
+    monkeypatch.setattr("vetting.routes.throttle_sleep", lambda: None)
+
+    res = client.post("/vetting/start", json={"name": "王小明", "id": "A123456789"})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "query_id" in data
+    assert "captcha_b64" in data
+    base64.b64decode(data["captcha_b64"])  # 合法 base64
+
+
+def test_start_missing_params_400(app, client, db_session):
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    # 缺 id
+    res = client.post("/vetting/start", json={"name": "王"})
+    assert res.status_code == 400
+    # 缺 name
+    res = client.post("/vetting/start", json={"id": "A123"})
+    assert res.status_code == 400
+
+
+def test_submit_endpoint_returns_three_segments(app, client, db_session, monkeypatch):
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    from vetting.routes import _put_state
+    qid = _put_state({
+        "npa_session": MagicMock(),
+        "npa_tokens": {"_csrf": "x", "_csrf_header": "h", "_key": "k"},
+        "npa_jwt": "jwt",
+        "name": "王", "id_no": "A123",
+        "judicial": [{"subject": "詐欺", "case_no": "n", "date": "d",
+                      "court": "c", "detail_url": "u",
+                      "keyword_hits": ["詐欺"], "masked_names": []}],
+        "mjib": [{"name": "王某", "eng_name": "", "masked_id": "A12***",
+                  "birth": "1990", "photo_url": "", "detail_url": ""}],
+    })
+    monkeypatch.setattr("vetting.routes.npa.submit_query",
+                        lambda *a, **kw: [{"name": "王", "crime": "竊盜", "detail_url": ""}])
+
+    res = client.post("/vetting/submit",
+                      json={"query_id": qid, "captcha": "ABCD"})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "judicial" in data and len(data["judicial"]) == 1
+    assert "mjib" in data and len(data["mjib"]) == 1
+    assert "npa" in data and len(data["npa"]) == 1
+
+
+def test_submit_expired_query_id(app, client, db_session):
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    res = client.post("/vetting/submit",
+                      json={"query_id": "nonexistent", "captcha": "x"})
+    assert res.status_code == 410
+    assert res.get_json()["error"] == "query_expired"
+
+
+def test_submit_captcha_invalid(app, client, db_session, monkeypatch):
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    from vetting.routes import _put_state
+    qid = _put_state({
+        "npa_session": MagicMock(),
+        "npa_tokens": {"_csrf": "x", "_csrf_header": "h", "_key": "k"},
+        "npa_jwt": "jwt",
+        "name": "王", "id_no": "A123",
+        "judicial": [], "mjib": [],
+    })
+
+    def raise_invalid(*a, **kw):
+        raise ValueError("captcha_invalid")
+    monkeypatch.setattr("vetting.routes.npa.submit_query", raise_invalid)
+
+    res = client.post("/vetting/submit",
+                      json={"query_id": qid, "captcha": "WRONG"})
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "captcha_invalid"
