@@ -148,3 +148,39 @@ def test_create_note_invalid_shift_keeps_null(app, client, db_session):
     note_id = res.get_json()["id"]
     n = Note.query.get(note_id)
     assert n.shift is None
+
+
+def test_index_shift_filter_a(app, client, db_session):
+    u = _mk_user(db_session, store="B")
+    _login(client, u)
+    _mk_note(db_session, u, title="alpha-A", category="employee", shift="A")
+    _mk_note(db_session, u, title="alpha-B", category="employee", shift="B")
+    _mk_note(db_session, u, title="alpha-NONE", category="employee", shift=None)
+    res = client.get("/notes/?store=B&category=employee&shift=A&range=30d")
+    body = res.get_data(as_text=True)
+    assert "alpha-A" in body
+    assert "alpha-B" not in body
+    assert "alpha-NONE" not in body
+
+
+def test_index_shift_filter_none_default(app, client, db_session):
+    u = _mk_user(db_session, store="B")
+    _login(client, u)
+    _mk_note(db_session, u, title="bravo-A", category="employee", shift="A")
+    _mk_note(db_session, u, title="bravo-NONE", category="employee", shift=None)
+    # 不帶 shift 參數 → 預設 'none'
+    res = client.get("/notes/?store=B&category=employee&range=30d")
+    body = res.get_data(as_text=True)
+    assert "bravo-NONE" in body
+    assert "bravo-A" not in body
+
+
+def test_index_shift_filter_explicit_none(app, client, db_session):
+    u = _mk_user(db_session, store="B")
+    _login(client, u)
+    _mk_note(db_session, u, title="charlie-A", category="employee", shift="A")
+    _mk_note(db_session, u, title="charlie-NONE", category="employee", shift=None)
+    res = client.get("/notes/?store=B&category=employee&shift=none&range=30d")
+    body = res.get_data(as_text=True)
+    assert "charlie-NONE" in body
+    assert "charlie-A" not in body

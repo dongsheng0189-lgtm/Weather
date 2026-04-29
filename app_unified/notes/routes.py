@@ -133,6 +133,7 @@ def index():
     status_filter = request.args.get("status", "")
     range_param = request.args.get("range", "")
     category_filter = request.args.get("category", "")
+    shift_filter = request.args.get("shift", "none")  # default 'none' (= NULL)
     keyword = request.args.get("q", "").strip()
     page = request.args.get("page", 1, type=int)
     per_page = 20
@@ -169,6 +170,11 @@ def index():
         active_filter = 'combined'
         if category_filter in CATEGORY_CHOICES:
             query = query.filter_by(category=category_filter)
+        # shift 篩選 (AND)：'none' = NULL；'A'/'B'/'N' = 對應值；其他 = 不過濾(防呆)
+        if shift_filter == "none":
+            query = query.filter(Note.shift.is_(None))
+        elif shift_filter in SHIFT_CHOICES:
+            query = query.filter_by(shift=shift_filter)
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
         if not range_param:
@@ -189,12 +195,14 @@ def index():
                            current_status=status_filter,
                            current_range=range_param,
                            current_category=category_filter,
+                           current_shift=shift_filter,
                            current_keyword=keyword,
                            current_sort=current_sort,
                            active_filter=active_filter,
                            status_choices=STATUS_CHOICES,
                            category_choices=CATEGORY_CHOICES,
-                           category_labels=CATEGORY_LABELS)
+                           category_labels=CATEGORY_LABELS,
+                           shift_choices=SHIFT_CHOICES)
 
 
 @notes_bp.route("/new", methods=["GET"])
