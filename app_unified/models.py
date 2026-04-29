@@ -16,6 +16,9 @@ CATEGORY_LABELS = {
 }
 CATEGORY_CREATABLE = ["employee", "customer", "misc", "personal"]
 
+SHIFT_CHOICES = ("A", "B", "N")  # NULL 表「不需要」
+SHIFT_LABELS = {"A": "A", "B": "B", "N": "N"}
+
 
 def sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
@@ -103,6 +106,7 @@ class Note(db.Model):
     store = db.Column(db.Text, nullable=True)
     status = db.Column(db.Text, nullable=False, default="pending")
     category = db.Column(db.Text, nullable=False, default="unclassified")
+    shift = db.Column(db.String(1), nullable=True)
     updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     locked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at = db.Column(db.DateTime, nullable=True)
