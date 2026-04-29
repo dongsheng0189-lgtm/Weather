@@ -3,17 +3,205 @@
 {% block content %}
 <div style="max-width:680px; margin:1rem auto; padding:0 .75rem;">
   <h1>🛡️ 人員查詢</h1>
-  <p style="color:#666; font-size:.9rem;">同時查詢司法院刑事判決與法務部調查局通緝/嫌疑人名單。</p>
+  <p style="color:#666; font-size:.9rem;">同時查詢司法院刑事判決、調查局通緝/嫌疑人、警政署外逃通緝犯。</p>
 
+  <!-- Step 1: 姓名 + 身分證 -->
   <div id="step-name" style="margin-top:1rem;">
     <form id="vet-name-form">
       <label style="display:block; margin-bottom:.4rem;">姓名</label>
       <input type="text" id="vet-name" required
              style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
+      <label style="display:block; margin-bottom:.4rem;">身分證 / 居留證</label>
+      <input type="text" id="vet-id" required maxlength="12"
+             style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem; text-transform:uppercase;">
       <button type="submit" class="btn btn-primary" style="width:100%; padding:.6rem;">開始查詢</button>
     </form>
   </div>
 
+  <!-- Step 2: NPA captcha -->
+  <div id="step-captcha" style="display:none; margin-top:1rem;">
+    <p>司法院 + 調查局已查詢，最後一步：請輸入下方驗證碼（警政署系統需要）。</p>
+    <img id="vet-captcha-img" src="" alt="captcha"
+         style="border:1px solid #ddd; cursor:pointer;" onclick="reloadCaptcha()">
+    <div style="font-size:.78rem; color:#888;">點圖換一張</div>
+    <form id="vet-captcha-form" style="margin-top:.6rem;">
+      <input type="text" id="vet-captcha-text" required maxlength="10" autofocus
+             style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.5rem;">
+      <button type="submit" class="btn btn-primary" style="width:100%; padding:.6rem;">送出 / 顯示結果</button>
+    </form>
+  </div>
+
+  <!-- Step 3: result -->
+  <div id="step-result" style="display:none; margin-top:1rem;"></div>
+
   <div id="vet-status" style="margin-top:1rem; color:#666; font-size:.85rem;"></div>
 </div>
+
+<script>
+var _qid = null;
+var _name = null;
+var _id = null;
+
+function show(id) {
+  ['step-name','step-captcha','step-result'].forEach(function(s){
+    document.getElementById(s).style.display = (s === id) ? 'block' : 'none';
+  });
+}
+function setStatus(msg) { document.getElementById('vet-status').textContent = msg || ''; }
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+document.getElementById('vet-name-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  _name = document.getElementById('vet-name').value.trim();
+  _id = document.getElementById('vet-id').value.trim().toUpperCase();
+  if (!_name || !_id) return;
+  setStatus('連線中（司法院 + 調查局 + 警政署）…大約 15-30 秒');
+  fetch('/vetting/start', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: _name, id: _id})
+  }).then(function(r){return r.json().then(function(d){return [r.status, d];});}).then(function(arr){
+    var st = arr[0], d = arr[1];
+    if (st !== 200) {
+      setStatus('錯誤：' + (d.message || d.error || '未知'));
+      return;
+    }
+    _qid = d.query_id;
+    document.getElementById('vet-captcha-img').src = 'data:image/jpeg;base64,' + d.captcha_b64;
+    show('step-captcha');
+    setStatus('');
+    document.getElementById('vet-captcha-text').value = '';
+    document.getElementById('vet-captcha-text').focus();
+  }).catch(function(err){ setStatus('連線失敗：' + err.message); });
+});
+
+function reloadCaptcha() {
+  setStatus('重整驗證碼…');
+  fetch('/vetting/start', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: _name, id: _id})
+  }).then(function(r){return r.json();}).then(function(d){
+    if (d.query_id) {
+      _qid = d.query_id;
+      document.getElementById('vet-captcha-img').src = 'data:image/jpeg;base64,' + d.captcha_b64;
+      setStatus('');
+    } else {
+      setStatus('重整失敗');
+    }
+  });
+}
+
+document.getElementById('vet-captcha-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var captcha = document.getElementById('vet-captcha-text').value.trim();
+  if (!captcha || !_qid) return;
+  setStatus('警政署查詢中…');
+  fetch('/vetting/submit', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({query_id: _qid, captcha: captcha})
+  }).then(function(r){return r.json().then(function(d){return [r.status, d];});}).then(function(arr){
+    var st = arr[0], d = arr[1];
+    if (st !== 200) {
+      if (d.error === 'captcha_invalid') {
+        setStatus('驗證碼錯誤，請點圖換一張再試');
+        document.getElementById('vet-captcha-text').value = '';
+        reloadCaptcha();
+        return;
+      }
+      if (d.error === 'query_expired') {
+        setStatus('查詢逾時，請重新開始');
+        show('step-name');
+        return;
+      }
+      setStatus('錯誤：' + (d.message || d.error || '未知'));
+      return;
+    }
+    renderResult(d);
+    show('step-result');
+    setStatus('');
+  }).catch(function(err){ setStatus('連線失敗：' + err.message); });
+});
+
+function renderResult(d) {
+  var html = '';
+
+  // ── A. 司法院 ──
+  html += '<h2 style="margin-top:0;">A. 司法院刑事判決</h2>';
+  if (d.judicial === null) {
+    html += '<p style="color:#c0392b;">⚠ 司法院系統暫時無法連線。</p>';
+  } else if (!d.judicial || d.judicial.length === 0) {
+    html += '<p style="color:#888;">查無資料。</p>';
+  } else {
+    html += '<p style="color:#666; font-size:.9rem;">共 ' + d.judicial.length + ' 筆，⚠ 為命中關鍵字</p>';
+    d.judicial.forEach(function(r) {
+      var hit = (r.keyword_hits || []).length > 0;
+      html += '<div style="border:1px solid #e0e0e0; border-radius:6px; padding:.6rem; margin-bottom:.5rem; '
+            + (hit ? 'border-left:4px solid #e74c3c; background:#fff5f5;' : '') + '">';
+      html += '<div style="font-weight:600;">' + (hit ? '⚠ ' : '') + escapeHtml(r.subject) + '</div>';
+      html += '<div style="color:#666; font-size:.88rem;">'
+            + escapeHtml(r.case_no) + '　日期：' + escapeHtml(r.date) + '</div>';
+      if (hit) {
+        html += '<div style="color:#c0392b; font-size:.88rem; margin-top:.2rem;">命中關鍵字：'
+              + r.keyword_hits.map(escapeHtml).join(' / ') + '</div>';
+      }
+      if (r.masked_names && r.masked_names.length > 0) {
+        html += '<div style="font-size:.85rem; color:#666; margin-top:.2rem;">遮蔽人名：'
+              + r.masked_names.map(escapeHtml).join('、') + '</div>';
+      }
+      html += '<div style="margin-top:.3rem;"><a href="' + escapeHtml(r.detail_url)
+            + '" target="_blank" rel="noopener" style="font-size:.85rem;">→ 開原判決書</a></div>';
+      html += '</div>';
+    });
+  }
+
+  // ── B. MJIB ──
+  html += '<h2 style="margin-top:1rem;">B. 法務部調查局通緝/嫌疑人</h2>';
+  if (d.mjib === null) {
+    html += '<p style="color:#c0392b;">⚠ 調查局系統暫時無法連線。</p>';
+  } else if (!d.mjib || d.mjib.length === 0) {
+    html += '<p style="color:#888;">✅ 查無資料。</p>';
+  } else {
+    html += '<p style="color:#c0392b;">⚠ 命中 ' + d.mjib.length + ' 筆</p>';
+    d.mjib.forEach(function(e) {
+      html += '<div style="border:1px solid #e0e0e0; border-radius:6px; padding:.6rem; margin-bottom:.5rem;">';
+      html += '<div style="font-weight:600;">' + escapeHtml(e.name)
+            + (e.eng_name ? ' <span style="font-weight:400; color:#888;">(' + escapeHtml(e.eng_name) + ')</span>' : '')
+            + '</div>';
+      if (e.masked_id) {
+        html += '<div style="font-family:monospace; margin-top:.2rem;">遮蔽身分證：'
+              + escapeHtml(e.masked_id) + ' ← 自行比對</div>';
+      }
+      if (e.birth) html += '<div style="color:#666; font-size:.85rem;">出生年：' + escapeHtml(e.birth) + '</div>';
+      if (e.photo_url) html += '<img src="' + escapeHtml(e.photo_url) + '" alt="" style="max-width:100px; margin-top:.3rem;">';
+      if (e.detail_url) html += '<div><a href="' + escapeHtml(e.detail_url) + '" target="_blank" rel="noopener">→ 詳情</a></div>';
+      html += '</div>';
+    });
+  }
+
+  // ── C. NPA ──
+  html += '<h2 style="margin-top:1rem;">C. 警政署外逃通緝犯</h2>';
+  if (d.npa === null) {
+    html += '<p style="color:#c0392b;">⚠ 警政署系統暫時無法連線。</p>';
+  } else if (!d.npa || d.npa.length === 0) {
+    html += '<p style="color:#888;">✅ 查無資料。</p>';
+  } else {
+    html += '<p style="color:#c0392b;">⚠ 命中 ' + d.npa.length + ' 筆</p>';
+    d.npa.forEach(function(e) {
+      html += '<div style="border:1px solid #e0e0e0; border-radius:6px; padding:.6rem; margin-bottom:.5rem;">';
+      html += '<div style="font-weight:600;">' + escapeHtml(e.name) + '</div>';
+      if (e.crime) html += '<div style="font-size:.9rem;">罪名：' + escapeHtml(e.crime) + '</div>';
+      if (e.detail_url) html += '<div><a href="' + escapeHtml(e.detail_url) + '" target="_blank" rel="noopener">→ 詳情</a></div>';
+      html += '</div>';
+    });
+  }
+
+  html += '<div style="margin-top:1rem;"><a href="/vetting/" class="btn btn-secondary">↻ 重新查詢</a></div>';
+
+  document.getElementById('step-result').innerHTML = html;
+}
+</script>
 {% endblock %}
