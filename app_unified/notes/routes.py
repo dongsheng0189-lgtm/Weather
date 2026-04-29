@@ -247,6 +247,7 @@ def list_notes():
     status_filter = request.args.get("status", "")
     range_param = request.args.get("range", "")
     category_filter = request.args.get("category", "")
+    shift_filter = request.args.get("shift", "")  # API 不強制 default，未帶則不過濾
     keyword = request.args.get("q", "").strip()
     stores = _get_stores()
 
@@ -264,6 +265,11 @@ def list_notes():
         keyword_mode = True   # title/content 加密 → Python 端 filter
     elif category_filter and category_filter in CATEGORY_CHOICES:
         query = query.filter_by(category=category_filter)
+    elif shift_filter:
+        if shift_filter == "none":
+            query = query.filter(Note.shift.is_(None))
+        elif shift_filter in SHIFT_CHOICES:
+            query = query.filter_by(shift=shift_filter)
     elif 'status' in request.args:
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
@@ -283,6 +289,7 @@ def list_notes():
         "note_type": n.note_type or "note",
         "store": n.store, "status": n.status or "pending",
         "category": n.category or "unclassified",
+        "shift": n.shift,
         "author": n.display_author,
         "created_at": n.created_at.isoformat() if n.created_at else "",
         "updated_at": n.updated_at.isoformat() if n.updated_at else "",
