@@ -23,6 +23,13 @@ AVAILABLE_FEATURES = [
         "url": "/mynotes/",
         "enabled": True,  # 只有建立者本人看得到
     },
+    {
+        "key": "vetting",
+        "label": "人員查詢",
+        "emoji": "🛡️",
+        "url": "/vetting/",
+        "enabled": True,
+    },
 ]
 
 

@@ -438,6 +438,9 @@ def create_app():
     app.register_blueprint(device_bp)
     app.register_blueprint(mynotes_bp)
 
+    from vetting import vetting_bp
+    app.register_blueprint(vetting_bp)
+
     from notes.ws import register_ws_events
     register_ws_events(socketio)
 
