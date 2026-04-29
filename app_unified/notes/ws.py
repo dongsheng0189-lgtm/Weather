@@ -61,11 +61,8 @@ def register_ws_events(socketio):
             keyword_mode = True  # title/content 加密 → Python 端 filter
         elif category_filter and category_filter in CATEGORY_CHOICES:
             query = query.filter_by(category=category_filter)
-        elif shift_filter:
-            if shift_filter == 'none':
-                query = query.filter(Note.shift.is_(None))
-            elif shift_filter in SHIFT_CHOICES:
-                query = query.filter_by(shift=shift_filter)
+        elif shift_filter and shift_filter in SHIFT_CHOICES:
+            query = query.filter_by(shift=shift_filter)
         elif 'status' in data and data.get('status') is not None:
             if status_filter in STATUS_CHOICES:
                 query = query.filter_by(status=status_filter)

@@ -180,24 +180,17 @@ def test_index_shift_filter_a(app, client, db_session):
     assert "alpha-NONE" not in body
 
 
-def test_index_shift_filter_none_default(app, client, db_session):
+def test_index_shift_filter_none_means_show_all(app, client, db_session):
+    """『不需要』filter = 不過濾班別，A/B/N/NULL 全部都列出"""
     u = _mk_user(db_session, store="B")
     _login(client, u)
     _mk_note(db_session, u, title="bravo-A", category="employee", shift="A")
-    _mk_note(db_session, u, title="bravo-NONE", category="employee", shift=None)
-    # 不帶 shift 參數 → 預設 'none'
-    res = client.get("/notes/?store=B&category=employee&range=30d")
-    body = res.get_data(as_text=True)
-    assert "bravo-NONE" in body
-    assert "bravo-A" not in body
-
-
-def test_index_shift_filter_explicit_none(app, client, db_session):
-    u = _mk_user(db_session, store="B")
-    _login(client, u)
-    _mk_note(db_session, u, title="charlie-A", category="employee", shift="A")
-    _mk_note(db_session, u, title="charlie-NONE", category="employee", shift=None)
-    res = client.get("/notes/?store=B&category=employee&shift=none&range=30d")
-    body = res.get_data(as_text=True)
-    assert "charlie-NONE" in body
-    assert "charlie-A" not in body
+    _mk_note(db_session, u, title="bravo-B", category="employee", shift="B")
+    _mk_note(db_session, u, title="bravo-NULL", category="employee", shift=None)
+    # 不帶 shift 或 shift=none → 顯示全部
+    for url in ["/notes/?store=B&category=employee&range=30d",
+                "/notes/?store=B&category=employee&shift=none&range=30d"]:
+        body = client.get(url).get_data(as_text=True)
+        assert "bravo-A" in body, f"missing A in {url}"
+        assert "bravo-B" in body, f"missing B in {url}"
+        assert "bravo-NULL" in body, f"missing NULL in {url}"

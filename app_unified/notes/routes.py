@@ -170,10 +170,8 @@ def index():
         active_filter = 'combined'
         if category_filter in CATEGORY_CHOICES:
             query = query.filter_by(category=category_filter)
-        # shift 篩選 (AND)：'none' = NULL；'A'/'B'/'N' = 對應值；其他 = 不過濾(防呆)
-        if shift_filter == "none":
-            query = query.filter(Note.shift.is_(None))
-        elif shift_filter in SHIFT_CHOICES:
+        # shift 篩選：'A'/'B'/'N' 才過濾；'none'/未帶/不合法 = 不過濾(顯示全部)
+        if shift_filter in SHIFT_CHOICES:
             query = query.filter_by(shift=shift_filter)
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
@@ -265,11 +263,8 @@ def list_notes():
         keyword_mode = True   # title/content 加密 → Python 端 filter
     elif category_filter and category_filter in CATEGORY_CHOICES:
         query = query.filter_by(category=category_filter)
-    elif shift_filter:
-        if shift_filter == "none":
-            query = query.filter(Note.shift.is_(None))
-        elif shift_filter in SHIFT_CHOICES:
-            query = query.filter_by(shift=shift_filter)
+    elif shift_filter and shift_filter in SHIFT_CHOICES:
+        query = query.filter_by(shift=shift_filter)
     elif 'status' in request.args:
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
