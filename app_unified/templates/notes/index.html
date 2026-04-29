@@ -213,23 +213,89 @@
 </div>
 {% endif %}
 
-<dialog id="category-modal" style="padding:1.5rem; border-radius:12px; border:none; box-shadow:0 10px 40px rgba(0,0,0,0.15); max-width:360px;">
-  <h3 style="margin:0 0 1rem 0;">選擇類別</h3>
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:.6rem;">
-    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('employee')" style="background:#3498db;">員工</button>
-    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('customer')" style="background:#e67e22;">客人</button>
-    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('misc')" style="background:#95a5a6;">雜事</button>
-    <button type="button" class="btn btn-primary" onclick="chooseCategoryAndGo('personal')" style="background:#9b59b6;">個人</button>
+<dialog id="category-modal" style="padding:1.5rem; border-radius:12px; border:none; box-shadow:0 10px 40px rgba(0,0,0,0.15); max-width:380px;">
+  <h3 style="margin:0 0 .8rem 0;">選擇類別與班別</h3>
+  <div style="margin-bottom:.4rem;font-size:.85rem;color:#666;">類別</div>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-bottom:.9rem;">
+    <button type="button" class="cm-cat-btn" data-cat="employee" onclick="selectCategory('employee')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">員工</button>
+    <button type="button" class="cm-cat-btn" data-cat="customer" onclick="selectCategory('customer')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">客人</button>
+    <button type="button" class="cm-cat-btn" data-cat="misc" onclick="selectCategory('misc')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">雜事</button>
+    <button type="button" class="cm-cat-btn" data-cat="personal" onclick="selectCategory('personal')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">個人</button>
   </div>
-  <div style="text-align:right; margin-top:1rem;">
+  <div style="margin-bottom:.4rem;font-size:.85rem;color:#666;">班別</div>
+  <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:.5rem; margin-bottom:1rem;">
+    <button type="button" class="cm-shift-btn" data-shift="none" onclick="selectShift('none')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;font-size:.85rem;">不需要</button>
+    <button type="button" class="cm-shift-btn" data-shift="A" onclick="selectShift('A')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">A</button>
+    <button type="button" class="cm-shift-btn" data-shift="B" onclick="selectShift('B')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">B</button>
+    <button type="button" class="cm-shift-btn" data-shift="N" onclick="selectShift('N')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">N</button>
+  </div>
+  <div style="display:flex; justify-content:flex-end; gap:.5rem;">
     <button type="button" class="btn btn-secondary" onclick="closeCategoryModal()" style="font-size:.85rem;">取消</button>
+    <button type="button" id="cm-confirm" class="btn btn-primary" disabled onclick="confirmCreate()" style="font-size:.85rem;opacity:.5;">確認</button>
   </div>
 </dialog>
 
 <script>
 var _pendingType = 'note';
+var _selCategory = null;
+var _selShift = null;
+
+var CAT_COLORS = {
+  employee: '#3498db',
+  customer: '#e67e22',
+  misc:     '#95a5a6',
+  personal: '#9b59b6',
+};
+
+function _highlightCat() {
+  document.querySelectorAll('.cm-cat-btn').forEach(function(b){
+    var match = (b.dataset.cat === _selCategory);
+    b.style.background = match ? (CAT_COLORS[b.dataset.cat] || '#3498db') : '#fff';
+    b.style.color = match ? '#fff' : '#333';
+    b.style.borderColor = match ? (CAT_COLORS[b.dataset.cat] || '#3498db') : '#ddd';
+  });
+}
+function _highlightShift() {
+  document.querySelectorAll('.cm-shift-btn').forEach(function(b){
+    var match = (b.dataset.shift === _selShift);
+    b.style.background = match ? '#2c3e50' : '#fff';
+    b.style.color = match ? '#fff' : '#333';
+    b.style.borderColor = match ? '#2c3e50' : '#ddd';
+  });
+}
+function _refreshConfirm() {
+  var btn = document.getElementById('cm-confirm');
+  if (!btn) return;
+  var ready = (_selCategory !== null && _selShift !== null);
+  btn.disabled = !ready;
+  btn.style.opacity = ready ? '1' : '.5';
+}
+
+function selectCategory(cat) {
+  _selCategory = cat;
+  _highlightCat();
+  _refreshConfirm();
+}
+function selectShift(s) {
+  _selShift = s;
+  _highlightShift();
+  _refreshConfirm();
+}
+
 function openCategoryModal(type) {
   _pendingType = type;
+  // 還原上次選擇 (cat 無記憶 → null；shift 無記憶 → 'none')
+  try {
+    _selCategory = localStorage.getItem('notes_new_category');
+    if (_selCategory && ['employee','customer','misc','personal'].indexOf(_selCategory) < 0) _selCategory = null;
+  } catch (e) { _selCategory = null; }
+  try {
+    _selShift = localStorage.getItem('notes_new_shift') || 'none';
+    if (['none','A','B','N'].indexOf(_selShift) < 0) _selShift = 'none';
+  } catch (e) { _selShift = 'none'; }
+  _highlightCat();
+  _highlightShift();
+  _refreshConfirm();
   var dlg = document.getElementById('category-modal');
   if (dlg && dlg.showModal) dlg.showModal();
 }
@@ -237,10 +303,18 @@ function closeCategoryModal() {
   var dlg = document.getElementById('category-modal');
   if (dlg && dlg.close) dlg.close();
 }
-function chooseCategoryAndGo(cat) {
-  var qs = '?type=' + encodeURIComponent(_pendingType) + '&category=' + encodeURIComponent(cat);
+function confirmCreate() {
+  if (!_selCategory || !_selShift) return;
+  try {
+    localStorage.setItem('notes_new_category', _selCategory);
+    localStorage.setItem('notes_new_shift', _selShift);
+  } catch (e) { /* private mode */ }
+  var qs = '?type=' + encodeURIComponent(_pendingType) +
+           '&category=' + encodeURIComponent(_selCategory) +
+           '&shift=' + encodeURIComponent(_selShift);
   window.location.href = '/notes/new' + qs;
 }
+
 document.addEventListener('DOMContentLoaded', function() {
   var dlg = document.getElementById('category-modal');
   if (!dlg) return;
