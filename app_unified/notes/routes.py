@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, request, jsonify, render_template, current_app, session
 from flask_login import login_required, current_user
 from extensions import db
-from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE
+from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE, SHIFT_CHOICES
 from admin.routes import call_llm
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/notes")
@@ -207,13 +207,20 @@ def new_note():
     category = request.args.get("category", "unclassified")
     if category not in CATEGORY_CREATABLE:
         category = "unclassified"
+    # shift: 'A'/'B'/'N' or 'none' (= NULL)；其他值一律回退成 None
+    shift_param = request.args.get("shift", "none")
+    shift = shift_param if shift_param in SHIFT_CHOICES else None
 
     today = datetime.now(_TW).strftime("%-m/%-d")
     type_label = "確認表單" if note_type == "checklist" else "筆記"
+    shift_prefix = f"{shift} " if shift else ""
     if category in ("personal", "unclassified"):
-        default_title = f"{today} {current_user.username}{type_label}"
+        # 個人/未分類：班別放 username 前
+        default_title = f"{today} {shift_prefix}{current_user.username}{type_label}"
     else:
-        default_title = f"{today} {CATEGORY_LABELS[category]}"
+        # 員工/客人/雜事：班別緊貼類別 label，不加空格 (例如 "4/29 A員工")
+        shift_glue = f"{shift}" if shift else ""
+        default_title = f"{today} {shift_glue}{CATEGORY_LABELS[category]}"
 
     return render_template("notes/editor.html", note=None, stores=stores,
                            status_choices=STATUS_CHOICES,
@@ -221,7 +228,8 @@ def new_note():
                            category_labels=CATEGORY_LABELS,
                            default_title=default_title,
                            note_type=note_type,
-                           default_category=category)
+                           default_category=category,
+                           default_shift=shift)
 
 
 @notes_bp.route("/api", methods=["GET"])
