@@ -122,7 +122,7 @@
      style="{% if current_category == val and val %}background:#3498db;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
-{% set shift_tab_labels = [('none','不需要'),('A','A'),('B','B'),('N','N')] %}
+{% set shift_tab_labels = [('none','全部'),('A','A'),('B','B'),('N','N')] %}
 <div class="range-tabs">
   <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">班別：</span>
   {% for val, label in shift_tab_labels %}
