@@ -10,6 +10,7 @@ from flask_login import login_required, current_user
 from extensions import limiter
 from features import user_has_feature
 from vetting import judicial, mjib, npa
+from vetting.errors import RateLimited, Forbidden
 from vetting.http_client import throttle_sleep, make_session
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,10 @@ def start():
         npa_tokens, _ = npa.fetch_home_state(npa_session)
         npa_jwt = npa.fetch_auth_token(npa_session, npa_tokens)
         captcha_bytes = npa.fetch_captcha_bytes(npa_session)
+    except (RateLimited, Forbidden) as e:
+        logger.warning("vetting: NPA blocked: %s", e)
+        return jsonify({"error": "rate_limited",
+                        "message": "警政署系統暫時限流，請 5 分鐘後再試"}), 429
     except Exception as e:
         logger.warning("vetting: NPA prep failed: %s", e)
         return jsonify({"error": "npa_unavailable",
@@ -81,9 +86,16 @@ def start():
         j_sess = make_session()
         j_state, _ = judicial.fetch_home_state(j_sess)
         rows = judicial.submit_search(j_sess, j_state, name)
+        blocked = False
         for r in rows[:15]:  # 上限 15 筆，避免太多詳情頁
+            if blocked:
+                judicial_results.append({**r, "keyword_hits": [], "masked_names": []})
+                continue
             try:
                 scan = judicial.scan_detail(j_sess, r["detail_url"])
+            except (RateLimited, Forbidden):
+                blocked = True
+                scan = {"keyword_hits": [], "masked_names": []}
             except Exception:
                 scan = {"keyword_hits": [], "masked_names": []}
             judicial_results.append({**r, **scan})
@@ -143,6 +155,10 @@ def submit():
             return jsonify({"error": "captcha_invalid",
                             "message": "驗證碼錯誤，請重整圖片再試"}), 400
         return jsonify({"error": "npa_failed", "message": str(e)}), 502
+    except (RateLimited, Forbidden) as e:
+        logger.warning("vetting: NPA submit blocked: %s", e)
+        return jsonify({"error": "rate_limited",
+                        "message": "警政署系統暫時限流，請 5 分鐘後再試"}), 429
     except Exception as e:
         logger.warning("vetting: NPA submit failed: %s", e)
         npa_results = None

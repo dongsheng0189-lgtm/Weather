@@ -14,6 +14,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from .errors import check_blocked
 from .http_client import make_session
 
 LIST_URL = "https://www.mjib.gov.tw/Crimes/Crimes_List"
@@ -67,5 +68,6 @@ def search_by_name(name_query: str, session=None) -> list:
     if session is None:
         session = make_session()
     r = session.get(LIST_URL, timeout=15)
+    check_blocked(r)
     r.raise_for_status()
     return search_by_name_in_html(r.text, name_query)

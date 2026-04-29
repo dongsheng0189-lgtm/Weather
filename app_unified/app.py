@@ -376,6 +376,7 @@ def create_app():
         ("/admin", "/s"),
         ("/mynotes", "/m"),   # 需在 /notes 之前（避免 /mynotes 被 /notes 匹配到）
         ("/notes", "/n"),
+        ("/vetting", "/v"),
         ("/face", "/f"),
     ]
 

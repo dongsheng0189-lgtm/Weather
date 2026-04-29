@@ -141,6 +141,28 @@ def test_submit_expired_query_id(app, client, db_session):
     assert res.get_json()["error"] == "query_expired"
 
 
+def test_submit_returns_429_when_npa_ratelimits(app, client, db_session, monkeypatch):
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    from vetting.routes import _put_state
+    from vetting.errors import RateLimited
+    qid = _put_state({
+        "npa_session": MagicMock(),
+        "npa_tokens": {"_csrf": "x", "_csrf_header": "h", "_key": "k"},
+        "npa_jwt": "jwt",
+        "name": "王", "id_no": "A123",
+        "judicial": [], "mjib": [],
+    })
+
+    def raise_rl(*a, **kw):
+        raise RateLimited("upstream 429")
+    monkeypatch.setattr("vetting.routes.npa.submit_query", raise_rl)
+    res = client.post("/vetting/submit",
+                      json={"query_id": qid, "captcha": "x"})
+    assert res.status_code == 429
+    assert res.get_json()["error"] == "rate_limited"
+
+
 def test_submit_captcha_invalid(app, client, db_session, monkeypatch):
     u = _mk_user(db_session, root_admin=True)
     _login(client, u)

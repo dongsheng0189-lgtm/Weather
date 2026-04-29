@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from .errors import check_blocked
 from .http_client import make_session
 
 HOME_URL = "https://judgment.judicial.gov.tw/FJUD/default.aspx"
@@ -89,6 +90,7 @@ def fetch_home_state(session=None) -> tuple:
     if session is None:
         session = make_session()
     r = session.get(HOME_URL, timeout=10)
+    check_blocked(r)
     r.raise_for_status()
     return parse_home_state(r.text, base_url=HOME_URL), session
 
@@ -99,6 +101,7 @@ def submit_search(session, state: dict, name: str) -> list:
     payload["txtKW"] = name
     r = session.post(state["form_action"], data=payload,
                      headers={"Referer": HOME_URL}, timeout=15)
+    check_blocked(r)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
     iframe = soup.find("iframe")
@@ -106,6 +109,7 @@ def submit_search(session, state: dict, name: str) -> list:
         return []
     result_url = urljoin(HOME_URL, iframe["src"])
     r2 = session.get(result_url, headers={"Referer": HOME_URL}, timeout=15)
+    check_blocked(r2)
     r2.raise_for_status()
     return parse_results(r2.text, base_url=result_url)
 
@@ -114,5 +118,6 @@ def scan_detail(session, detail_url: str) -> dict:
     """live：抓詳情頁，回 scan_detail_html 結果。"""
     r = session.get(detail_url, timeout=15,
                     headers={"Referer": HOME_URL})
+    check_blocked(r)
     r.raise_for_status()
     return scan_detail_html(r.text)

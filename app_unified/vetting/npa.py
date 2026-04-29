@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from .errors import check_blocked
 from .http_client import make_session
 
 HOME_URL = "https://eze8.npa.gov.tw/NpaE8ServerRWD/CE_Query.jsp"
@@ -77,6 +78,7 @@ def fetch_home_state(session=None) -> tuple:
     if session is None:
         session = make_session()
     r = session.get(HOME_URL, timeout=10)
+    check_blocked(r)
     r.raise_for_status()
     return parse_home_tokens(r.text), session
 
@@ -92,6 +94,7 @@ def fetch_auth_token(session, tokens: dict) -> str:
         },
         timeout=10,
     )
+    check_blocked(r)
     r.raise_for_status()
     return r.text.strip()
 
@@ -104,6 +107,7 @@ def fetch_captcha_bytes(session) -> bytes:
         headers={"Referer": HOME_URL},
         timeout=10,
     )
+    check_blocked(r)
     r.raise_for_status()
     return r.content
 
@@ -127,6 +131,7 @@ def submit_query(session, tokens: dict, jwt_token: str,
         headers={"Referer": HOME_URL},
         timeout=15,
     )
+    check_blocked(r)
     r.raise_for_status()
     # 偵測驗證碼錯誤 / token 過期
     if "驗證碼" in r.text and ("錯誤" in r.text or "不正確" in r.text):
