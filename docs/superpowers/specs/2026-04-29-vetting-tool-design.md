@@ -180,6 +180,71 @@ def _put_state(state):
 - captcha 錯誤 → 回前端「驗證碼錯誤，請重整圖片再試」
 - query_id 過期 → 回「查詢逾時（5 分鐘），請重新開始」
 
+## 防誤判機器人 / 不被外部站擋
+
+公部門站點都有反爬蟲機制，必須像「真人在瀏覽」才不會被 IP block 或 rate limit。具體措施：
+
+### 1. 真人化的 HTTP headers
+全部外部請求都帶完整 browser headers，**不留 `python-requests/x.y` 痕跡**：
+
+```python
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
+```
+
+每筆深層詳情頁的 GET 還要帶 `Referer`（指回上一頁的搜尋結果頁），完全模擬瀏覽器導覽行為。
+
+### 2. 請求節流（不爆衝）
+- **同一查詢內**：詳情頁 N 筆，每筆之間 sleep `random.uniform(0.5, 1.2)` 秒，模擬人手點擊
+- **同 user / 同模組**：用既有 Flask-Limiter，限 **每分鐘 1 次查詢**（Limiter 已在 `extensions.py` 註冊）
+
+```python
+@vetting_bp.route("/submit", methods=["POST"])
+@limiter.limit("1/minute", key_func=lambda: f"vet:{current_user.id}")
+@login_required
+def submit():
+    ...
+```
+
+### 3. 透過 captcha 已證明是人
+司法院搜尋階段：使用者**真的**輸入了驗證碼，server 視我們為合法 session，這已經是最強反 bot 證明。後續詳情頁 GET 沿用 captcha 後的 session cookie 即可。
+
+### 4. 收到擋人訊號就停
+- HTTP 429（Too Many Requests）→ 立即停止所有後續 GET，回前端「外部站暫時限流，請 5 分鐘後再試」
+- HTTP 403（Forbidden）/ 連續 timeout → 同上，**不重試**（避免被進一步加深 block）
+
+### 5. 尊重 robots.txt
+實作前先 GET：
+- `https://judgment.supreme.court.gov.tw/robots.txt`
+- `https://www.mjib.gov.tw/robots.txt`
+
+確認查詢用的路徑沒被 disallow。**目前推測都是 public crawlable 但要實機確認**。如有 disallow，重新評估或改用其他公開資料源。
+
+### 6. 量級估算
+- admin 一個人測試：每天 ~10 次查詢
+- 每次深掃 10 筆詳情：100 GETs/day
+- 換算 0.07 GETs/min 平均，遠低於任何合理 rate limit
+- → 加上前述措施後，被當機器人擋的機率極低
+
+### 7. 後端 fallback
+若實作後實機測試發現某段被 block，先：
+1. 用 admin 自己手動瀏覽器測，看一般人是否也被擋（可能是站點維護）
+2. 看回應內容是否含 captcha challenge / Cloudflare ban 頁
+3. 必要時用 Zeabur logs 看請求/回應 headers 排查
+
+### 8. 不做的（避免被當作惡意用途）
+- **不做** parallel 查詢（同時打多個 detail 頁）
+- **不做** 自動重試（429/403 之外的錯誤也只給 1 次重試上限）
+- **不做** 結果存檔（避免變成個資資料庫，本身就是抓取目的曖昧的訊號）
+- **不做** 任何形式的「批次姓名輸入」
+
 ## PII / 安全
 
 - **不存查詢紀錄**：不寫 DB、不寫檔
