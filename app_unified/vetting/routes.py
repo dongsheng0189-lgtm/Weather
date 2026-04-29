@@ -60,10 +60,10 @@ def start():
     """1) 取 NPA 驗證碼   2) 同步先打司法院 + MJIB（無 captcha 來源）   3) 暫存後回 captcha image。"""
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
-    id_no = (data.get("id") or "").strip()
-    if not name or not id_no:
+    id_no = (data.get("id") or "").strip()  # 選填，給 NPA 配對更精準
+    if not name:
         return jsonify({"error": "missing_params",
-                        "message": "姓名與身分證皆需填寫"}), 400
+                        "message": "姓名必填"}), 400
 
     # ── NPA：拿首頁 token + JWT + captcha ──────────────
     try:

@@ -129,15 +129,34 @@ def test_start_endpoint_returns_query_id_and_captcha(app, client, db_session, mo
     base64.b64decode(data["captcha_b64"])  # 合法 base64
 
 
-def test_start_missing_params_400(app, client, db_session):
+def test_start_missing_name_400(app, client, db_session):
+    """姓名必填，缺則 400。"""
     u = _mk_user(db_session, root_admin=True)
     _login(client, u)
-    # 缺 id
-    res = client.post("/vetting/start", json={"name": "王"})
-    assert res.status_code == 400
-    # 缺 name
     res = client.post("/vetting/start", json={"id": "A123"})
     assert res.status_code == 400
+
+
+def test_start_id_optional(app, client, db_session, monkeypatch):
+    """身分證選填，沒填只查姓名也應該成功。"""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+
+    monkeypatch.setattr("vetting.routes.npa.fetch_home_state",
+                        lambda sess=None: ({"_csrf": "x", "_csrf_header": "h", "_key": "k"}, MagicMock()))
+    monkeypatch.setattr("vetting.routes.npa.fetch_auth_token", lambda sess, tok: "JWT")
+    monkeypatch.setattr("vetting.routes.npa.fetch_captcha_bytes", lambda sess: b"\xff\xd8FAKE")
+    monkeypatch.setattr("vetting.routes.judicial.fetch_home_state",
+                        lambda sess=None: ({"form_action": "x", "hidden_fields": {}}, MagicMock()))
+    monkeypatch.setattr("vetting.routes.judicial.submit_search", lambda sess, state, name: [])
+    monkeypatch.setattr("vetting.routes.mjib.search_by_name", lambda name, session=None: [])
+    monkeypatch.setattr("vetting.routes.throttle_sleep", lambda: None)
+
+    # 不帶 id 也要成功
+    res = client.post("/vetting/start", json={"name": "王"})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "query_id" in data
 
 
 def test_submit_endpoint_returns_three_segments(app, client, db_session, monkeypatch):

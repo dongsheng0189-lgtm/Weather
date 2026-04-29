@@ -10,8 +10,8 @@
       <label style="display:block; margin-bottom:.4rem;">姓名</label>
       <input type="text" id="vet-name" required
              style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
-      <label style="display:block; margin-bottom:.4rem;">身分證 / 居留證</label>
-      <input type="text" id="vet-id" required maxlength="12"
+      <label style="display:block; margin-bottom:.4rem;">身分證 / 居留證 <span style="color:#888;font-weight:400;font-size:.85rem;">（選填，警政署系統有填配對較精準）</span></label>
+      <input type="text" id="vet-id" maxlength="12"
              style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem; text-transform:uppercase;">
       <button type="submit" class="btn btn-primary" style="width:100%; padding:.6rem;">開始查詢</button>
     </form>
@@ -58,7 +58,7 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
   e.preventDefault();
   _name = document.getElementById('vet-name').value.trim();
   _id = document.getElementById('vet-id').value.trim().toUpperCase();
-  if (!_name || !_id) return;
+  if (!_name) return;
   setStatus('連線中（司法院 + 調查局 + 警政署）…大約 15-30 秒');
   fetch('/vetting/start', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
