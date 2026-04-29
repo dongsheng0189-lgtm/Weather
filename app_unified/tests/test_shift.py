@@ -106,3 +106,45 @@ def test_title_invalid_shift_falls_back_to_none(app, client, db_session):
     # 不合法值應回退成「不需要」
     assert "A員工" not in body
     assert "員工" in body
+
+
+def test_create_note_persists_shift(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    res = client.post("/notes/api", json={
+        "title": "test",
+        "content": "x",
+        "category": "employee",
+        "shift": "A",
+    })
+    assert res.status_code == 201
+    note_id = res.get_json()["id"]
+    n = Note.query.get(note_id)
+    assert n.shift == "A"
+
+
+def test_create_note_no_shift_keeps_null(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    res = client.post("/notes/api", json={
+        "title": "test",
+        "content": "x",
+        "category": "employee",
+    })
+    note_id = res.get_json()["id"]
+    n = Note.query.get(note_id)
+    assert n.shift is None
+
+
+def test_create_note_invalid_shift_keeps_null(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    res = client.post("/notes/api", json={
+        "title": "test",
+        "content": "x",
+        "category": "employee",
+        "shift": "XYZ",
+    })
+    note_id = res.get_json()["id"]
+    n = Note.query.get(note_id)
+    assert n.shift is None

@@ -102,13 +102,15 @@ def register_ws_events(socketio):
         status = data.get('status') if data.get('status') in STATUS_CHOICES else 'pending'
         category = data.get('category') if data.get('category') in CATEGORY_CHOICES else 'unclassified'
         note_type = data.get('note_type') if data.get('note_type') in ('note', 'checklist') else 'note'
+        from models import SHIFT_CHOICES
+        shift = data.get('shift') if data.get('shift') in SHIFT_CHOICES else None
         note = Note(
             user_id=current_user.id,
             author_name=current_user.username,
             note_type=note_type,
             title=data.get('title', '未命名筆記'),
             content=data.get('content', ''),
-            store=store, status=status, category=category,
+            store=store, status=status, category=category, shift=shift,
             created_at=now, updated_at=now,
         )
         db.session.add(note)
