@@ -199,6 +199,7 @@ var NOTE_ID = {{ (note.id if note else None)|tojson }};
 var currentStore = {{ (note.store if note else current_user.store)|tojson }};
 var currentStatus = {{ (note.status if note else 'pending')|tojson }};
 var currentCategory = {{ (note.category if note else (default_category or 'unclassified'))|tojson }};
+var currentShift = {{ (note.shift if note else default_shift)|tojson }};
 var IS_READONLY = {{ (is_readonly or false)|tojson }};
 
 // Readonly 模式：禁用所有輸入和按鈕（除了返回和強制釋放）
@@ -341,7 +342,7 @@ function doSave() {
 
   var url = NOTE_ID ? ('/notes/api/' + NOTE_ID) : '/notes/api';
   var method = NOTE_ID ? 'PUT' : 'POST';
-  var body = { title: title, content: content, store: store, status: currentStatus, category: currentCategory };
+  var body = { title: title, content: content, store: store, status: currentStatus, category: currentCategory, shift: currentShift };
   if (!NOTE_ID) body.note_type = EDITOR_TYPE;
   fetch(url, {
     method: method,
@@ -379,7 +380,7 @@ function ensureNoteExists() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       title: title, content: '', store: store,
-      status: currentStatus, category: currentCategory, note_type: EDITOR_TYPE
+      status: currentStatus, category: currentCategory, shift: currentShift, note_type: EDITOR_TYPE
     })
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.id) {

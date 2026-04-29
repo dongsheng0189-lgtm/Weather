@@ -108,6 +108,23 @@ def test_title_invalid_shift_falls_back_to_none(app, client, db_session):
     assert "員工" in body
 
 
+def test_editor_renders_currentShift_for_post_body(app, client, db_session):
+    """Regression: editor.html 必須注入 currentShift JS 變數，否則 POST 不帶 shift。"""
+    u = _mk_user(db_session)
+    _login(client, u)
+    res = client.get("/notes/new?type=note&category=employee&shift=A")
+    body = res.get_data(as_text=True)
+    assert 'var currentShift = "A"' in body
+
+
+def test_editor_renders_currentShift_null_when_no_shift(app, client, db_session):
+    u = _mk_user(db_session)
+    _login(client, u)
+    res = client.get("/notes/new?type=note&category=employee&shift=none")
+    body = res.get_data(as_text=True)
+    assert 'var currentShift = null' in body
+
+
 def test_create_note_persists_shift(app, client, db_session):
     u = _mk_user(db_session)
     _login(client, u)
