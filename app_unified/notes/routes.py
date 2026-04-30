@@ -210,23 +210,17 @@ def new_note():
     note_type = request.args.get("type", "note")
     if note_type not in ("note", "checklist"):
         note_type = "note"
-    category = request.args.get("category", "unclassified")
+    category = request.args.get("category", "misc")
     if category not in CATEGORY_CREATABLE:
-        category = "unclassified"
+        category = "misc"
     # shift: 'A'/'B'/'N' or 'none' (= NULL)；其他值一律回退成 None
     shift_param = request.args.get("shift", "none")
     shift = shift_param if shift_param in SHIFT_CHOICES else None
 
     today = datetime.now(_TW).strftime("%-m/%-d")
-    type_label = "確認表單" if note_type == "checklist" else "筆記"
-    shift_prefix = f"{shift} " if shift else ""
-    if category in ("personal", "unclassified"):
-        # 個人/未分類：班別放 username 前
-        default_title = f"{today} {shift_prefix}{current_user.username}{type_label}"
-    else:
-        # 員工/客人/雜事：班別緊貼類別 label，不加空格 (例如 "4/29 A員工")
-        shift_glue = f"{shift}" if shift else ""
-        default_title = f"{today} {shift_glue}{CATEGORY_LABELS[category]}"
+    # 統一格式：「{date} {shift}{label}」例如 4/30 員工、4/30 A機台、4/30 雜項
+    shift_glue = f"{shift}" if shift else ""
+    default_title = f"{today} {shift_glue}{CATEGORY_LABELS[category]}"
 
     return render_template("notes/editor.html", note=None, stores=stores,
                            status_choices=STATUS_CHOICES,
@@ -283,7 +277,7 @@ def list_notes():
         "id": n.id, "title": n.title, "content": n.content,
         "note_type": n.note_type or "note",
         "store": n.store, "status": n.status or "pending",
-        "category": n.category or "unclassified",
+        "category": n.category or "misc",
         "shift": n.shift,
         "author": n.display_author,
         "created_at": n.created_at.isoformat() if n.created_at else "",
@@ -304,7 +298,8 @@ def create_note():
     else:
         store = current_user.store if current_user.store in stores else None
     status = data.get("status") if data.get("status") in STATUS_CHOICES else "pending"
-    category = data.get("category") if data.get("category") in CATEGORY_CHOICES else "unclassified"
+    category = data.get("category") if data.get("category") in CATEGORY_CHOICES else "misc"
+    is_ai_summary = bool(data.get("is_ai_summary", False))
     note_type = data.get("note_type") if data.get("note_type") in ("note", "checklist") else "note"
     shift = data.get("shift") if data.get("shift") in SHIFT_CHOICES else None
     note = Note(
@@ -317,6 +312,7 @@ def create_note():
         status=status,
         category=category,
         shift=shift,
+        is_ai_summary=is_ai_summary,
         created_at=now,
         updated_at=now,
     )
@@ -345,7 +341,7 @@ def get_note(note_id):
         "id": note.id, "title": note.title, "content": note.content,
         "note_type": note.note_type or "note",
         "store": note.store, "status": note.status or "pending",
-        "category": note.category or "unclassified",
+        "category": note.category or "misc",
         "ai_summary": note.ai_summary, "ai_outline": note.ai_outline,
         "updated_by": updater,
         "created_at": note.created_at.isoformat() if note.created_at else "",
