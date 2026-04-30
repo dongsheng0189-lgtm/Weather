@@ -6,15 +6,14 @@ from extensions import db
 from crypto import EncryptedText
 
 STATUS_CHOICES = ["pending", "in_progress", "resolved"]
-CATEGORY_CHOICES = ["employee", "customer", "misc", "personal", "unclassified"]
+CATEGORY_CHOICES = ["employee", "customer", "machine", "misc"]
 CATEGORY_LABELS = {
     "employee": "員工",
     "customer": "客人",
-    "misc": "雜事",
-    "personal": "個人",
-    "unclassified": "未分類",
+    "machine": "機台",
+    "misc": "雜項",
 }
-CATEGORY_CREATABLE = ["employee", "customer", "misc", "personal"]
+CATEGORY_CREATABLE = ["employee", "customer", "machine", "misc"]
 
 SHIFT_CHOICES = ("A", "B", "N")  # NULL 表「不需要」
 SHIFT_LABELS = {"A": "A", "B": "B", "N": "N"}
@@ -105,8 +104,9 @@ class Note(db.Model):
     ai_outline = db.Column(EncryptedText)
     store = db.Column(db.Text, nullable=True)
     status = db.Column(db.Text, nullable=False, default="pending")
-    category = db.Column(db.Text, nullable=False, default="unclassified")
+    category = db.Column(db.Text, nullable=False, default="misc")
     shift = db.Column(db.String(1), nullable=True)
+    is_ai_summary = db.Column(db.Boolean, nullable=False, default=False, server_default="false")
     updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     locked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at = db.Column(db.DateTime, nullable=True)
