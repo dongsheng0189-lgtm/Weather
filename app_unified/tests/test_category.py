@@ -1,7 +1,8 @@
 """Tests for Note.category — 類別分類 + 篩選器重構"""
 import uuid
 import pytest
-from models import User, Note, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE
+from models import User, Note, ChecklistItem, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE
+from notes.routes import _classify_by_title, _build_categorized_checklist, _build_all_content
 from extensions import db
 
 
@@ -239,7 +240,6 @@ def test_filter_cascade_time_link_preserves_category_resets_status(app, client, 
 
 
 # ─── 新增：_classify_by_title 4 桶測試 ───
-from notes.routes import _classify_by_title
 
 def test_classify_by_title_employee():
     assert _classify_by_title("員工排班") == "員工"
@@ -263,8 +263,6 @@ def test_classify_by_title_fallback_to_misc():
 
 
 # ─── 新增：_build_categorized_checklist 走 note.category 測試 ───
-from notes.routes import _build_categorized_checklist
-from models import ChecklistItem
 
 def _mk_checklist_note(db_session, user, category, items):
     n = Note(
@@ -289,7 +287,8 @@ def test_build_categorized_checklist_routes_by_category(app, db_session):
     _mk_checklist_note(db_session, u, "machine", [("機台C 任務", False)])
     _mk_checklist_note(db_session, u, "misc", [("雜事D 任務", False)])
 
-    cls = Note.query.filter_by(note_type="checklist").all()
+    cls = Note.query.filter_by(note_type="checklist", user_id=u.id).all()
+    assert len(cls) == 4
     block = _build_categorized_checklist(cls)
 
     assert "## 👥 員工" in block and "員工A 任務" in block
@@ -299,7 +298,6 @@ def test_build_categorized_checklist_routes_by_category(app, db_session):
 
 
 # ─── 新增：_build_all_content 過濾 is_ai_summary ───
-from notes.routes import _build_all_content
 
 def test_build_all_content_excludes_ai_summary(app, db_session):
     u = _mk_user(db_session, store="B")
