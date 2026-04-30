@@ -37,27 +37,38 @@ def parse_home_tokens(html: str) -> dict:
     }
 
 
+EMPTY_RESULT_MARKERS = (
+    "查無資料", "查無符合", "查無此", "無此資料", "無此筆資料",
+    "沒有符合", "沒有資料", "0 筆", "0筆", "查詢結果為 0",
+    "本系統未發現", "未發現符合",
+)
+
+
 def parse_results(html: str) -> list:
     """解析 doCEQuery 結果頁。
 
-    結構未知（需實機查一次才知道），目前用寬鬆 selector 嘗試多種命中：
-    - <div class="result-item">
-    - <table> with rows
-    - 至少回 [{name, crime, detail_url}, ...] 或空 list。
+    1. 先掃常見「查無」字樣 → 直接回 []
+    2. 否則用寬鬆 selector 嘗試命中，但加嚴格條件避免 boilerplate 誤判
+    3. 結構未知時，需在 prod 跑一次拿真實 HTML 再寫精準 parser
     """
     soup = BeautifulSoup(html, "html.parser")
+    full_text = soup.get_text(" ", strip=True)
+
+    # 早退：明確的「查無」訊號
+    if any(marker in full_text for marker in EMPTY_RESULT_MARKERS):
+        return []
+
     results = []
-    # 寬鬆 selector：找含「姓名/罪名」字串的卡片或行
-    for sel in [".result-item", ".wanted-card", ".card", "tr"]:
+    # 卡片 / row 寬鬆 selector
+    for sel in [".result-item", ".wanted-card", ".card"]:
         items = soup.select(sel)
         for item in items:
             text = item.get_text(" ", strip=True)
-            if not text or len(text) < 5:
+            if not text or len(text) < 10:
                 continue
-            # 簡易啟發式：含「罪/名」字樣再撈
             if any(kw in text for kw in ("罪", "通緝", "嫌疑")):
-                name_el = item.select_one(".name, h3, .title, td:nth-child(2)")
-                crime_el = item.select_one(".crime, .charge, td:nth-child(3)")
+                name_el = item.select_one(".name, h3, .title")
+                crime_el = item.select_one(".crime, .charge")
                 link = item.find("a")
                 results.append({
                     "name": name_el.get_text(strip=True) if name_el else "",
@@ -66,6 +77,23 @@ def parse_results(html: str) -> list:
                 })
         if results:
             break
+
+    # 表格 fallback：tr 嚴格條件 — 至少 3 個 td、跳過全 th 的 header row
+    if not results:
+        for row in soup.select("tr"):
+            tds = row.find_all("td", recursive=False)
+            if len(tds) < 3:
+                continue
+            text = row.get_text(" ", strip=True)
+            if not any(kw in text for kw in ("罪", "通緝", "嫌疑")):
+                continue
+            link = row.find("a")
+            results.append({
+                "name": tds[1].get_text(strip=True) if len(tds) > 1 else "",
+                "crime": tds[2].get_text(strip=True) if len(tds) > 2 else text[:80],
+                "detail_url": urljoin(QUERY_URL, link["href"]) if link and link.get("href") else "",
+            })
+
     return results
 
 
@@ -136,4 +164,9 @@ def submit_query(session, tokens: dict, jwt_token: str,
     # 偵測驗證碼錯誤 / token 過期
     if "驗證碼" in r.text and ("錯誤" in r.text or "不正確" in r.text):
         raise ValueError("captcha_invalid")
+    # debug log: 印 response HTML 前 2000 字（無姓名/ID 等敏感資料；查詢結果頁本身就是公開資料）
+    import logging
+    _log = logging.getLogger("vetting.npa")
+    _log.warning("=== NPA submit_query response (len=%d, first 2000 chars) ===\n%s",
+                 len(r.text), r.text[:2000])
     return parse_results(r.text)
