@@ -642,7 +642,8 @@ def _format_note_for_ai(n, since=None):
                 diff_parts.append(log.diff[len(PARAGRAPH_DIFF_PREFIX):])
         if diff_parts:
             content = "\n---\n".join(diff_parts)
-    return f"{_note_source_label(n)}\n{n.title}\n{content}"
+    cat_label = CATEGORY_LABELS.get(getattr(n, "category", None) or "misc", "雜項")
+    return f"{_note_source_label(n)}\n[分類：{cat_label}]\n{n.title}\n{content}"
 
 
 def _format_checklist_for_ai(n, since=None):
@@ -842,7 +843,7 @@ def _build_output_structure_prompt(has_regular, has_checklist):
 def _build_all_content(store_name=None):
     """收集同店所有筆記（排除 AI 摘要產生的 is_ai_summary=True 筆記），
     合併成 all_content（舊介面，供 summarize 使用）"""
-    query = Note.query.filter(Note.is_ai_summary == False)  # noqa: E712
+    query = Note.query.filter(Note.is_ai_summary.is_(False))
     if store_name:
         query = query.filter_by(store=store_name)
     notes = query.order_by(Note.updated_at.desc()).all()
