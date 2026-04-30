@@ -683,37 +683,44 @@ def _format_checklist_for_ai(n, since=None):
 
 
 def _classify_by_title(title):
-    """根據表單標題關鍵字分類，回傳類別名稱。"""
+    """根據表單標題關鍵字分類，回傳中文類別名（員工/客人/機台/雜項）。
+
+    僅在 `note.category` 不在 CATEGORY_CHOICES 時做為 fallback 使用。
+    """
     t = (title or "").lower()
-    if any(k in t for k in ("客人", "顧客", "客訴")):
+    if any(k in t for k in ("客人", "顧客", "客訴", "客戶")):
         return "客人"
     if any(k in t for k in ("同事", "員工", "人事", "排班", "請假")):
         return "員工"
-    if any(k in t for k in ("雜事", "雜項", "其他")):
-        return "其他雜事"
-    return "店務"
+    if any(k in t for k in ("機台", "保養", "故障", "設備", "修繕", "維修")):
+        return "機台"
+    return "雜項"
 
 
 def _build_categorized_checklist(checklists, since=None):
     """Python 端預分類 + 跨表單去重，回傳已分好類的文字區塊。
 
-    分類依據表單標題關鍵字，去重依據項目文字完全比對。
-    已完成優先：同一項目已完成則不再列為未完成。
+    分類來源：優先用 note.category（建立時使用者已選），無對應時 fallback 標題 keyword。
+    去重：跨表單同字面文字只保留一次，已完成優先於未完成。
     """
+    # enum → 中文桶
+    CATEGORY_TO_BUCKET = {
+        "employee": "員工",
+        "customer": "客人",
+        "machine": "機台",
+        "misc": "雜項",
+    }
     categories = {
-        "店務": {"done": [], "undone": []},
         "員工": {"done": [], "undone": []},
         "客人": {"done": [], "undone": []},
-        "其他雜事": {"done": [], "undone": []},
+        "機台": {"done": [], "undone": []},
+        "雜項": {"done": [], "undone": []},
     }
     seen = set()
 
     for n in checklists:
-        # 個人類筆記強制歸雜項（使用者決策：個人內容仍與工作有關，AI 摘要時放雜項）
-        if getattr(n, "category", None) == "personal":
-            cat = "其他雜事"
-        else:
-            cat = _classify_by_title(n.title)
+        cat_enum = getattr(n, "category", None)
+        cat = CATEGORY_TO_BUCKET.get(cat_enum) or _classify_by_title(n.title)
         items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
         done_all = [i for i in items if i.is_checked]
         if since is not None:
@@ -736,15 +743,15 @@ def _build_categorized_checklist(checklists, since=None):
                 author = n.author_name or (n.author.username if n.author else "?")
                 categories[cat]["undone"].append(f"- [{author}] {i.text}")
 
-    # 組裝輸出
+    # 組裝輸出（順序：員工/客人/機台/雜項）
     cat_labels = {
-        "店務": "## 🏪 店務",
         "員工": "## 👥 員工",
         "客人": "## 🧑‍🤝‍🧑 客人",
-        "其他雜事": "## 📋 其他雜事",
+        "機台": "## 🔧 機台",
+        "雜項": "## 📋 雜項",
     }
     blocks = []
-    for cat_key in ("店務", "員工", "客人", "其他雜事"):
+    for cat_key in ("員工", "客人", "機台", "雜項"):
         done_lines = categories[cat_key]["done"]
         undone_lines = categories[cat_key]["undone"]
         if not done_lines and not undone_lines:
