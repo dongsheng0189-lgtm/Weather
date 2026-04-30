@@ -563,9 +563,9 @@ def _run_split_summary(task_id, app, notes, since, until, store_label, range_lab
             parts = []
 
             if regular:
-                body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since, until=until) for n in regular)
+                body = _build_categorized_notes(regular, since=since, until=until, inrange_label=inrange_label)
                 data = (
-                    f"# ===== 一般筆記 開始 =====（共 {len(regular)} 筆）\n\n"
+                    f"# ===== 一般筆記 開始 =====（共 {len(regular)} 筆，已依 category 預分類 + 區間/歷史分段）\n\n"
                     f"{body}\n\n"
                     f"# ===== 一般筆記 結束 ====="
                 )
@@ -819,19 +819,103 @@ def _split_notes(notes):
     return regular, checklists
 
 
+def _build_categorized_notes(notes, since=None, until=None, inrange_label="本區間"):
+    """Python 端預分類一般筆記，依 status × 時間區間分到 4 桶 × 3 段。
+
+    分類來源：note.category（enum→中文桶映射）
+    完成（區間內）：note.status == 'resolved' AND resolved_at in [since, until)
+    {inrange_label}未完成：status != 'resolved' AND note.updated_at in [since, until)
+    歷史未完成：status != 'resolved' AND note.updated_at NOT in [since, until)
+    其他（resolved 但 resolved_at 在區間外）→ 跳過（歷史已處理事項，不顯示）
+    """
+    CATEGORY_TO_BUCKET = {
+        "employee": "員工",
+        "customer": "客人",
+        "machine": "機台",
+        "misc": "雜項",
+    }
+    categories = {
+        "員工": {"done": [], "undone": [], "hist": []},
+        "客人": {"done": [], "undone": [], "hist": []},
+        "機台": {"done": [], "undone": [], "hist": []},
+        "雜項": {"done": [], "undone": [], "hist": []},
+    }
+
+    for n in notes:
+        cat_enum = getattr(n, "category", None)
+        cat = CATEGORY_TO_BUCKET.get(cat_enum) or "雜項"
+        is_resolved = (getattr(n, "status", None) == "resolved")
+
+        if since is None:
+            target = "done" if is_resolved else "undone"
+        else:
+            ra = getattr(n, "resolved_at", None)
+            ua = n.updated_at
+            resolved_in_range = (is_resolved and ra is not None and ra >= since
+                                 and (until is None or ra < until))
+            note_in_range = (ua is not None and ua >= since
+                             and (until is None or ua < until))
+            if resolved_in_range:
+                target = "done"
+            elif is_resolved:
+                continue
+            elif note_in_range:
+                target = "undone"
+            else:
+                target = "hist"
+
+        author = n.author_name or (n.author.username if n.author else "?")
+        body_lines = [f"【{author}】{n.title or ''}"]
+        if n.content:
+            body_lines.append(n.content)
+        categories[cat][target].append("\n".join(body_lines))
+
+    cat_labels = {
+        "員工": "## 👥 員工",
+        "客人": "## 🧑‍🤝‍🧑 客人",
+        "機台": "## 🔧 機台",
+        "雜項": "## 📋 雜項",
+    }
+    blocks = []
+    for cat_key in ("員工", "客人", "機台", "雜項"):
+        d = categories[cat_key]["done"]
+        u = categories[cat_key]["undone"]
+        h = categories[cat_key]["hist"]
+        if not d and not u and not h:
+            continue
+        lines = [cat_labels[cat_key]]
+        if d:
+            lines.append("### ✅ 已完成")
+            for body in d:
+                lines.append("---")
+                lines.append(body)
+        if u:
+            lines.append(f"### ❌ {inrange_label}未完成")
+            for body in u:
+                lines.append("---")
+                lines.append(body)
+        if h:
+            lines.append("### 📜 歷史未完成")
+            for body in h:
+                lines.append("---")
+                lines.append(body)
+        blocks.append("\n".join(lines))
+
+    return "\n\n".join(blocks) if blocks else "（無項目）"
+
+
 def _build_ai_sections(notes, header_prefix="", since=None, until=None, inrange_label="本區間"):
     """組出傳給 AI 的 prompt 後段（# 待整理... 以下），回傳 (data_block, has_checklist)。
 
-    since/until: datetime — 傳給 _format_checklist_for_ai 過濾「已完成項目」，
-                            傳給 _format_note_for_ai 取段落 diff（[since, until) 區間）。
-    inrange_label: 顯示用標籤（「今天」/「昨天」），給確認表單未完成段標題用。
+    since/until: datetime — 一般筆記與確認表單都依此區間做完成/未完成/歷史未完成分段。
+    inrange_label: 顯示用標籤（「今天」/「昨天」），給未完成段標題用。
     """
     regular, checklists = _split_notes(notes)
     blocks = []
     if regular:
-        body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since, until=until) for n in regular)
+        body = _build_categorized_notes(regular, since=since, until=until, inrange_label=inrange_label)
         blocks.append(
-            f"# ===== 一般筆記 開始 =====（{header_prefix}共 {len(regular)} 筆）\n\n"
+            f"# ===== 一般筆記 開始 =====（{header_prefix}共 {len(regular)} 筆，已依 category 預分類 + 區間/歷史分段）\n\n"
             f"{body}\n\n"
             f"# ===== 一般筆記 結束 ====="
         )
@@ -847,43 +931,52 @@ def _build_ai_sections(notes, header_prefix="", since=None, until=None, inrange_
 
 
 def _build_output_structure_prompt(has_regular, has_checklist):
-    """根據實際資料動態產生輸出結構指示，沒資料的 section 不出現"""
-    if not has_checklist:
-        # 純筆記：維持原本 4 分類輸出（Output Style 已定義）
+    """根據實際資料動態產生輸出結構指示，沒資料的 section 不出現。
+
+    一般筆記與確認表單都已 Python 端預分類（4 桶 × 3 段）。AI 只負責萃取條列文字，禁止改動分組。
+    """
+    if not has_regular and not has_checklist:
         return ""
 
     parts = ["\n# 輸出結構（極度重要，嚴格遵守）"]
-    parts.append(
-        "**筆記資料與確認表單資料是完全不同的來源，絕對禁止混合。**\n"
-        "「一般筆記」的內容只能出現在「筆記彙整」區塊；「確認表單」的項目只能出現在「確認表單彙整」區塊。\n"
-        "違反此規則等同錯誤輸出。\n"
-    )
+
+    if has_regular and has_checklist:
+        parts.append(
+            "**筆記資料與確認表單資料是完全不同的來源，絕對禁止混合。**\n"
+            "「一般筆記」的內容只能出現在「# 筆記彙整」區塊；「確認表單」的項目只能出現在「# 確認表單彙整」區塊。\n"
+            "違反此規則等同錯誤輸出。\n\n"
+            "請將輸出分為兩大區塊（用 Markdown `#` 標題）：「# 筆記彙整」與「# 確認表單彙整」。"
+        )
+    elif has_regular:
+        parts.append("請以「# 筆記彙整」為唯一標題輸出。確認表單區段不存在，禁止虛構。")
+    else:
+        parts.append("請以「# 確認表單彙整」為唯一標題輸出。一般筆記區段不存在，禁止虛構。")
+
     if has_regular:
         parts.append(
-            "請將輸出分為兩大區塊（用 Markdown `#` 標題）：\n\n"
-            "# 筆記彙整\n"
+            "\n## 筆記彙整 規則\n"
             "**僅限**處理「===== 一般筆記 開始 =====」到「===== 一般筆記 結束 =====」之間的內容。\n"
-            "依 Output Style 的規則（## 類別 + 數字列表）輸出。\n"
-            "「===== 確認表單 =====」區段內的任何項目絕對禁止出現在此區塊。\n\n"
-            "# 確認表單彙整"
-        )
-    else:
-        parts.append(
-            "**本次沒有一般筆記資料，禁止輸出「筆記彙整」段，也禁止將表單內容當作筆記分類。**\n\n"
-            "請只輸出以下區塊：\n\n"
-            "# 確認表單彙整"
+            "一般筆記**已由系統預先分類並依狀態分段**，分為 👥員工 / 🧑‍🤝‍🧑客人 / 🔧機台 / 📋雜項 四大類，每類下有 ✅已完成 / ❌未完成 / 📜 歷史未完成 三段。\n"
+            "你的工作：\n"
+            "1. **保持四類與三段分組不變** — 禁止移動筆記到其他類別或其他狀態段。\n"
+            "2. **萃取每筆筆記的事件條列** — 同段內每筆筆記輸出為 `1. 2. 3.` 數字列表，每條格式「人名 — 事項內容」，刪除口語、抱怨。\n"
+            "3. **不要新增、刪除筆記內沒提到的事項**。\n"
+            "4. 沒事項的類別/分段直接省略，不要輸出空標題。"
         )
 
-    parts.append(
-        "**僅限**處理「===== 確認表單 開始 =====」到「===== 確認表單 結束 =====」之間的項目。\n\n"
-        "確認表單的資料**已經由系統預先分類並去重完成**，分為 👥員工 / 🧑‍🤝‍🧑客人 / 🔧機台 / 📋雜項 四大類，每類下有 ✅已完成 / ❌未完成 / 📜 歷史未完成 三段。\n\n"
-        "你的工作：\n"
-        "1. **保持現有分類不變** — 禁止將項目移到其他類別。\n"
-        "2. **保持已完成 / 未完成 / 歷史未完成 三段分組不變** — 禁止移動。\n"
-        "3. **整理文字** — 每條保留人名，精簡為「人名 — 事項內容」格式。同一人的事項放在一起。\n"
-        "4. **不要新增、刪除或重複任何項目** — 輸入幾條就輸出幾條。\n"
-        "5. **不要輸出時間資訊**。\n"
-    )
+    if has_checklist:
+        parts.append(
+            "\n## 確認表單彙整 規則\n"
+            "**僅限**處理「===== 確認表單 開始 =====」到「===== 確認表單 結束 =====」之間的項目。\n"
+            "確認表單**已由系統預先分類並去重完成**，分為 👥員工 / 🧑‍🤝‍🧑客人 / 🔧機台 / 📋雜項 四大類，每類下有 ✅已完成 / ❌未完成 / 📜 歷史未完成 三段。\n"
+            "你的工作：\n"
+            "1. **保持現有分類不變** — 禁止將項目移到其他類別。\n"
+            "2. **保持三段分組不變** — 禁止移動。\n"
+            "3. **整理文字** — 每條保留人名，精簡為「人名 — 事項內容」格式。同一人的事項放在一起。\n"
+            "4. **不要新增、刪除或重複任何項目** — 輸入幾條就輸出幾條。\n"
+            "5. **不要輸出時間資訊**。"
+        )
+
     return "\n".join(parts) + "\n"
 
 
@@ -966,19 +1059,13 @@ def notes_ai_summary():
     if store not in valid_stores:
         return jsonify({"status": "error", "message": "請選擇店別"}), 400
 
-    # 一般筆記：限區間；確認表單：全撈（讓「歷史未完成」可顯示）
-    all_notes = (Note.query
-                 .filter(Note.is_ai_summary.is_(False))
-                 .filter_by(store=store)
-                 .order_by(Note.updated_at.desc())
-                 .all())
-    notes = []
-    for n in all_notes:
-        nt = getattr(n, "note_type", "note") or "note"
-        if nt == "checklist":
-            notes.append(n)
-        elif n.updated_at and n.updated_at >= start_utc and (not end_utc or n.updated_at < end_utc):
-            notes.append(n)
+    # 一般筆記與確認表單都全撈（_build_categorized_notes/_build_categorized_checklist
+    # 會在 Python 端依 status/updated_at 分到 完成 / 區間內未完成 / 歷史未完成）
+    notes = (Note.query
+             .filter(Note.is_ai_summary.is_(False))
+             .filter_by(store=store)
+             .order_by(Note.updated_at.desc())
+             .all())
 
     # DEBUG: 確認撈到的筆記（部署穩定後可移除）
     import logging
