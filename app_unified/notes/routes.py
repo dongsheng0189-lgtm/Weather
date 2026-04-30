@@ -850,6 +850,8 @@ def _build_categorized_notes(notes, since=None, until=None, inrange_label="本�
             target = "done" if is_resolved else "undone"
         else:
             ra = getattr(n, "resolved_at", None)
+            if ra is not None and ra.tzinfo is not None:
+                ra = ra.astimezone(timezone.utc).replace(tzinfo=None)
             ua = n.updated_at
             resolved_in_range = (is_resolved and ra is not None and ra >= since
                                  and (until is None or ra < until))
@@ -1054,6 +1056,8 @@ def notes_ai_summary():
     start_utc, end_utc = _get_business_day_range(offset_days=offset)
     inrange_label = "昨天" if business_day == "yesterday" else "今天"
     range_label = inrange_label + " 早上 8 點起 24 小時"
+    # 營業日的日曆日期（08:00 Taipei = 00:00 UTC 同日，故 strftime UTC 即可）
+    business_day_date = start_utc.strftime("%Y-%m-%d")
 
     valid_stores = [s.name for s in Store.query.all()]
     if store not in valid_stores:
@@ -1076,7 +1080,7 @@ def notes_ai_summary():
                      _n.id, _n.store, _n.note_type, _n.title, _n.updated_at, len(_n.content or ""))
 
     if not notes:
-        return jsonify({"status": "ok", "summary": "（近期無筆記）"})
+        return jsonify({"status": "ok", "summary": "（近期無筆記）", "business_day_date": business_day_date})
 
     # 拆成一般筆記 / 確認表單兩段（已完成項目只列區間內 updated 的）
     data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc, until=end_utc, inrange_label=inrange_label)
@@ -1104,7 +1108,7 @@ def notes_ai_summary():
         import gevent
         gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
                      prompt, 65536)
-    return jsonify({"status": "accepted", "task_id": task_id})
+    return jsonify({"status": "accepted", "task_id": task_id, "business_day_date": business_day_date})
 
 
 # ── Checklist Item CRUD ────────────────────────────────

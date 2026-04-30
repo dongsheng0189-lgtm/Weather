@@ -312,3 +312,31 @@ def test_build_all_content_excludes_ai_summary(app, db_session):
     assert "一般筆記" in block
     assert "2026-04-30 摘要" not in block
     assert count == 1
+
+
+def test_build_categorized_notes_handles_aware_resolved_at():
+    """Regression: notes.resolved_at column is TIMESTAMPTZ in prod (psycopg2
+    returns aware datetime), but since/until from _get_business_day_range are
+    naive UTC. Comparing them raised TypeError on stores with resolved notes.
+    """
+    from notes.routes import _build_categorized_notes
+    from datetime import datetime, timezone
+
+    class FakeNote:
+        category = "customer"
+        status = "resolved"
+        title = "t"
+        content = "c"
+        author_name = "alice"
+        author = None
+
+    n = FakeNote()
+    n.resolved_at = datetime(2026, 4, 30, 10, 0, tzinfo=timezone.utc)
+    n.updated_at = datetime(2026, 4, 30, 10, 0)
+
+    since = datetime(2026, 4, 30, 0, 0)
+    until = datetime(2026, 5, 1, 0, 0)
+
+    out = _build_categorized_notes([n], since=since, until=until, inrange_label="今天")
+    assert "✅ 已完成" in out
+    assert "alice" in out

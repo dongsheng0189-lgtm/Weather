@@ -371,6 +371,7 @@ function pollAiTask(taskId, onDone, onError, onTick) {
 
 var _aiBusinessDay = 'today';
 var _summaryBusinessDay = null;  // 鎖定「這份摘要是哪天的」，避免存檔時標題對不上
+var _summaryBusinessDate = null;  // 由 server 回傳的 YYYY-MM-DD，避免 client 端時區算錯
 function selectBusinessDay(bd) {
   _aiBusinessDay = bd;
   var t = document.getElementById('ai-bd-today');
@@ -399,11 +400,13 @@ function generateSummary() {
   saveBtn.textContent = '💾 儲存為筆記';
 
   _summaryBusinessDay = _aiBusinessDay;  // 送出時鎖定，後續按「儲存為筆記」用這個
+  _summaryBusinessDate = null;
   fetch('/notes/ai/summary', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ store: store, business_day: _aiBusinessDay })
   }).then(function(res) { return res.json(); }).then(function(data) {
+    if (data.business_day_date) _summaryBusinessDate = data.business_day_date;
     if (data.status === 'accepted' && data.task_id) {
       pollAiTask(data.task_id, function(result) {
         outputEl.textContent = result;
@@ -437,13 +440,11 @@ function saveSummaryAsNote() {
   var store = document.getElementById('ai-store-select').value;
   var content = document.getElementById('ai-summary-output').textContent;
   var saveBtn = document.getElementById('btn-save-summary');
-  var now = new Date();
-  var twHour = (now.getUTCHours() + 8) % 24;
-  var bizDate = new Date(now.getTime() + 8 * 3600000);
-  if (twHour < 8) bizDate.setDate(bizDate.getDate() - 1);
-  var dateStr = bizDate.getFullYear() + '-' +
-    String(bizDate.getMonth() + 1).padStart(2, '0') + '-' +
-    String(bizDate.getDate()).padStart(2, '0');
+  var dateStr = _summaryBusinessDate;
+  if (!dateStr) {
+    alert('找不到摘要日期，請重新產生摘要');
+    return;
+  }
   var dayLabel = (_summaryBusinessDay === 'yesterday') ? '昨天' : '今天';
   var title = dateStr + ' ' + dayLabel + '摘要';
 
@@ -464,6 +465,7 @@ function saveSummaryAsNote() {
   }).then(function(res) { return res.json(); }).then(function(data) {
     if (data.id) {
       saveBtn.textContent = '✅ 已儲存';
+      window.location.href = '/notes/';
     } else {
       saveBtn.textContent = '❌ 儲存失敗';
       saveBtn.disabled = false;
