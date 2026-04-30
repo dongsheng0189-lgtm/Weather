@@ -39,8 +39,7 @@
 .category-btn.selected[data-category="employee"]     { background: #3498db; color: #fff; border-color: transparent; }
 .category-btn.selected[data-category="customer"]     { background: #e67e22; color: #fff; border-color: transparent; }
 .category-btn.selected[data-category="misc"]         { background: #95a5a6; color: #fff; border-color: transparent; }
-.category-btn.selected[data-category="personal"]     { background: #9b59b6; color: #fff; border-color: transparent; }
-.category-btn.selected[data-category="unclassified"] { background: #bdc3c7; color: #fff; border-color: transparent; }
+.category-btn.selected[data-category="machine"]      { background: #9b59b6; color: #fff; border-color: transparent; }
 .updated-by-info { font-size: .85rem; color: #888; margin-bottom: .5rem; }
 .store-display { font-size: .85rem; color: #666; margin-bottom: .75rem; }
 .store-display .store-badge-inline { display:inline-block; padding:.1rem .5rem; border-radius:10px; font-size:.82rem; font-weight:700; color:#fff; margin-left:.3rem; }
@@ -115,16 +114,13 @@
   <div id="resolved-warning" style="font-size:.8rem;color:#888;margin-top:.3rem;display:none;">
     ⚠️ 此筆記標為已解決，30 天後將自動刪除（含附件）
   </div>
-  {% set cur_category = note.category if note and note.category else (default_category or 'unclassified') %}
+  {% set cur_category = note.category if note and note.category else (default_category or 'misc') %}
   <div class="category-selector">
     <label>類別：</label>
     <button class="category-btn {% if cur_category == 'employee' %}selected{% endif %}" data-category="employee" type="button" onclick="selectCategory(this)">員工</button>
     <button class="category-btn {% if cur_category == 'customer' %}selected{% endif %}" data-category="customer" type="button" onclick="selectCategory(this)">客人</button>
-    <button class="category-btn {% if cur_category == 'misc' %}selected{% endif %}" data-category="misc" type="button" onclick="selectCategory(this)">雜事</button>
-    <button class="category-btn {% if cur_category == 'personal' %}selected{% endif %}" data-category="personal" type="button" onclick="selectCategory(this)">個人</button>
-    {% if cur_category == 'unclassified' %}
-    <button class="category-btn selected" data-category="unclassified" type="button" onclick="selectCategory(this)">未分類</button>
-    {% endif %}
+    <button class="category-btn {% if cur_category == 'machine' %}selected{% endif %}" data-category="machine" type="button" onclick="selectCategory(this)">機台</button>
+    <button class="category-btn {% if cur_category == 'misc' %}selected{% endif %}" data-category="misc" type="button" onclick="selectCategory(this)">雜項</button>
   </div>
   <div class="editor-toolbar">
     <button class="btn btn-primary" id="btn-save" onclick="doSave()">💾 儲存</button>
@@ -198,7 +194,7 @@
 var NOTE_ID = {{ (note.id if note else None)|tojson }};
 var currentStore = {{ (note.store if note else current_user.store)|tojson }};
 var currentStatus = {{ (note.status if note else 'pending')|tojson }};
-var currentCategory = {{ (note.category if note else (default_category or 'unclassified'))|tojson }};
+var currentCategory = {{ (note.category if note else (default_category or 'misc'))|tojson }};
 var currentShift = {{ (note.shift if note else default_shift)|tojson }};
 var IS_READONLY = {{ (is_readonly or false)|tojson }};
 
