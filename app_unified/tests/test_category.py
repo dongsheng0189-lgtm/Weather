@@ -300,13 +300,15 @@ def test_build_categorized_checklist_routes_by_category(app, db_session):
 # ─── 新增：_build_all_content 過濾 is_ai_summary ───
 
 def test_build_all_content_excludes_ai_summary(app, db_session):
-    u = _mk_user(db_session, store="B")
-    _mk_note(db_session, u, category="misc", title="一般筆記", content="一般內容", store="B")
-    s = _mk_note(db_session, u, category="misc", title="2026-04-30 摘要", content="AI 結果", store="B")
+    # 用 unique store 避免跨 test 漏（conftest db_session 不 rollback）
+    store = f"S_{uuid.uuid4().hex[:6]}"
+    u = _mk_user(db_session, store=store)
+    _mk_note(db_session, u, category="misc", title="一般筆記", content="一般內容", store=store)
+    s = _mk_note(db_session, u, category="misc", title="2026-04-30 摘要", content="AI 結果", store=store)
     s.is_ai_summary = True
     db_session.commit()
 
-    block, count, has_cl = _build_all_content("B")
+    block, count, has_cl = _build_all_content(store)
     assert "一般筆記" in block
     assert "2026-04-30 摘要" not in block
     assert count == 1
