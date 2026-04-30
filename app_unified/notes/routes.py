@@ -555,7 +555,7 @@ MANAGER_PROMPT = """# Role
 """
 
 
-def _run_split_summary(task_id, app, notes, since, store_label, days, extra):
+def _run_split_summary(task_id, app, notes, since, store_label, range_label, extra):
     """資料量大時，拆成「筆記」「確認表單」兩批分別呼叫 LLM 再合併結果。"""
     with app.app_context():
         try:
@@ -572,7 +572,7 @@ def _run_split_summary(task_id, app, notes, since, store_label, days, extra):
                 prompt = (
                     MANAGER_PROMPT + extra
                     + _build_output_structure_prompt(True, False)
-                    + f"\n# 待整理資料（{store_label}近 {days} 天，一般筆記 {len(regular)} 筆）\n\n{data}"
+                    + f"\n# 待整理資料（{store_label}{range_label}，一般筆記 {len(regular)} 筆）\n\n{data}"
                 )
                 parts.append("# 筆記彙整\n\n" + call_llm(prompt, max_tokens=65536))
 
@@ -584,7 +584,7 @@ def _run_split_summary(task_id, app, notes, since, store_label, days, extra):
                 prompt = (
                     MANAGER_PROMPT + extra
                     + _build_output_structure_prompt(False, True)
-                    + f"\n# 待整理資料（{store_label}近 {days} 天，確認表單 {ncl} 筆）\n\n{cl_block}"
+                    + f"\n# 待整理資料（{store_label}{range_label}，確認表單 {ncl} 筆）\n\n{cl_block}"
                 )
                 parts.append("# 確認表單彙整\n\n" + call_llm(prompt, max_tokens=65536))
 
@@ -924,6 +924,7 @@ def notes_ai_summary():
     business_day = data.get("business_day", "today")
     offset = -1 if business_day == "yesterday" else 0
     start_utc, end_utc = _get_business_day_range(offset_days=offset)
+    range_label = ("昨天" if business_day == "yesterday" else "今天") + " 早上 8 點起 24 小時"
 
     valid_stores = [s.name for s in Store.query.all()]
     if store not in valid_stores:
@@ -960,13 +961,13 @@ def notes_ai_summary():
         import gevent
         gevent.spawn(
             _run_split_summary, task_id, current_app._get_current_object(),
-            notes, since=start_utc, store_label=store_label, days=days, extra=extra,
+            notes, since=start_utc, store_label=store_label, range_label=range_label, extra=extra,
         )
     else:
         prompt = (
             MANAGER_PROMPT + extra
             + _build_output_structure_prompt(nreg > 0, has_cl)
-            + f"\n# 待整理資料（{store_label}近 {days} 天，一般筆記 {nreg} 筆 / 確認表單 {ncl} 筆）\n\n{data_block}"
+            + f"\n# 待整理資料（{store_label}{range_label}，一般筆記 {nreg} 筆 / 確認表單 {ncl} 筆）\n\n{data_block}"
         )
         task_id = uuid.uuid4().hex[:12]
         _ai_tasks[task_id] = {"status": "processing"}
