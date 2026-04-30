@@ -40,8 +40,7 @@
 .category-badge.category-employee    { background:#3498db; }
 .category-badge.category-customer    { background:#e67e22; }
 .category-badge.category-misc        { background:#95a5a6; }
-.category-badge.category-personal    { background:#9b59b6; }
-.category-badge.category-unclassified{ background:#bdc3c7; color:#555; }
+.category-badge.category-machine     { background:#9b59b6; }
 .status-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .range-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
 /* 隱私黑幕 */
@@ -113,7 +112,7 @@
   <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">清除</a>
   {% endif %}
 </form>
-{% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('misc','雜事'),('personal','個人'),('unclassified','未分類')] %}
+{% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('machine','機台'),('misc','雜項')] %}
 <div class="range-tabs">
   <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">種類：</span>
   {% for val, label in cat_tab_labels %}
@@ -182,7 +181,7 @@
       {% if note.store %}<span class="store-badge badge-{{ note.store }}">{{ note.store }}</span>{% endif %}
       {% set slabels = {'pending':'待處理','in_progress':'待討論','resolved':'已解決'} %}
       <span class="status-badge status-{{ note.status or 'pending' }}">{{ slabels.get(note.status or 'pending', note.status) }}</span>
-      <span class="category-badge category-{{ note.category or 'unclassified' }}">{{ category_labels.get(note.category or 'unclassified', note.category) }}</span>
+      <span class="category-badge category-{{ note.category or 'misc' }}">{{ category_labels.get(note.category or 'misc', note.category) }}</span>
     </div>
     <div class="meta" style="margin-top:.2rem;">
       <span style="font-size:.85rem;color:#888;font-weight:600;">{{ note.display_author or '—' }} · {{ note.created_at | fmt_date }}</span>
@@ -228,8 +227,8 @@
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-bottom:.9rem;">
     <button type="button" class="cm-cat-btn" data-cat="employee" onclick="selectCategory('employee')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">員工</button>
     <button type="button" class="cm-cat-btn" data-cat="customer" onclick="selectCategory('customer')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">客人</button>
-    <button type="button" class="cm-cat-btn" data-cat="misc" onclick="selectCategory('misc')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">雜事</button>
-    <button type="button" class="cm-cat-btn" data-cat="personal" onclick="selectCategory('personal')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">個人</button>
+    <button type="button" class="cm-cat-btn" data-cat="machine" onclick="selectCategory('machine')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">機台</button>
+    <button type="button" class="cm-cat-btn" data-cat="misc" onclick="selectCategory('misc')" style="padding:.55rem;border:2px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;">雜項</button>
   </div>
   <div style="margin-bottom:.4rem;font-size:.85rem;color:#666;">班別</div>
   <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:.5rem; margin-bottom:1rem;">
@@ -252,8 +251,8 @@ var _selShift = null;
 var CAT_COLORS = {
   employee: '#3498db',
   customer: '#e67e22',
+  machine:  '#9b59b6',
   misc:     '#95a5a6',
-  personal: '#9b59b6',
 };
 
 function _highlightCat() {
@@ -296,7 +295,7 @@ function openCategoryModal(type) {
   // 還原上次選擇 (cat 無記憶 → null；shift 無記憶 → 'none')
   try {
     _selCategory = localStorage.getItem('notes_new_category');
-    if (_selCategory && ['employee','customer','misc','personal'].indexOf(_selCategory) < 0) _selCategory = null;
+    if (_selCategory && ['employee','customer','machine','misc'].indexOf(_selCategory) < 0) _selCategory = null;
   } catch (e) { _selCategory = null; }
   try {
     _selShift = localStorage.getItem('notes_new_shift') || 'none';
@@ -445,7 +444,8 @@ function saveSummaryAsNote() {
       content: content,
       store: store,
       status: 'pending',
-      category: 'personal'
+      category: 'misc',
+      is_ai_summary: true
     })
   }).then(function(res) { return res.json(); }).then(function(data) {
     if (data.id) {
