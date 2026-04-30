@@ -82,7 +82,7 @@ def test_new_note_with_category_machine(app, client, db_session):
     r = client.get("/notes/new?type=note&category=machine")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    assert "alice筆記" in html
+    assert "機台" in html
 
 
 def test_new_checklist_with_category_customer(app, client, db_session):
@@ -100,8 +100,8 @@ def test_new_note_without_category(app, client, db_session):
     r = client.get("/notes/new?type=note")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    # fallback misc → 帶 username（沿用舊 default）
-    assert u.username in html
+    # 沒帶 category → fallback misc → 標題含「雜項」
+    assert "雜項" in html
 
 
 def test_new_note_invalid_category(app, client, db_session):
@@ -109,9 +109,9 @@ def test_new_note_invalid_category(app, client, db_session):
     _login(client, u)
     r = client.get("/notes/new?type=note&category=hacker")
     assert r.status_code == 200
-    # 防禦 fallback misc → 帶 username
+    # 防禦：無效 category → fallback misc → 標題含「雜項」
     html = r.get_data(as_text=True)
-    assert u.username in html
+    assert "雜項" in html
 
 
 def test_post_api_accepts_valid_category(app, client, db_session):

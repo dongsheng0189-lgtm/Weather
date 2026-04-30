@@ -26,7 +26,7 @@ def _mk_note(db_session, user, **kwargs):
         content=kwargs.get("content", "c"),
         store=kwargs.get("store", user.store),
         status=kwargs.get("status", "pending"),
-        category=kwargs.get("category", "unclassified"),
+        category=kwargs.get("category", "misc"),
         note_type=kwargs.get("note_type", "note"),
         shift=kwargs.get("shift"),
     )
@@ -73,21 +73,23 @@ def test_title_employee_no_shift(app, client, db_session):
     assert "A員工" not in body and "B員工" not in body and "N員工" not in body
 
 
-def test_title_personal_shift_b(app, client, db_session):
+def test_title_machine_shift_b(app, client, db_session):
     u = _mk_user(db_session)
     _login(client, u)
-    res = client.get("/notes/new?type=note&category=personal&shift=B")
+    res = client.get("/notes/new?type=note&category=machine&shift=B")
     body = res.get_data(as_text=True)
-    assert f"B {u.username}筆記" in body
+    assert "B機台" in body
 
 
-def test_title_personal_no_shift(app, client, db_session):
+def test_title_machine_no_shift(app, client, db_session):
     u = _mk_user(db_session)
     _login(client, u)
-    res = client.get("/notes/new?type=note&category=personal&shift=none")
+    res = client.get("/notes/new?type=note&category=machine&shift=none")
     body = res.get_data(as_text=True)
-    assert f"{u.username}筆記" in body
-    assert f"A {u.username}筆記" not in body
+    assert "機台" in body
+    assert "A機台" not in body
+    assert "B機台" not in body
+    assert "N機台" not in body
 
 
 def test_title_checklist_employee_shift_n(app, client, db_session):
