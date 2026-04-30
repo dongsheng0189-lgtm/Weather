@@ -18,7 +18,7 @@ from .http_client import make_session
 HOME_URL = "https://judgment.judicial.gov.tw/FJUD/default.aspx"
 BASE = "https://judgment.judicial.gov.tw/FJUD/"
 
-DEEP_KEYWORDS = ["詐欺", "洗錢", "有期徒刑", "定讞"]
+DEEP_KEYWORDS = ["詐欺", "洗錢", "有期徒刑", "定讞", "毒品", "搶劫", "偷竊"]
 # 司法院常見人名遮罩格式：姓 + ○○ 或 ○○○ (e.g., 王○○, 丙○○○)
 MASKED_NAME_RE = re.compile(r"[一-龥]○{1,3}")
 # 遮蔽身分證 / 居留證：A + 1或2 + 部分數字 + * + 可能的尾數字
