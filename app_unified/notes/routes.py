@@ -299,7 +299,7 @@ def create_note():
         store = current_user.store if current_user.store in stores else None
     status = data.get("status") if data.get("status") in STATUS_CHOICES else "pending"
     category = data.get("category") if data.get("category") in CATEGORY_CHOICES else "misc"
-    is_ai_summary = bool(data.get("is_ai_summary", False))
+    is_ai_summary = data.get("is_ai_summary") is True
     note_type = data.get("note_type") if data.get("note_type") in ("note", "checklist") else "note"
     shift = data.get("shift") if data.get("shift") in SHIFT_CHOICES else None
     note = Note(
