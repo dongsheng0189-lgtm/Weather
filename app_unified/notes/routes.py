@@ -555,7 +555,7 @@ MANAGER_PROMPT = """# Role
 """
 
 
-def _run_split_summary(task_id, app, notes, since, store_label, range_label, extra):
+def _run_split_summary(task_id, app, notes, since, until, store_label, range_label, extra):
     """資料量大時，拆成「筆記」「確認表單」兩批分別呼叫 LLM 再合併結果。"""
     with app.app_context():
         try:
@@ -563,7 +563,7 @@ def _run_split_summary(task_id, app, notes, since, store_label, range_label, ext
             parts = []
 
             if regular:
-                body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since) for n in regular)
+                body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since, until=until) for n in regular)
                 data = (
                     f"# ===== 一般筆記 開始 =====（共 {len(regular)} 筆）\n\n"
                     f"{body}\n\n"
@@ -579,7 +579,7 @@ def _run_split_summary(task_id, app, notes, since, store_label, range_label, ext
             if checklists:
                 cl_block, _, _, ncl = _build_ai_sections(
                     [n for n in notes if getattr(n, "note_type", "note") == "checklist"],
-                    since=since,
+                    since=since, until=until,
                 )
                 prompt = (
                     MANAGER_PROMPT + extra
@@ -634,20 +634,23 @@ def _note_source_label(n):
     return f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
 
 
-def _format_note_for_ai(n, since=None):
+def _format_note_for_ai(n, since=None, until=None):
     """一般筆記的文字區塊（不含 checklist 項目）。
 
-    since: datetime（UTC）— 若給定，嘗試從 NoteLog 取段落 diff，
-           只餵變動段落而非全文。找不到 diff 則 fallback 全文。
+    since/until: datetime（UTC）— 若給定，嘗試從 NoteLog 取段落 diff，
+           只餵區間內變動段落而非全文。找不到 diff 則 fallback 全文。
     """
     content = n.content or ""
     if since is not None:
         from notes.diff_utils import PARAGRAPH_DIFF_PREFIX
-        logs = NoteLog.query.filter(
+        log_q = NoteLog.query.filter(
             NoteLog.note_id == n.id,
             NoteLog.action == "edit",
             NoteLog.created_at >= since,
-        ).order_by(NoteLog.created_at.desc()).all()
+        )
+        if until is not None:
+            log_q = log_q.filter(NoteLog.created_at < until)
+        logs = log_q.order_by(NoteLog.created_at.desc()).all()
         diff_parts = []
         for log in logs:
             if log.diff and log.diff.startswith(PARAGRAPH_DIFF_PREFIX):
@@ -658,17 +661,24 @@ def _format_note_for_ai(n, since=None):
     return f"{_note_source_label(n)}\n[分類：{cat_label}]\n{n.title}\n{content}"
 
 
-def _format_checklist_for_ai(n, since=None):
+def _format_checklist_for_ai(n, since=None, until=None):
     """確認表單區塊：標題 + 已完成 / 未完成項目。
 
-    since: datetime（UTC, naive）— 若給定，已完成項目只列 updated_at >= since
-           的（避免把好幾天前完成的也帶進來）；未完成項目永遠全部列出。
+    since/until: datetime（UTC, naive）— 若給定，已完成項目只列 [since, until) 內
+           的（避免今天的摘要把昨天完成的也撈進來，反之亦然）；未完成項目永遠全部列出。
     """
     items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
     total = len(items)
     done_all = [i for i in items if i.is_checked]
     if since is not None:
-        done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
+        def _in_range(i):
+            ts = i.updated_at or i.created_at
+            if ts < since:
+                return False
+            if until is not None and ts >= until:
+                return False
+            return True
+        done = [i for i in done_all if _in_range(i)]
     else:
         done = done_all
     undone = [i for i in items if not i.is_checked]
@@ -707,11 +717,12 @@ def _classify_by_title(title):
     return "雜項"
 
 
-def _build_categorized_checklist(checklists, since=None):
+def _build_categorized_checklist(checklists, since=None, until=None):
     """Python 端預分類 + 跨表單去重，回傳已分好類的文字區塊。
 
     分類來源：優先用 note.category（建立時使用者已選），無對應時 fallback 標題 keyword。
     去重：跨表單同字面文字只保留一次，已完成優先於未完成。
+    since/until: 已完成項目只算 [since, until) 區間內。
     """
     # enum → 中文桶
     CATEGORY_TO_BUCKET = {
@@ -734,7 +745,14 @@ def _build_categorized_checklist(checklists, since=None):
         items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
         done_all = [i for i in items if i.is_checked]
         if since is not None:
-            done = [i for i in done_all if (i.updated_at or i.created_at) >= since]
+            def _in_range(it):
+                ts = it.updated_at or it.created_at
+                if ts < since:
+                    return False
+                if until is not None and ts >= until:
+                    return False
+                return True
+            done = [i for i in done_all if _in_range(i)]
         else:
             done = done_all
         undone = [i for i in items if not i.is_checked]
@@ -785,16 +803,16 @@ def _split_notes(notes):
     return regular, checklists
 
 
-def _build_ai_sections(notes, header_prefix="", since=None):
+def _build_ai_sections(notes, header_prefix="", since=None, until=None):
     """組出傳給 AI 的 prompt 後段（# 待整理... 以下），回傳 (data_block, has_checklist)。
 
-    since: datetime — 傳給 _format_checklist_for_ai 過濾「已完成項目」，
-                      傳給 _format_note_for_ai 取段落 diff。
+    since/until: datetime — 傳給 _format_checklist_for_ai 過濾「已完成項目」，
+                            傳給 _format_note_for_ai 取段落 diff（[since, until) 區間）。
     """
     regular, checklists = _split_notes(notes)
     blocks = []
     if regular:
-        body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since) for n in regular)
+        body = "\n\n---\n\n".join(_format_note_for_ai(n, since=since, until=until) for n in regular)
         blocks.append(
             f"# ===== 一般筆記 開始 =====（{header_prefix}共 {len(regular)} 筆）\n\n"
             f"{body}\n\n"
@@ -802,7 +820,7 @@ def _build_ai_sections(notes, header_prefix="", since=None):
         )
     if checklists:
         # Python 端預分類 + 去重，AI 不需要自己分類
-        body = _build_categorized_checklist(checklists, since=since)
+        body = _build_categorized_checklist(checklists, since=since, until=until)
         blocks.append(
             f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆，已依標題預分類並去重）\n\n"
             f"{body}\n\n"
@@ -949,7 +967,7 @@ def notes_ai_summary():
         return jsonify({"status": "ok", "summary": "（近期無筆記）"})
 
     # 拆成一般筆記 / 確認表單兩段（已完成項目只列區間內 updated 的）
-    data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc)
+    data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc, until=end_utc)
 
     store_label = f"「{store}店」"
     extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
@@ -961,7 +979,7 @@ def notes_ai_summary():
         import gevent
         gevent.spawn(
             _run_split_summary, task_id, current_app._get_current_object(),
-            notes, since=start_utc, store_label=store_label, range_label=range_label, extra=extra,
+            notes, since=start_utc, until=end_utc, store_label=store_label, range_label=range_label, extra=extra,
         )
     else:
         prompt = (
