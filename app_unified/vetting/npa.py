@@ -164,9 +164,18 @@ def submit_query(session, tokens: dict, jwt_token: str,
     # 偵測驗證碼錯誤 / token 過期
     if "驗證碼" in r.text and ("錯誤" in r.text or "不正確" in r.text):
         raise ValueError("captcha_invalid")
-    # debug log: 印 response HTML 前 2000 字（無姓名/ID 等敏感資料；查詢結果頁本身就是公開資料）
+    # debug log: 萃取 body 主要內容（去除 head/script/style/link，留下結果區塊）
     import logging
     _log = logging.getLogger("vetting.npa")
-    _log.warning("=== NPA submit_query response (len=%d, first 2000 chars) ===\n%s",
-                 len(r.text), r.text[:2000])
+    try:
+        _soup = BeautifulSoup(r.text, "html.parser")
+        for tag in _soup(["script", "style", "link", "meta", "noscript"]):
+            tag.decompose()
+        body_html = (_soup.body and str(_soup.body)) or r.text
+    except Exception:
+        body_html = r.text
+    # 切成 4 段每段 ~3500 字方便 log 不被截斷
+    chunk_size = 3500
+    for i in range(0, min(len(body_html), 14000), chunk_size):
+        _log.warning("=== NPA body chunk %d ===\n%s", i // chunk_size + 1, body_html[i:i + chunk_size])
     return parse_results(r.text)
