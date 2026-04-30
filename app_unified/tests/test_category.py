@@ -236,3 +236,79 @@ def test_filter_cascade_time_link_preserves_category_resets_status(app, client, 
     href = m.group(1)
     assert "category=employee" in href
     assert "status=pending" not in href
+
+
+# ─── 新增：_classify_by_title 4 桶測試 ───
+from notes.routes import _classify_by_title
+
+def test_classify_by_title_employee():
+    assert _classify_by_title("員工排班") == "員工"
+    assert _classify_by_title("4/30 員工") == "員工"
+    assert _classify_by_title("請假紀錄") == "員工"
+
+def test_classify_by_title_customer():
+    assert _classify_by_title("客人意見") == "客人"
+    assert _classify_by_title("客訴處理") == "客人"
+    assert _classify_by_title("顧客需求") == "客人"
+
+def test_classify_by_title_machine():
+    assert _classify_by_title("機台保養") == "機台"
+    assert _classify_by_title("故障排除") == "機台"
+    assert _classify_by_title("設備維修") == "機台"
+
+def test_classify_by_title_fallback_to_misc():
+    assert _classify_by_title("隨便寫的") == "雜項"
+    assert _classify_by_title("") == "雜項"
+    assert _classify_by_title(None) == "雜項"
+
+
+# ─── 新增：_build_categorized_checklist 走 note.category 測試 ───
+from notes.routes import _build_categorized_checklist
+from models import ChecklistItem
+
+def _mk_checklist_note(db_session, user, category, items):
+    n = Note(
+        user_id=user.id, author_name=user.username,
+        title=f"標題-{category}", content="",
+        store=user.store, status="pending", category=category,
+        note_type="checklist",
+    )
+    db_session.add(n)
+    db_session.flush()
+    for text, checked in items:
+        ci = ChecklistItem(note_id=n.id, text=text, is_checked=checked,
+                           checked_by_name=user.username if checked else None)
+        db_session.add(ci)
+    db_session.commit()
+    return n
+
+def test_build_categorized_checklist_routes_by_category(app, db_session):
+    u = _mk_user(db_session)
+    _mk_checklist_note(db_session, u, "employee", [("員工A 任務", False)])
+    _mk_checklist_note(db_session, u, "customer", [("客人B 任務", False)])
+    _mk_checklist_note(db_session, u, "machine", [("機台C 任務", False)])
+    _mk_checklist_note(db_session, u, "misc", [("雜事D 任務", False)])
+
+    cls = Note.query.filter_by(note_type="checklist").all()
+    block = _build_categorized_checklist(cls)
+
+    assert "## 👥 員工" in block and "員工A 任務" in block
+    assert "## 🧑‍🤝‍🧑 客人" in block and "客人B 任務" in block
+    assert "## 🔧 機台" in block and "機台C 任務" in block
+    assert "## 📋 雜項" in block and "雜事D 任務" in block
+
+
+# ─── 新增：_build_all_content 過濾 is_ai_summary ───
+from notes.routes import _build_all_content
+
+def test_build_all_content_excludes_ai_summary(app, db_session):
+    u = _mk_user(db_session, store="B")
+    _mk_note(db_session, u, category="misc", title="一般筆記", content="一般內容", store="B")
+    s = _mk_note(db_session, u, category="misc", title="2026-04-30 摘要", content="AI 結果", store="B")
+    s.is_ai_summary = True
+    db_session.commit()
+
+    block, count, has_cl = _build_all_content("B")
+    assert "一般筆記" in block
+    assert "2026-04-30 摘要" not in block
+    assert count == 1
