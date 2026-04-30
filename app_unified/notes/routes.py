@@ -100,11 +100,11 @@ def _get_business_day_range(offset_days=0):
 
 
 def _get_business_day_labels():
-    """回傳今/昨營業日 label（M/D），給 AI 摘要 toggle 顯示用。"""
+    """AI 摘要 toggle 按鈕顯示用：日曆日的今天/昨天 M/D。
+    範圍邏輯（08:00 分界）仍由 _get_business_day_range 處理，按鈕只負責直覺顯示。"""
     now_tw = datetime.now(_TW)
-    today_base = now_tw if now_tw.hour >= 8 else now_tw - timedelta(days=1)
-    yesterday_base = today_base - timedelta(days=1)
-    return today_base.strftime("%-m/%-d"), yesterday_base.strftime("%-m/%-d")
+    yesterday = now_tw - timedelta(days=1)
+    return now_tw.strftime("%-m/%-d"), yesterday.strftime("%-m/%-d")
 
 
 def _get_business_day_label():
