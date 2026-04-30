@@ -21,6 +21,30 @@ BASE = "https://judgment.judicial.gov.tw/FJUD/"
 DEEP_KEYWORDS = ["詐欺", "洗錢", "有期徒刑", "定讞"]
 # 司法院常見人名遮罩格式：姓 + ○○ 或 ○○○ (e.g., 王○○, 丙○○○)
 MASKED_NAME_RE = re.compile(r"[一-龥]○{1,3}")
+# 遮蔽身分證 / 居留證：A + 1或2 + 部分數字 + * + 可能的尾數字
+# 涵蓋常見格式：A12345****、A123456****、A1******8、A1234****9
+MASKED_ID_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{0,8}\*+\d{0,3}(?![A-Za-z0-9])")
+
+
+def _id_matches(masked: str, user_id: str) -> bool:
+    """模糊比對遮蔽 ID 與使用者輸入 ID。
+
+    masked 例：A12345****  → 揭露 'A12345' 與 ''
+              A1******8   → 揭露 'A1' 與 '8'
+    """
+    if not user_id:
+        return True  # 沒輸入 ID → 視為相符（不限制）
+    user_id = user_id.upper().strip()
+    star_idx = masked.find("*")
+    if star_idx < 0:
+        return masked == user_id
+    prefix = masked[:star_idx]
+    suffix = masked[star_idx:].lstrip("*")
+    if prefix and not user_id.startswith(prefix):
+        return False
+    if suffix and not user_id.endswith(suffix):
+        return False
+    return True
 
 
 def parse_home_state(html: str, base_url: str = HOME_URL) -> dict:
@@ -76,13 +100,31 @@ def _extract_court(case_full_text: str) -> str:
     return m.group(1) if m else ""
 
 
-def scan_detail_html(html: str) -> dict:
-    """掃描判決書 HTML，回關鍵字命中清單與遮蔽人名清單。"""
+def scan_detail_html(html: str, user_id: str = "") -> dict:
+    """掃描判決書 HTML，回關鍵字命中清單、遮蔽人名 / 遮蔽 ID 清單。
+
+    user_id 給定時計算 id_match：
+      True  → 至少有一個 masked_id 跟 user_id 前綴/尾綴一致
+      False → 找到 masked_id 但全部都跟 user_id 不符
+      None  → 詳情頁完全沒抓到 masked_id（無從判斷）
+    """
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text(" ", strip=True)
     keyword_hits = [k for k in DEEP_KEYWORDS if k in text]
     masked_names = sorted(set(MASKED_NAME_RE.findall(text)))
-    return {"keyword_hits": keyword_hits, "masked_names": masked_names}
+    masked_ids = sorted(set(MASKED_ID_RE.findall(text)))
+    if not user_id:
+        id_match = None
+    elif not masked_ids:
+        id_match = None
+    else:
+        id_match = any(_id_matches(m, user_id) for m in masked_ids)
+    return {
+        "keyword_hits": keyword_hits,
+        "masked_names": masked_names,
+        "masked_ids": masked_ids,
+        "id_match": id_match,
+    }
 
 
 def fetch_home_state(session=None) -> tuple:
@@ -114,10 +156,10 @@ def submit_search(session, state: dict, name: str) -> list:
     return parse_results(r2.text, base_url=result_url)
 
 
-def scan_detail(session, detail_url: str) -> dict:
+def scan_detail(session, detail_url: str, user_id: str = "") -> dict:
     """live：抓詳情頁，回 scan_detail_html 結果。"""
     r = session.get(detail_url, timeout=15,
                     headers={"Referer": HOME_URL})
     check_blocked(r)
     r.raise_for_status()
-    return scan_detail_html(r.text)
+    return scan_detail_html(r.text, user_id=user_id)

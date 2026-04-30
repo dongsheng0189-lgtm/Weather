@@ -87,19 +87,26 @@ def start():
         j_state, _ = judicial.fetch_home_state(j_sess)
         rows = judicial.submit_search(j_sess, j_state, name)
         blocked = False
+        empty_scan = {"keyword_hits": [], "masked_names": [], "masked_ids": [], "id_match": None}
         for r in rows[:15]:  # 上限 15 筆，避免太多詳情頁
             if blocked:
-                judicial_results.append({**r, "keyword_hits": [], "masked_names": []})
+                judicial_results.append({**r, **empty_scan})
                 continue
             try:
-                scan = judicial.scan_detail(j_sess, r["detail_url"])
+                scan = judicial.scan_detail(j_sess, r["detail_url"], user_id=id_no)
             except (RateLimited, Forbidden):
                 blocked = True
-                scan = {"keyword_hits": [], "masked_names": []}
+                scan = empty_scan
             except Exception:
-                scan = {"keyword_hits": [], "masked_names": []}
+                scan = empty_scan
             judicial_results.append({**r, **scan})
             throttle_sleep()
+        # 有輸入身分證 → 過濾掉明確不符的（id_match=False）；保留 True 與 None（無 ID 可比對）
+        if id_no:
+            before = len(judicial_results)
+            judicial_results = [j for j in judicial_results if j.get("id_match") is not False]
+            logger.info("vetting: judicial id-filter %d → %d (id=%s prefix)",
+                        before, len(judicial_results), id_no[:3] + "***" if id_no else "")
     except Exception as e:
         logger.warning("vetting: judicial failed: %s", e)
         judicial_results = None  # 標示為查詢失敗

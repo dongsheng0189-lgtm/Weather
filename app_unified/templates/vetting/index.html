@@ -169,6 +169,15 @@ function renderResult(d) {
         html += '<div style="font-size:.85rem; color:#666; margin-top:.2rem;">遮蔽人名：'
               + r.masked_names.map(escapeHtml).join('、') + '</div>';
       }
+      if (r.masked_ids && r.masked_ids.length > 0) {
+        var idIcon = (r.id_match === true) ? '🎯 ' : '';
+        html += '<div style="font-size:.85rem; color:' + (r.id_match === true ? '#16a085' : '#666')
+              + '; margin-top:.2rem;">' + idIcon + '遮蔽身分證：'
+              + r.masked_ids.map(escapeHtml).join('、')
+              + (r.id_match === true ? '（部分相符）' : '') + '</div>';
+      } else if (r.id_match === null && _id) {
+        html += '<div style="font-size:.8rem; color:#aaa; margin-top:.2rem;">（此判決未顯示身分證，無法 ID 比對）</div>';
+      }
       html += '<div style="margin-top:.3rem;"><a href="' + escapeHtml(r.detail_url)
             + '" target="_blank" rel="noopener" style="font-size:.85rem;">→ 開原判決書</a></div>';
       html += '</div>';
