@@ -18,7 +18,7 @@ def _mk_user(db_session, username=None, role="user", store="B", active=True):
     return u
 
 
-def _mk_note(db_session, user, category="unclassified", **kwargs):
+def _mk_note(db_session, user, category="misc", **kwargs):
     n = Note(
         user_id=user.id,
         author_name=user.username,
@@ -40,22 +40,23 @@ def _login(client, user):
         sess["_fresh"] = True
 
 
-def test_category_default_is_unclassified(app, db_session):
+def test_category_default_is_misc(app, db_session):
     u = _mk_user(db_session)
     n = Note(user_id=u.id, author_name=u.username, title="x", content="y", store=u.store)
     db_session.add(n)
     db_session.commit()
-    assert n.category == "unclassified"
+    assert n.category == "misc"
 
 
 def test_category_constants_defined():
-    assert CATEGORY_CHOICES == ["employee", "customer", "misc", "personal", "unclassified"]
+    assert CATEGORY_CHOICES == ["employee", "customer", "machine", "misc"]
     assert CATEGORY_LABELS["employee"] == "員工"
     assert CATEGORY_LABELS["customer"] == "客人"
-    assert CATEGORY_LABELS["misc"] == "雜事"
-    assert CATEGORY_LABELS["personal"] == "個人"
-    assert CATEGORY_LABELS["unclassified"] == "未分類"
-    assert CATEGORY_CREATABLE == ["employee", "customer", "misc", "personal"]
+    assert CATEGORY_LABELS["machine"] == "機台"
+    assert CATEGORY_LABELS["misc"] == "雜項"
+    assert "personal" not in CATEGORY_LABELS
+    assert "unclassified" not in CATEGORY_LABELS
+    assert CATEGORY_CREATABLE == ["employee", "customer", "machine", "misc"]
 
 
 def test_new_note_with_category_employee(app, client, db_session):
@@ -75,10 +76,10 @@ def test_new_note_with_category_employee(app, client, db_session):
     assert u.username not in title_val, f"employee 類別不該帶 username，但 title={title_val!r}"
 
 
-def test_new_note_with_category_personal(app, client, db_session):
+def test_new_note_with_category_machine(app, client, db_session):
     u = _mk_user(db_session, username="alice")
     _login(client, u)
-    r = client.get("/notes/new?type=note&category=personal")
+    r = client.get("/notes/new?type=note&category=machine")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "alice筆記" in html
@@ -99,7 +100,7 @@ def test_new_note_without_category(app, client, db_session):
     r = client.get("/notes/new?type=note")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    # fallback unclassified → 帶 username（沿用舊 default）
+    # fallback misc → 帶 username（沿用舊 default）
     assert u.username in html
 
 
@@ -108,7 +109,7 @@ def test_new_note_invalid_category(app, client, db_session):
     _login(client, u)
     r = client.get("/notes/new?type=note&category=hacker")
     assert r.status_code == 200
-    # 防禦 fallback unclassified → 帶 username
+    # 防禦 fallback misc → 帶 username
     html = r.get_data(as_text=True)
     assert u.username in html
 
@@ -134,10 +135,10 @@ def test_post_api_rejects_invalid_category_fallback(app, client, db_session):
         "title": "T", "content": "C",
         "category": "hacker", "status": "pending", "note_type": "note",
     })
-    assert r.status_code == 201  # fallback unclassified, not 400
+    assert r.status_code == 201  # fallback misc, not 400
     nid = r.get_json()["id"]
     db_session.expire_all()
-    assert Note.query.get(nid).category == "unclassified"
+    assert Note.query.get(nid).category == "misc"
 
 
 def test_get_api_returns_category(app, client, db_session):
@@ -152,11 +153,11 @@ def test_get_api_returns_category(app, client, db_session):
 def test_put_api_updates_category(app, client, db_session):
     u = _mk_user(db_session)
     _login(client, u)
-    n = _mk_note(db_session, u, category="unclassified")
-    r = client.put(f"/notes/api/{n.id}", json={"category": "misc"})
+    n = _mk_note(db_session, u, category="misc")
+    r = client.put(f"/notes/api/{n.id}", json={"category": "employee"})
     assert r.status_code == 200
     db_session.expire_all()
-    assert Note.query.get(n.id).category == "misc"
+    assert Note.query.get(n.id).category == "employee"
 
 
 def test_filter_by_category(app, client, db_session):
@@ -173,11 +174,11 @@ def test_filter_by_category(app, client, db_session):
     assert "misc_note_uniqXYZ" not in html
 
 
-def test_filter_unclassified_visible(app, client, db_session):
+def test_filter_misc_visible(app, client, db_session):
     u = _mk_user(db_session, role="super_admin", store="B")
     _login(client, u)
-    _mk_note(db_session, u, category="unclassified", title="old_note_abc")
-    r = client.get("/notes/?category=unclassified&range=30d")
+    _mk_note(db_session, u, category="misc", title="old_note_abc")
+    r = client.get("/notes/?category=misc&range=30d")
     assert r.status_code == 200
     assert "old_note_abc" in r.get_data(as_text=True)
 
