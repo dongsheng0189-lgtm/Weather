@@ -370,6 +370,7 @@ function pollAiTask(taskId, onDone, onError, onTick) {
 }
 
 var _aiBusinessDay = 'today';
+var _summaryBusinessDay = null;  // 鎖定「這份摘要是哪天的」，避免存檔時標題對不上
 function selectBusinessDay(bd) {
   _aiBusinessDay = bd;
   var t = document.getElementById('ai-bd-today');
@@ -397,6 +398,7 @@ function generateSummary() {
   saveBtn.disabled = false;
   saveBtn.textContent = '💾 儲存為筆記';
 
+  _summaryBusinessDay = _aiBusinessDay;  // 送出時鎖定，後續按「儲存為筆記」用這個
   fetch('/notes/ai/summary', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -442,7 +444,8 @@ function saveSummaryAsNote() {
   var dateStr = bizDate.getFullYear() + '-' +
     String(bizDate.getMonth() + 1).padStart(2, '0') + '-' +
     String(bizDate.getDate()).padStart(2, '0');
-  var title = dateStr + ' 摘要';
+  var dayLabel = (_summaryBusinessDay === 'yesterday') ? '昨天' : '今天';
+  var title = dateStr + ' ' + dayLabel + '摘要';
 
   saveBtn.disabled = true;
   saveBtn.textContent = '儲存中…';
