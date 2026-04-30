@@ -87,7 +87,7 @@ def register_ws_events(socketio):
             'id': n.id, 'title': n.title, 'content': n.content,
             'note_type': n.note_type or 'note',
             'store': n.store, 'status': n.status or 'pending',
-            'category': n.category or 'unclassified',
+            'category': n.category or 'misc',
             'shift': n.shift,
             'author': n.display_author,
             'created_at': n.created_at.isoformat() if n.created_at else '',
@@ -104,7 +104,8 @@ def register_ws_events(socketio):
         else:
             store = current_user.store if current_user.store in stores else None
         status = data.get('status') if data.get('status') in STATUS_CHOICES else 'pending'
-        category = data.get('category') if data.get('category') in CATEGORY_CHOICES else 'unclassified'
+        category = data.get('category') if data.get('category') in CATEGORY_CHOICES else 'misc'
+        is_ai_summary = data.get('is_ai_summary') is True
         note_type = data.get('note_type') if data.get('note_type') in ('note', 'checklist') else 'note'
         from models import SHIFT_CHOICES
         shift = data.get('shift') if data.get('shift') in SHIFT_CHOICES else None
@@ -115,6 +116,7 @@ def register_ws_events(socketio):
             title=data.get('title', '未命名筆記'),
             content=data.get('content', ''),
             store=store, status=status, category=category, shift=shift,
+            is_ai_summary=is_ai_summary,
             created_at=now, updated_at=now,
         )
         db.session.add(note)
@@ -214,7 +216,7 @@ def register_ws_events(socketio):
         emit('r', {'op': 'gn', 'note': {
             'id': note.id, 'title': note.title, 'content': note.content,
             'store': note.store, 'status': note.status or 'pending',
-            'category': note.category or 'unclassified',
+            'category': note.category or 'misc',
             'shift': note.shift,
             'updated_by': updater,
             'created_at': note.created_at.isoformat() if note.created_at else '',
