@@ -1056,8 +1056,10 @@ def notes_ai_summary():
     start_utc, end_utc = _get_business_day_range(offset_days=offset)
     inrange_label = "昨天" if business_day == "yesterday" else "今天"
     range_label = inrange_label + " 早上 8 點起 24 小時"
-    # 營業日的日曆日期（08:00 Taipei = 00:00 UTC 同日，故 strftime UTC 即可）
-    business_day_date = start_utc.strftime("%Y-%m-%d")
+    # 存檔標題用的日期 — 跟按鈕標籤一致（日曆日 today/yesterday），不是營業日起算日
+    now_tw = datetime.now(_TW)
+    label_base = (now_tw - timedelta(days=1)) if business_day == "yesterday" else now_tw
+    business_day_date = label_base.strftime("%Y-%m-%d")
 
     valid_stores = [s.name for s in Store.query.all()]
     if store not in valid_stores:
