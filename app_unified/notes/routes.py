@@ -950,6 +950,7 @@ def notes_ai_summary():
 
     query = (Note.query
              .filter(Note.updated_at >= start_utc)
+             .filter(Note.is_ai_summary.is_(False))
              .filter_by(store=store))
     if end_utc:
         query = query.filter(Note.updated_at < end_utc)
