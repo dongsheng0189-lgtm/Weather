@@ -505,13 +505,13 @@ MANAGER_PROMPT = """# Role
 請將輸入的所有原始文字進行分類摘要。要求：
 1. **不准遺漏**：每個提到的事件都必須轉換成一條列點。
 2. **保留關鍵資訊**：每條必須保留人名（員工名、顧客名），刪除口語、形容詞、抱怨，保留「誰 + 做了什麼 + 結果」。
-3. **模糊分類**：若某事項不確定分類，優先放入【店務】，若完全無關則放入【雜項】。
+3. **依分類輸出**：依筆記原始分類（員工/客人/機台/雜項）放入對應段落；無法判斷的一律放入【雜項】。
 
-# Categories
-- 【人事】：請假、遲到、排班、人力短缺、獎懲。
-- 【修繕】：設備故障、漏水、燈泡更換、報修進度。
-- 【店務】：進貨、庫存、營收、活動、顧客反應、環境衛生。
-- 【雜項】：不屬於上述三類的所有事項。
+# Categories（4 類）
+- 【員工】：員工請假、排班、人事、獎懲、員工互動、人力短缺。
+- 【客人】：客訴、顧客反應、會員、客人需求、消費。
+- 【機台】：機台故障、保養、操作、設備修繕、報修進度、維修紀錄。
+- 【雜項】：不屬於上述三類的所有事項（含進貨、庫存、營收、活動、衛生等店務雜事）。
 
 # Output Style
 依「類別」分組輸出，每個類別用 `## 類別名` 作為標題，
@@ -531,11 +531,11 @@ MANAGER_PROMPT = """# Role
 - 禁止為了填滿輸出而重複貼相同列點。
 
 範例：
-## 人事
+## 員工
 1. 小明午班請假：已協調小華代班。
 2. 阿華遲到 30 分鐘，已口頭告誡。
 
-## 修繕
+## 機台
 1. 廚房冰箱漏水：已請廠商週三來修。
 
 # 結尾（必須遵守）
@@ -642,10 +642,7 @@ def _format_note_for_ai(n, since=None):
                 diff_parts.append(log.diff[len(PARAGRAPH_DIFF_PREFIX):])
         if diff_parts:
             content = "\n---\n".join(diff_parts)
-    cat_hint = ""
-    if getattr(n, "category", None) == "personal":
-        cat_hint = "[分類提示：此筆記為個人類別，請歸入雜項處理]\n"
-    return f"{_note_source_label(n)}\n{cat_hint}{n.title}\n{content}"
+    return f"{_note_source_label(n)}\n{n.title}\n{content}"
 
 
 def _format_checklist_for_ai(n, since=None):
@@ -831,7 +828,7 @@ def _build_output_structure_prompt(has_regular, has_checklist):
 
     parts.append(
         "**僅限**處理「===== 確認表單 開始 =====」到「===== 確認表單 結束 =====」之間的項目。\n\n"
-        "確認表單的資料**已經由系統預先分類並去重完成**，分為 🏪店務 / 👥員工 / 🧑‍🤝‍🧑客人 / 📋其他雜事 四大類，每類下有 ✅已完成 和 ❌未完成。\n\n"
+        "確認表單的資料**已經由系統預先分類並去重完成**，分為 👥員工 / 🧑‍🤝‍🧑客人 / 🔧機台 / 📋雜項 四大類，每類下有 ✅已完成 和 ❌未完成。\n\n"
         "你的工作：\n"
         "1. **保持現有分類不變** — 禁止將項目移到其他類別。\n"
         "2. **保持已完成/未完成分組不變** — 禁止移動。\n"
@@ -843,8 +840,9 @@ def _build_output_structure_prompt(has_regular, has_checklist):
 
 
 def _build_all_content(store_name=None):
-    """收集同店所有筆記，合併成 all_content（舊介面，供 summarize 使用）"""
-    query = Note.query
+    """收集同店所有筆記（排除 AI 摘要產生的 is_ai_summary=True 筆記），
+    合併成 all_content（舊介面，供 summarize 使用）"""
+    query = Note.query.filter(Note.is_ai_summary == False)  # noqa: E712
     if store_name:
         query = query.filter_by(store=store_name)
     notes = query.order_by(Note.updated_at.desc()).all()
