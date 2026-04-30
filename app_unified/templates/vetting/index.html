@@ -48,6 +48,21 @@ function show(id) {
 }
 function setStatus(msg) { document.getElementById('vet-status').textContent = msg || ''; }
 
+var _vetTickTimer = null;
+var _vetTickStart = 0;
+function startTick(baseMsg) {
+  stopTick();
+  _vetTickStart = Date.now();
+  setStatus(baseMsg + '（已等待 0 秒）');
+  _vetTickTimer = setInterval(function() {
+    var secs = Math.floor((Date.now() - _vetTickStart) / 1000);
+    setStatus(baseMsg + '（已等待 ' + secs + ' 秒）');
+  }, 1000);
+}
+function stopTick() {
+  if (_vetTickTimer) { clearInterval(_vetTickTimer); _vetTickTimer = null; }
+}
+
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -59,11 +74,12 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
   _name = document.getElementById('vet-name').value.trim();
   _id = document.getElementById('vet-id').value.trim().toUpperCase();
   if (!_name) return;
-  setStatus('連線中（司法院 + 調查局 + 警政署）…大約 15-30 秒');
+  startTick('🔍 查詢中：警政署取驗證碼 → 司法院刑事判決 → 法務部通緝');
   fetch('/vetting/start', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name: _name, id: _id})
   }).then(function(r){return r.json().then(function(d){return [r.status, d];});}).then(function(arr){
+    stopTick();
     var st = arr[0], d = arr[1];
     if (st !== 200) {
       setStatus('錯誤：' + (d.message || d.error || '未知'));
@@ -72,37 +88,39 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
     _qid = d.query_id;
     document.getElementById('vet-captcha-img').src = 'data:image/jpeg;base64,' + d.captcha_b64;
     show('step-captcha');
-    setStatus('');
+    setStatus('✓ 司法院 + 法務部已查完，請輸入警政署驗證碼');
     document.getElementById('vet-captcha-text').value = '';
     document.getElementById('vet-captcha-text').focus();
-  }).catch(function(err){ setStatus('連線失敗：' + err.message); });
+  }).catch(function(err){ stopTick(); setStatus('連線失敗：' + err.message); });
 });
 
 function reloadCaptcha() {
-  setStatus('重整驗證碼…');
+  startTick('🔄 重整驗證碼中（會重跑三家查詢）');
   fetch('/vetting/start', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name: _name, id: _id})
   }).then(function(r){return r.json();}).then(function(d){
+    stopTick();
     if (d.query_id) {
       _qid = d.query_id;
       document.getElementById('vet-captcha-img').src = 'data:image/jpeg;base64,' + d.captcha_b64;
-      setStatus('');
+      setStatus('✓ 驗證碼已更新');
     } else {
       setStatus('重整失敗');
     }
-  });
+  }).catch(function(err){ stopTick(); setStatus('重整失敗：' + err.message); });
 }
 
 document.getElementById('vet-captcha-form').addEventListener('submit', function(e) {
   e.preventDefault();
   var captcha = document.getElementById('vet-captcha-text').value.trim();
   if (!captcha || !_qid) return;
-  setStatus('警政署查詢中…');
+  startTick('🔍 警政署送出驗證碼 + 解析結果中');
   fetch('/vetting/submit', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({query_id: _qid, captcha: captcha})
   }).then(function(r){return r.json().then(function(d){return [r.status, d];});}).then(function(arr){
+    stopTick();
     var st = arr[0], d = arr[1];
     if (st !== 200) {
       if (d.error === 'captcha_invalid') {
@@ -121,8 +139,8 @@ document.getElementById('vet-captcha-form').addEventListener('submit', function(
     }
     renderResult(d);
     show('step-result');
-    setStatus('');
-  }).catch(function(err){ setStatus('連線失敗：' + err.message); });
+    setStatus('✓ 查詢完成');
+  }).catch(function(err){ stopTick(); setStatus('連線失敗：' + err.message); });
 });
 
 function renderResult(d) {
