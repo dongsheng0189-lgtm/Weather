@@ -555,7 +555,7 @@ MANAGER_PROMPT = """# Role
 """
 
 
-def _run_split_summary(task_id, app, notes, since, until, store_label, range_label, extra):
+def _run_split_summary(task_id, app, notes, since, until, store_label, range_label, extra, inrange_label="本區間"):
     """資料量大時，拆成「筆記」「確認表單」兩批分別呼叫 LLM 再合併結果。"""
     with app.app_context():
         try:
@@ -579,7 +579,7 @@ def _run_split_summary(task_id, app, notes, since, until, store_label, range_lab
             if checklists:
                 cl_block, _, _, ncl = _build_ai_sections(
                     [n for n in notes if getattr(n, "note_type", "note") == "checklist"],
-                    since=since, until=until,
+                    since=since, until=until, inrange_label=inrange_label,
                 )
                 prompt = (
                     MANAGER_PROMPT + extra
@@ -717,12 +717,15 @@ def _classify_by_title(title):
     return "雜項"
 
 
-def _build_categorized_checklist(checklists, since=None, until=None):
+def _build_categorized_checklist(checklists, since=None, until=None, inrange_label="本區間"):
     """Python 端預分類 + 跨表單去重，回傳已分好類的文字區塊。
 
     分類來源：優先用 note.category（建立時使用者已選），無對應時 fallback 標題 keyword。
-    去重：跨表單同字面文字只保留一次，已完成優先於未完成。
+    去重：跨表單同字面文字只保留一次，已完成 > 未完成 > 歷史未完成。
     since/until: 已完成項目只算 [since, until) 區間內。
+    inrange_label: 顯示用標籤 — 「今天」/「昨天」/「本區間」。
+    未完成項目分兩段：note.updated_at 在區間內 → ❌ {inrange_label}未完成；
+                       否則 → 📜 歷史未完成。
     """
     # enum → 中文桶
     CATEGORY_TO_BUCKET = {
@@ -732,10 +735,10 @@ def _build_categorized_checklist(checklists, since=None, until=None):
         "misc": "雜項",
     }
     categories = {
-        "員工": {"done": [], "undone": []},
-        "客人": {"done": [], "undone": []},
-        "機台": {"done": [], "undone": []},
-        "雜項": {"done": [], "undone": []},
+        "員工": {"done": [], "undone": [], "hist": []},
+        "客人": {"done": [], "undone": [], "hist": []},
+        "機台": {"done": [], "undone": [], "hist": []},
+        "雜項": {"done": [], "undone": [], "hist": []},
     }
     seen = set()
 
@@ -757,6 +760,15 @@ def _build_categorized_checklist(checklists, since=None, until=None):
             done = done_all
         undone = [i for i in items if not i.is_checked]
 
+        # note 是否在區間內（沒給 since 視同全部在區間內，相容舊呼叫）
+        if since is None:
+            note_in_range = True
+        else:
+            ts = n.updated_at
+            note_in_range = (ts is not None and ts >= since
+                             and (until is None or ts < until))
+        undone_target = "undone" if note_in_range else "hist"
+
         for i in done:
             key = i.text.strip()
             if key not in seen:
@@ -769,7 +781,7 @@ def _build_categorized_checklist(checklists, since=None, until=None):
             if key not in seen:
                 seen.add(key)
                 author = n.author_name or (n.author.username if n.author else "?")
-                categories[cat]["undone"].append(f"- [{author}] {i.text}")
+                categories[cat][undone_target].append(f"- [{author}] {i.text}")
 
     # 組裝輸出（順序：員工/客人/機台/雜項）
     cat_labels = {
@@ -782,15 +794,19 @@ def _build_categorized_checklist(checklists, since=None, until=None):
     for cat_key in ("員工", "客人", "機台", "雜項"):
         done_lines = categories[cat_key]["done"]
         undone_lines = categories[cat_key]["undone"]
-        if not done_lines and not undone_lines:
+        hist_lines = categories[cat_key]["hist"]
+        if not done_lines and not undone_lines and not hist_lines:
             continue
         lines = [cat_labels[cat_key]]
         if done_lines:
             lines.append("### ✅ 已完成")
             lines.extend(done_lines)
         if undone_lines:
-            lines.append("### ❌ 未完成")
+            lines.append(f"### ❌ {inrange_label}未完成")
             lines.extend(undone_lines)
+        if hist_lines:
+            lines.append("### 📜 歷史未完成")
+            lines.extend(hist_lines)
         blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks) if blocks else "（無項目）"
@@ -803,11 +819,12 @@ def _split_notes(notes):
     return regular, checklists
 
 
-def _build_ai_sections(notes, header_prefix="", since=None, until=None):
+def _build_ai_sections(notes, header_prefix="", since=None, until=None, inrange_label="本區間"):
     """組出傳給 AI 的 prompt 後段（# 待整理... 以下），回傳 (data_block, has_checklist)。
 
     since/until: datetime — 傳給 _format_checklist_for_ai 過濾「已完成項目」，
                             傳給 _format_note_for_ai 取段落 diff（[since, until) 區間）。
+    inrange_label: 顯示用標籤（「今天」/「昨天」），給確認表單未完成段標題用。
     """
     regular, checklists = _split_notes(notes)
     blocks = []
@@ -820,7 +837,7 @@ def _build_ai_sections(notes, header_prefix="", since=None, until=None):
         )
     if checklists:
         # Python 端預分類 + 去重，AI 不需要自己分類
-        body = _build_categorized_checklist(checklists, since=since, until=until)
+        body = _build_categorized_checklist(checklists, since=since, until=until, inrange_label=inrange_label)
         blocks.append(
             f"# ===== 確認表單 開始 =====（{header_prefix}共 {len(checklists)} 筆，已依標題預分類並去重）\n\n"
             f"{body}\n\n"
@@ -859,10 +876,10 @@ def _build_output_structure_prompt(has_regular, has_checklist):
 
     parts.append(
         "**僅限**處理「===== 確認表單 開始 =====」到「===== 確認表單 結束 =====」之間的項目。\n\n"
-        "確認表單的資料**已經由系統預先分類並去重完成**，分為 👥員工 / 🧑‍🤝‍🧑客人 / 🔧機台 / 📋雜項 四大類，每類下有 ✅已完成 和 ❌未完成。\n\n"
+        "確認表單的資料**已經由系統預先分類並去重完成**，分為 👥員工 / 🧑‍🤝‍🧑客人 / 🔧機台 / 📋雜項 四大類，每類下有 ✅已完成 / ❌未完成 / 📜 歷史未完成 三段。\n\n"
         "你的工作：\n"
         "1. **保持現有分類不變** — 禁止將項目移到其他類別。\n"
-        "2. **保持已完成/未完成分組不變** — 禁止移動。\n"
+        "2. **保持已完成 / 未完成 / 歷史未完成 三段分組不變** — 禁止移動。\n"
         "3. **整理文字** — 每條保留人名，精簡為「人名 — 事項內容」格式。同一人的事項放在一起。\n"
         "4. **不要新增、刪除或重複任何項目** — 輸入幾條就輸出幾條。\n"
         "5. **不要輸出時間資訊**。\n"
@@ -942,19 +959,26 @@ def notes_ai_summary():
     business_day = data.get("business_day", "today")
     offset = -1 if business_day == "yesterday" else 0
     start_utc, end_utc = _get_business_day_range(offset_days=offset)
-    range_label = ("昨天" if business_day == "yesterday" else "今天") + " 早上 8 點起 24 小時"
+    inrange_label = "昨天" if business_day == "yesterday" else "今天"
+    range_label = inrange_label + " 早上 8 點起 24 小時"
 
     valid_stores = [s.name for s in Store.query.all()]
     if store not in valid_stores:
         return jsonify({"status": "error", "message": "請選擇店別"}), 400
 
-    query = (Note.query
-             .filter(Note.updated_at >= start_utc)
-             .filter(Note.is_ai_summary.is_(False))
-             .filter_by(store=store))
-    if end_utc:
-        query = query.filter(Note.updated_at < end_utc)
-    notes = query.order_by(Note.updated_at.desc()).all()
+    # 一般筆記：限區間；確認表單：全撈（讓「歷史未完成」可顯示）
+    all_notes = (Note.query
+                 .filter(Note.is_ai_summary.is_(False))
+                 .filter_by(store=store)
+                 .order_by(Note.updated_at.desc())
+                 .all())
+    notes = []
+    for n in all_notes:
+        nt = getattr(n, "note_type", "note") or "note"
+        if nt == "checklist":
+            notes.append(n)
+        elif n.updated_at and n.updated_at >= start_utc and (not end_utc or n.updated_at < end_utc):
+            notes.append(n)
 
     # DEBUG: 確認撈到的筆記（部署穩定後可移除）
     import logging
@@ -968,7 +992,7 @@ def notes_ai_summary():
         return jsonify({"status": "ok", "summary": "（近期無筆記）"})
 
     # 拆成一般筆記 / 確認表單兩段（已完成項目只列區間內 updated 的）
-    data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc, until=end_utc)
+    data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc, until=end_utc, inrange_label=inrange_label)
 
     store_label = f"「{store}店」"
     extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
@@ -980,7 +1004,7 @@ def notes_ai_summary():
         import gevent
         gevent.spawn(
             _run_split_summary, task_id, current_app._get_current_object(),
-            notes, since=start_utc, until=end_utc, store_label=store_label, range_label=range_label, extra=extra,
+            notes, since=start_utc, until=end_utc, store_label=store_label, range_label=range_label, extra=extra, inrange_label=inrange_label,
         )
     else:
         prompt = (
