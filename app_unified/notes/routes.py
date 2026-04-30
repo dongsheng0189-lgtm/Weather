@@ -81,17 +81,30 @@ def _acquire_lock(note):
     note.locked_at = datetime.utcnow()
 
 
-def _get_business_day_range():
-    """回傳目前營業日的 (start, end)，以 UTC 表示（無 tzinfo）。"""
+def _get_business_day_range(offset_days=0):
+    """回傳營業日的 (start, end)，以 UTC 表示（無 tzinfo）。
+
+    offset_days=0  → 目前營業日（8 點起算）
+    offset_days=-1 → 昨天的營業日（再退一天）
+    """
     now_tw = datetime.now(_TW)
     if now_tw.hour >= 8:
         start_tw = now_tw.replace(hour=8, minute=0, second=0, microsecond=0)
     else:
         start_tw = (now_tw - timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+    start_tw = start_tw + timedelta(days=offset_days)
     end_tw = start_tw + timedelta(days=1)
     start_utc = start_tw.astimezone(timezone.utc).replace(tzinfo=None)
     end_utc = end_tw.astimezone(timezone.utc).replace(tzinfo=None)
     return start_utc, end_utc
+
+
+def _get_business_day_labels():
+    """回傳今/昨營業日 label（M/D），給 AI 摘要 toggle 顯示用。"""
+    now_tw = datetime.now(_TW)
+    today_base = now_tw if now_tw.hour >= 8 else now_tw - timedelta(days=1)
+    yesterday_base = today_base - timedelta(days=1)
+    return today_base.strftime("%-m/%-d"), yesterday_base.strftime("%-m/%-d")
 
 
 def _get_business_day_label():
@@ -187,6 +200,7 @@ def index():
     else:
         pagination = query.order_by(sort_order).paginate(page=page, per_page=per_page, error_out=False)
 
+    today_label, yesterday_label = _get_business_day_labels()
     return render_template("notes/index.html", notes=pagination.items, pagination=pagination,
                            stores=stores,
                            current_store=store_filter,
@@ -200,7 +214,9 @@ def index():
                            status_choices=STATUS_CHOICES,
                            category_choices=CATEGORY_CHOICES,
                            category_labels=CATEGORY_LABELS,
-                           shift_choices=SHIFT_CHOICES)
+                           shift_choices=SHIFT_CHOICES,
+                           ai_today_label=today_label,
+                           ai_yesterday_label=yesterday_label)
 
 
 @notes_bp.route("/new", methods=["GET"])
@@ -905,12 +921,9 @@ def notes_ai_summary():
     # Admin 只能摘要自己的店
     if current_user.is_admin() and not current_user.is_super_admin():
         store = current_user.store
-    days = int(data.get("days", 7))
-    if days == 1:
-        start_utc, end_utc = _get_business_day_range()
-    else:
-        start_utc = datetime.utcnow() - timedelta(days=days)
-        end_utc = None
+    business_day = data.get("business_day", "today")
+    offset = -1 if business_day == "yesterday" else 0
+    start_utc, end_utc = _get_business_day_range(offset_days=offset)
 
     valid_stores = [s.name for s in Store.query.all()]
     if store not in valid_stores:

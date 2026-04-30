@@ -81,11 +81,12 @@
     <input type="hidden" id="ai-store-select" value="{{ current_user.store }}">
     <span style="font-size:.85rem;color:#666;">{{ current_user.store }} 店</span>
     {% endif %}
-    <input type="hidden" id="ai-days-select" value="1">
-    <span style="font-size:.8rem;color:#888;">（近 1 天）</span>
+    <button type="button" id="ai-bd-today" data-bd="today" onclick="selectBusinessDay('today')" style="font-size:.82rem;padding:.35rem .65rem;border-radius:6px;border:2px solid #3498db;background:#3498db;color:#fff;cursor:pointer;font-weight:600;">今天 {{ ai_today_label }}</button>
+    <button type="button" id="ai-bd-yesterday" data-bd="yesterday" onclick="selectBusinessDay('yesterday')" style="font-size:.82rem;padding:.35rem .65rem;border-radius:6px;border:2px solid #ddd;background:#fff;color:#555;cursor:pointer;font-weight:600;">昨天 {{ ai_yesterday_label }}</button>
     <button class="btn btn-primary" id="btn-ai-summary" onclick="generateSummary()" style="font-size:.85rem;padding:.4rem .8rem;">產生摘要</button>
     <span id="ai-status" style="font-size:.8rem;color:#666;"></span>
   </div>
+  <div style="font-size:.75rem;color:#888;margin-top:.35rem;">ⓘ 以早上 8 點為營業日分界。8 點後要看 8 點前的事項請選「昨天」。</div>
   <div id="ai-summary-output" style="display:none;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:1rem;margin-top:.75rem;white-space:pre-wrap;font-size:.88rem;line-height:1.6;"></div>
   <button id="btn-save-summary" class="btn btn-success" style="display:none;margin-top:.5rem;font-size:.85rem;padding:.4rem .8rem;" onclick="saveSummaryAsNote()">💾 儲存為筆記</button>
 </div>
@@ -368,9 +369,19 @@ function pollAiTask(taskId, onDone, onError, onTick) {
   }, 3000);
 }
 
+var _aiBusinessDay = 'today';
+function selectBusinessDay(bd) {
+  _aiBusinessDay = bd;
+  var t = document.getElementById('ai-bd-today');
+  var y = document.getElementById('ai-bd-yesterday');
+  var on = 'background:#3498db;color:#fff;border-color:#3498db;';
+  var off = 'background:#fff;color:#555;border-color:#ddd;';
+  t.style.cssText = 'font-size:.82rem;padding:.35rem .65rem;border-radius:6px;border:2px solid;cursor:pointer;font-weight:600;' + (bd === 'today' ? on : off);
+  y.style.cssText = 'font-size:.82rem;padding:.35rem .65rem;border-radius:6px;border:2px solid;cursor:pointer;font-weight:600;' + (bd === 'yesterday' ? on : off);
+}
+
 function generateSummary() {
   var store = document.getElementById('ai-store-select').value;
-  var days = document.getElementById('ai-days-select').value;
   var btn = document.getElementById('btn-ai-summary');
   var statusEl = document.getElementById('ai-status');
   var outputEl = document.getElementById('ai-summary-output');
@@ -389,7 +400,7 @@ function generateSummary() {
   fetch('/notes/ai/summary', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ store: store, days: parseInt(days) })
+    body: JSON.stringify({ store: store, business_day: _aiBusinessDay })
   }).then(function(res) { return res.json(); }).then(function(data) {
     if (data.status === 'accepted' && data.task_id) {
       pollAiTask(data.task_id, function(result) {
