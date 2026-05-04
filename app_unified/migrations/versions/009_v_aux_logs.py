@@ -9,8 +9,8 @@ import sqlalchemy as sa
 import json
 
 
-revision = "009"
-down_revision = "008"
+revision = '009'
+down_revision = '008'
 branch_labels = None
 depends_on = None
 
