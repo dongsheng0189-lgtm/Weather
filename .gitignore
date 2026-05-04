@@ -50,3 +50,6 @@ shared/
 
 # GStreamer capture
 cap_%d/
+
+# Worktrees (subagent-driven dev)
+.worktrees/
