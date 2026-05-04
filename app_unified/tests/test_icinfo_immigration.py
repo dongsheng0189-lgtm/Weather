@@ -64,8 +64,29 @@ def test_submit_search_success():
     assert kwargs["cookies"]["JSESSIONID"] == "ABC123"
 
 
+def test_submit_search_success_with_real_rcode_0000():
+    """實機驗證：上游真實成功 rcode 是 '0000' 不是 'SUCCESS'。"""
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.json.return_value = {
+        "rcode": "0000",
+        "message": "成功",
+        "data": {"searchTime": "2026/05/04 17:34:33", "image": "BASE64IMG"},
+    }
+    fake_resp.raise_for_status = MagicMock()
+
+    with patch("icinfo.immigration.requests.post", return_value=fake_resp):
+        result = submit_search(
+            {"uino": "X", "issueDate": "", "expiryDate": "", "serialNo": "", "captcha": ""},
+            jsessionid="ABC",
+        )
+
+    assert result["matched"] is True
+    assert result["image"] == "BASE64IMG"
+
+
 def test_submit_search_no_match():
-    """rcode != SUCCESS 應回 matched=False, image=None."""
+    """rcode != 成功值 應回 matched=False, image=None."""
     fake_resp = MagicMock()
     fake_resp.status_code = 200
     fake_resp.json.return_value = {"rcode": "ERR", "data": {}}

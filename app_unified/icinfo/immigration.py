@@ -82,7 +82,9 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
 
     rcode = data.get("rcode")
     body = data.get("data") or {}
-    matched = rcode == "SUCCESS"
+    # 上游成功 code 是 "0000"（page chunk 看到 x.SUCCESS 常數名，實際 string value 是 "0000"）
+    # 保險起見也接受 "SUCCESS" 字面值，以防上游改回常數名
+    matched = rcode in ("0000", "SUCCESS")
 
     print(f"=== icinfo SEARCH parsed: rcode={rcode} matched={matched} has_image={bool(body.get('image'))}", flush=True)
 
