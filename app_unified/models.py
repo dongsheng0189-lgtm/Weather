@@ -310,3 +310,17 @@ class IcinfoQueryLog(db.Model):
         server_default=db.func.now(),
         index=True,
     )
+
+
+class VettingQueryLog(db.Model):
+    """人員查詢（vetting）操作 log — 記錄誰查了誰。"""
+    __tablename__ = "vetting_query_logs"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    queried_name = db.Column(db.String(50), nullable=False)
+    queried_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.func.now(),
+        index=True,
+    )

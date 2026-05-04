@@ -73,6 +73,18 @@ def start():
         return jsonify({"error": "missing_params",
                         "message": "姓名必填"}), 400
 
+    # 操作 log：誰用了人員查詢（不阻擋查詢，失敗只 warn）
+    try:
+        from extensions import db
+        from models import VettingQueryLog
+        db.session.add(VettingQueryLog(
+            user_id=current_user.id,
+            queried_name=name[:50],
+        ))
+        db.session.commit()
+    except Exception as e:
+        logger.warning("vetting: failed to write query log: %s", e)
+
     # ── NPA：拿首頁 token + JWT + captcha ──────────────
     try:
         npa_session = make_session()
