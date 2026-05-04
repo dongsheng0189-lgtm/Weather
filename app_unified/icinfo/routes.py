@@ -12,7 +12,7 @@ from flask_login import login_required, current_user
 from features import user_has_feature
 from models import db, IcinfoQueryLog
 from icinfo.immigration import fetch_captcha, submit_search
-from icinfo.errors import UpstreamError, CaptchaExpired
+from icinfo.errors import UpstreamError
 
 logger = logging.getLogger(__name__)
 icinfo_bp = Blueprint("icinfo", __name__, url_prefix="/vetting/aux")
