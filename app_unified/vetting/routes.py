@@ -21,6 +21,14 @@ _QUERY_STATE = {}
 _QUERY_TTL = 300  # 5 分鐘
 
 
+def _judicial_sort_key(case):
+    """sort key：keyword_hits 優先，id_match True 次優先。"""
+    return (
+        0 if case.get("keyword_hits") else 1,
+        0 if case.get("id_match") else 1,
+    )
+
+
 def _gc_expired():
     now = time.time()
     for qid in list(_QUERY_STATE.keys()):
@@ -107,6 +115,8 @@ def start():
             judicial_results = [j for j in judicial_results if j.get("id_match") is not False]
             logger.info("vetting: judicial id-filter %d → %d (id=%s prefix)",
                         before, len(judicial_results), id_no[:3] + "***" if id_no else "")
+        # 排序：命中關鍵字的案件排前面（admin 第一眼看到重點）
+        judicial_results.sort(key=_judicial_sort_key)
     except Exception as e:
         logger.warning("vetting: judicial failed: %s", e)
         judicial_results = None  # 標示為查詢失敗
