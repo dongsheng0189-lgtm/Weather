@@ -49,16 +49,14 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
         "Referer": f"{_BASE}/zh",
     }
 
-    # DEBUG: 印出完整 outbound request（含 mask 後的 uino/serialNo）
+    # DEBUG: 印出完整 outbound request（mask 後）
     masked = {**payload}
     if masked.get("uino"):
         masked["uino"] = masked["uino"][:2] + "***" + masked["uino"][-2:]
     if masked.get("serialNo"):
         masked["serialNo"] = "***" + masked["serialNo"][-3:]
-    logger.info("=== icinfo SEARCH outbound: jsessionid=%s payload=%s headers_keys=%s",
-                jsessionid[:8] + "..." if jsessionid else "(none)",
-                masked,
-                list(headers.keys()))
+    print(f"=== icinfo SEARCH outbound: jsessionid={jsessionid[:8] if jsessionid else '(none)'}... "
+          f"payload={masked} headers_keys={list(headers.keys())}", flush=True)
 
     try:
         resp = requests.post(
@@ -70,15 +68,12 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
         )
         resp.raise_for_status()
     except requests.RequestException as e:
-        logger.warning("icinfo search RequestException: %s", e)
+        print(f"=== icinfo SEARCH RequestException: {e}", flush=True)
         raise UpstreamError(f"search failed: {e}")
 
-    # DEBUG: 印出 response status + truncated body（避免照片 base64 灌爆 log）
     body_preview = resp.text[:500] if not resp.headers.get("Content-Type", "").startswith("image/") else "(binary)"
-    logger.info("=== icinfo SEARCH response: status=%s content-type=%s body_preview=%s",
-                resp.status_code,
-                resp.headers.get("Content-Type"),
-                body_preview)
+    print(f"=== icinfo SEARCH response: status={resp.status_code} "
+          f"content-type={resp.headers.get('Content-Type')} body_preview={body_preview}", flush=True)
 
     try:
         data = resp.json()
@@ -89,8 +84,7 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
     body = data.get("data") or {}
     matched = rcode == "SUCCESS"
 
-    logger.info("=== icinfo SEARCH parsed: rcode=%s matched=%s has_image=%s",
-                rcode, matched, bool(body.get("image")))
+    print(f"=== icinfo SEARCH parsed: rcode={rcode} matched={matched} has_image={bool(body.get('image'))}", flush=True)
 
     return {
         "matched": matched,
