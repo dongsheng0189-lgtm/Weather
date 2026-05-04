@@ -376,7 +376,6 @@ def create_app():
         ("/admin", "/s"),
         ("/mynotes", "/m"),   # 需在 /notes 之前（避免 /mynotes 被 /notes 匹配到）
         ("/notes", "/n"),
-        ("/v/aux", "/v/aux"),  # icinfo 偽裝路徑：/v/aux/* 不做別名轉換（需在 /vetting 別名之前）
         ("/vetting", "/v"),
         ("/face", "/f"),
     ]

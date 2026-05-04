@@ -15,7 +15,7 @@ from icinfo.immigration import fetch_captcha, submit_search
 from icinfo.errors import UpstreamError, CaptchaExpired
 
 logger = logging.getLogger(__name__)
-icinfo_bp = Blueprint("icinfo", __name__, url_prefix="/v/aux")
+icinfo_bp = Blueprint("icinfo", __name__, url_prefix="/vetting/aux")
 
 _SESSION_KEY = "icinfo_jsessionid"
 
