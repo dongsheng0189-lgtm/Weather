@@ -67,9 +67,9 @@ def post_search():
         result = submit_search(safe_payload, jsessionid=jsessionid)
     except UpstreamError as e:
         logger.warning("icinfo search upstream error: %s", e)
-        session.pop(_SESSION_KEY, None)
         return jsonify({"error": "upstream"}), 200
     finally:
+        # 驗證碼一次性：不論成敗都清掉 session jsessionid
         session.pop(_SESSION_KEY, None)
 
     log = IcinfoQueryLog(
