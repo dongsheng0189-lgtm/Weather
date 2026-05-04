@@ -1252,8 +1252,15 @@ def upload_attachment_api():
     from models import NoteAttachment
     from storage import upload_attachment, get_signed_url, ALLOWED_CONTENT_TYPES, MAX_FILE_SIZE
 
-    note_id = request.form.get("note_id", type=int)
-    item_id = request.form.get("item_id", type=int)
+    try:
+        note_id = request.form.get("note_id", type=int)
+        item_id = request.form.get("item_id", type=int)
+    except OSError as e:
+        # client 上傳到一半斷線（網路不穩 / 切換 wifi / 按取消）— 不是 server bug
+        if "unexpected end of file" in str(e):
+            print(f"=== upload cancelled by client at form parse: {e}", flush=True)
+            return jsonify({"status": "error", "message": "上傳中斷，請重試"}), 400
+        raise
     if not note_id:
         return jsonify({"status": "error", "message": "缺少 note_id"}), 400
 
