@@ -36,6 +36,10 @@
   <div id="vet-status" style="margin-top:1rem; color:#666; font-size:.85rem;"></div>
 </div>
 
+{% if has_feature('v_aux') %}
+  {% include 'icinfo/_form.html' %}
+{% endif %}
+
 <script>
 var _qid = null;
 var _name = null;

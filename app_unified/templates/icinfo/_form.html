@@ -1,0 +1,118 @@
+<!--
+  icinfo 表單 fragment（include 自 vetting/index.html）
+  對外 class/id/JS 全部用中性命名（auxXxx），不洩漏 icinfo/immigration 字樣。
+-->
+<section class="auxBlock" style="margin-top:32px;border-top:1px solid #ccc;padding-top:24px">
+  <h3>💳 晶片居留證查詢</h3>
+  <form id="auxForm" autocomplete="off" onsubmit="return false">
+    <div class="auxRow">
+      <label>統一證號
+        <input type="text" name="uino" id="auxUino" maxlength="10" required>
+      </label>
+    </div>
+    <div class="auxRow">
+      <label>核發日期 / 發卡日期
+        <input type="date" name="issueDate" id="auxIssueDate" required>
+      </label>
+    </div>
+    <div class="auxRow">
+      <label>居留期限（永居證可空）
+        <input type="date" name="expiryDate" id="auxExpiryDate">
+      </label>
+    </div>
+    <div class="auxRow">
+      <label>卡片編號（請翻證件背面）
+        <input type="text" name="serialNo" id="auxSerial" maxlength="10" required>
+      </label>
+    </div>
+    <div class="auxRow">
+      <label>驗證碼
+        <input type="text" name="captcha" id="auxCaptcha" required>
+      </label>
+      <img id="auxCaptchaImg" alt="驗證碼" style="vertical-align:middle;cursor:pointer" title="點擊重新整理">
+      <button type="button" id="auxRefresh">重新整理</button>
+    </div>
+    <div class="auxRow">
+      <button type="submit" id="auxSubmit">查詢</button>
+    </div>
+  </form>
+
+  <div id="auxResult" style="margin-top:16px;min-height:200px">
+    <p style="color:#888">相片僅供本證查詢使用</p>
+  </div>
+</section>
+
+<script>
+(function() {
+  const form = document.getElementById('auxForm');
+  const captchaImg = document.getElementById('auxCaptchaImg');
+  const refreshBtn = document.getElementById('auxRefresh');
+  const result = document.getElementById('auxResult');
+
+  async function loadAux() {
+    try {
+      const r = await fetch('/v/aux/c', { credentials: 'same-origin' });
+      const data = await r.json();
+      if (data.error) {
+        captchaImg.alt = '驗證碼載入失敗';
+        result.innerHTML = '<p style="color:#c00">⚠️ 服務暫時無法使用，請稍後再試</p>';
+        return;
+      }
+      captchaImg.src = 'data:image/jpeg;base64,' + data.image;
+    } catch (e) {
+      result.innerHTML = '<p style="color:#c00">⚠️ 網路錯誤</p>';
+    }
+  }
+
+  async function submitAux(e) {
+    e.preventDefault();
+    const payload = {
+      uino: document.getElementById('auxUino').value.trim().toUpperCase(),
+      issueDate: document.getElementById('auxIssueDate').value,
+      expiryDate: document.getElementById('auxExpiryDate').value,
+      serialNo: document.getElementById('auxSerial').value.trim(),
+      captcha: document.getElementById('auxCaptcha').value.trim(),
+    };
+    result.innerHTML = '<p>查詢中...</p>';
+    try {
+      const r = await fetch('/v/aux/s', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      renderResult(data);
+    } catch (e) {
+      result.innerHTML = '<p style="color:#c00">⚠️ 網路錯誤</p>';
+    } finally {
+      document.getElementById('auxCaptcha').value = '';
+      loadAux();
+    }
+  }
+
+  function renderResult(data) {
+    if (data.error === 'captcha_expired') {
+      result.innerHTML = '<p style="color:#c00">⚠️ 驗證碼已過期，請重新輸入</p>';
+      return;
+    }
+    if (data.error === 'upstream') {
+      result.innerHTML = '<p style="color:#c00">⚠️ 服務暫時無法使用，請稍後再試</p>';
+      return;
+    }
+    if (data.matched && data.image) {
+      result.innerHTML = '<p style="color:#080">✅ 資料相符</p>'
+        + '<img src="data:image/jpeg;base64,' + data.image + '" alt="" style="max-width:240px;border:1px solid #ccc">'
+        + '<p style="color:#888;font-size:12px">' + (data.search_time || '') + '</p>';
+    } else {
+      result.innerHTML = '<p style="color:#c00">❌ 資料不符</p>';
+    }
+  }
+
+  form.addEventListener('submit', submitAux);
+  refreshBtn.addEventListener('click', loadAux);
+  captchaImg.addEventListener('click', loadAux);
+
+  loadAux();
+})();
+</script>
