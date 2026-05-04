@@ -292,3 +292,21 @@ class PrivateAttachment(db.Model):
 
     note = db.relationship("PrivateNote", backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"))
     item = db.relationship("PrivateChecklistItem", backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"))
+
+
+class IcinfoQueryLog(db.Model):
+    """晶片居留證查詢 log（只記 metadata，不存照片）。
+
+    Table 名 v_aux_logs 為對外偽裝（共用 vetting 主題）。
+    """
+    __tablename__ = "v_aux_logs"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    queried_uino = db.Column(db.String(10), nullable=False, index=True)
+    matched = db.Column(db.Boolean, nullable=False)
+    queried_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        server_default=db.func.now(),
+        index=True,
+    )
