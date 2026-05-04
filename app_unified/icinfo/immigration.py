@@ -2,11 +2,14 @@
 
 對外 URL 偽裝在 /v/aux/，但內部模組保留 icinfo 命名（不洩漏給使用者）。
 """
+import logging
 import time
 import requests
 
 from vetting.http_client import BROWSER_HEADERS, throttle_sleep
 from icinfo.errors import UpstreamError
+
+logger = logging.getLogger(__name__)
 
 
 _BASE = "https://niaicinfo.immigration.gov.tw/icinfo-frontend"
@@ -45,6 +48,18 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
         "Content-Type": "application/json",
         "Referer": f"{_BASE}/zh",
     }
+
+    # DEBUG: 印出完整 outbound request（含 mask 後的 uino/serialNo）
+    masked = {**payload}
+    if masked.get("uino"):
+        masked["uino"] = masked["uino"][:2] + "***" + masked["uino"][-2:]
+    if masked.get("serialNo"):
+        masked["serialNo"] = "***" + masked["serialNo"][-3:]
+    logger.info("=== icinfo SEARCH outbound: jsessionid=%s payload=%s headers_keys=%s",
+                jsessionid[:8] + "..." if jsessionid else "(none)",
+                masked,
+                list(headers.keys()))
+
     try:
         resp = requests.post(
             _SEARCH_URL,
@@ -55,7 +70,15 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
         )
         resp.raise_for_status()
     except requests.RequestException as e:
+        logger.warning("icinfo search RequestException: %s", e)
         raise UpstreamError(f"search failed: {e}")
+
+    # DEBUG: 印出 response status + truncated body（避免照片 base64 灌爆 log）
+    body_preview = resp.text[:500] if not resp.headers.get("Content-Type", "").startswith("image/") else "(binary)"
+    logger.info("=== icinfo SEARCH response: status=%s content-type=%s body_preview=%s",
+                resp.status_code,
+                resp.headers.get("Content-Type"),
+                body_preview)
 
     try:
         data = resp.json()
@@ -65,6 +88,10 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
     rcode = data.get("rcode")
     body = data.get("data") or {}
     matched = rcode == "SUCCESS"
+
+    logger.info("=== icinfo SEARCH parsed: rcode=%s matched=%s has_image=%s",
+                rcode, matched, bool(body.get("image")))
+
     return {
         "matched": matched,
         "image": body.get("image") if matched else None,
