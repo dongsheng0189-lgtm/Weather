@@ -30,13 +30,6 @@ AVAILABLE_FEATURES = [
         "url": "/vetting/",
         "enabled": True,
     },
-    {
-        "key": "v_aux",
-        "label": "晶片居留證",
-        "emoji": "💳",
-        "url": "/v/",
-        "enabled": True,
-    },
 ]
 
 

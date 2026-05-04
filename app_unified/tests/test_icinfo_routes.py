@@ -8,7 +8,7 @@ from models import User
 
 
 def _mk_user(db_session, features=None, role="user"):
-    """建 user，features 以 list 傳入 (e.g. ['notes', 'v_aux'])."""
+    """建 user，features 以 list 傳入 (e.g. ['notes', 'vetting'])."""
     if features is None:
         features = ["notes"]
     uname = f"u_icinfo_{uuid.uuid4().hex[:8]}"
@@ -30,15 +30,15 @@ def _login(client, user):
         sess["_fresh"] = True
 
 
-def test_user_without_v_aux_feature_gets_404(client, app, db_session):
+def test_user_without_vetting_feature_gets_404(client, app, db_session):
     u = _mk_user(db_session, features=["notes"], role="user")
     _login(client, u)
     r = client.get("/v/aux/c")
     assert r.status_code == 404
 
 
-def test_admin_with_v_aux_can_get_captcha(client, app, db_session):
-    u = _mk_user(db_session, features=["notes", "v_aux"], role="admin")
+def test_admin_with_vetting_can_get_captcha(client, app, db_session):
+    u = _mk_user(db_session, features=["notes", "vetting"], role="admin")
     _login(client, u)
 
     with patch("icinfo.routes.fetch_captcha", return_value=(b"\xff\xd8\xff\xe0JPEG", "JS123")):
@@ -52,7 +52,7 @@ def test_admin_with_v_aux_can_get_captcha(client, app, db_session):
 
 
 def test_search_without_session_jsessionid_returns_captcha_expired(client, app, db_session):
-    u = _mk_user(db_session, features=["v_aux"], role="admin")
+    u = _mk_user(db_session, features=["vetting"], role="admin")
     _login(client, u)
     r = client.post("/v/aux/s", json={
         "uino": "A12345678", "issueDate": "2024-01-01",
@@ -63,7 +63,7 @@ def test_search_without_session_jsessionid_returns_captcha_expired(client, app, 
 
 
 def test_search_success_returns_image_and_writes_log(client, app, db_session):
-    u = _mk_user(db_session, features=["v_aux"], role="admin")
+    u = _mk_user(db_session, features=["vetting"], role="admin")
     uid = u.id
     _login(client, u)
     with client.session_transaction() as s:
@@ -92,7 +92,7 @@ def test_search_success_returns_image_and_writes_log(client, app, db_session):
 
 
 def test_search_no_match_writes_log_with_matched_false(client, app, db_session):
-    u = _mk_user(db_session, features=["v_aux"], role="admin")
+    u = _mk_user(db_session, features=["vetting"], role="admin")
     uid = u.id
     _login(client, u)
     with client.session_transaction() as s:
@@ -117,7 +117,7 @@ def test_search_no_match_writes_log_with_matched_false(client, app, db_session):
 
 
 def test_upstream_error_returns_upstream_error_field(client, app, db_session):
-    u = _mk_user(db_session, features=["v_aux"], role="admin")
+    u = _mk_user(db_session, features=["vetting"], role="admin")
     uid = u.id
     _login(client, u)
     with client.session_transaction() as s:

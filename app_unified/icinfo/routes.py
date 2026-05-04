@@ -24,7 +24,7 @@ _SESSION_KEY = "icinfo_jsessionid"
 def _gate():
     if not current_user.is_authenticated:
         abort(404)
-    if not user_has_feature(current_user, "v_aux"):
+    if not user_has_feature(current_user, "vetting"):
         abort(404)
 
 
