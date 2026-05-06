@@ -1485,8 +1485,12 @@ def edit_note(note_id):
     else:
         note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
     stores = _get_stores()
-    # 編輯鎖：不在 GET 時 acquire（lazy 機制 — 動到才鎖）
+    # 編輯鎖：進編輯頁就 acquire（spec：進去編輯畫面 OR 有調整就鎖）
+    # 別人持鎖 → readonly + banner；沒人持鎖 → 自己 acquire
     is_locked, locker = _lock_status(note)
+    if not is_locked:
+        _acquire_lock(note)
+        db.session.commit()
     return render_template("notes/editor.html", note=note, stores=stores,
                            status_choices=STATUS_CHOICES,
                            is_readonly=is_locked,

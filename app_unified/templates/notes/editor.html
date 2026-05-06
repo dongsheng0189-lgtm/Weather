@@ -202,8 +202,9 @@ var currentCategory = {{ (note.category if note else (default_category or 'misc'
 var currentShift = {{ (note.shift if note else default_shift)|tojson }};
 var IS_READONLY = {{ (is_readonly or false)|tojson }};
 var LOCKER_NAME = {{ (locker_name or '')|tojson }};
-// 用 _lockOwnedByMe 追蹤 lazy lock 狀態：null=尚未確認, true=自己持鎖, false=被別人鎖
-var _lockOwnedByMe = IS_READONLY ? false : null;
+// 鎖狀態：true=自己持鎖, false=被別人鎖
+// (server 已在 GET edit 時 acquire；IS_READONLY=true 表示別人持鎖，否則自己持鎖)
+var _lockOwnedByMe = !IS_READONLY;
 // 從 URL 拿 sort 參數，跟外層 notes list 共用（created vs updated）
 var CURRENT_SORT = (new URLSearchParams(window.location.search).get('sort')) || 'updated';
 
@@ -366,8 +367,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (_lockOwnedByMe === true) releaseLock();
     });
   }
-  // lazy lock：不在進入頁面時 auto-start heartbeat。
-  // heartbeat 改為「第一次 mutation 成功後」才啟動（見 handleMutationResponse）。
+  // 進編輯頁時 server 已 acquire lock（若沒人鎖）→ 立刻啟動 heartbeat 維持
+  if (NOTE_ID && !IS_READONLY) startHeartbeat();
 });
 
 {% if note and note.updated_by %}
