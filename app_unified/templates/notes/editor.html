@@ -527,7 +527,20 @@ function doDelete() {
   if (!NOTE_ID || !confirm('確定要刪除這篇筆記？')) return;
   if (window._ws && window._ws.connected) {
     window._ws.emit('d', { op: 'dn', id: NOTE_ID });
-    window._ws.once('r', function() { window.location.href = '/notes/'; });
+    var _onResp = function(msg) {
+      if (!msg || msg.op !== 'dn') return;  // 不是 delete 回應
+      window._ws.off('r', _onResp);
+      if (msg.status === 'ok') {
+        window.location.href = '/notes/';
+      } else if (msg.status === 'error' && /編輯中/.test(msg.message || '')) {
+        var m = (msg.message || '').match(/由\s*(.+?)\s*編輯/);
+        _enterReadonlyDueTo409(m ? m[1] : null);
+        alert(msg.message || '無法刪除：另一個使用者正在編輯');
+      } else {
+        alert(msg.message || '刪除失敗');
+      }
+    };
+    window._ws.on('r', _onResp);
   } else {
     fetch('/notes/api/' + NOTE_ID, { method: 'DELETE' })
       .then(function(r) {
