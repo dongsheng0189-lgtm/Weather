@@ -2,17 +2,26 @@
 {% block title %}我的筆記{% endblock %}
 {% block extra_head %}
 <script>
-// 必須早於 body 渲染：如果 URL 沒帶 ?sort= 但 localStorage 有存，redirect 過去（避免 flash）
+// 必須早於 body 渲染：URL 沒帶 ?sort= / ?store= 但 localStorage 有存 → 一次 redirect（避免 flash + 雙 redirect）
 (function() {
   try {
     var url = new URL(window.location.href);
+    var changed = false;
     if (!url.searchParams.has('sort')) {
-      var saved = localStorage.getItem('notes_sort');
-      if (saved === 'created' || saved === 'updated') {
-        url.searchParams.set('sort', saved);
-        window.location.replace(url.toString());
+      var savedSort = localStorage.getItem('notes_sort');
+      if (savedSort === 'created' || savedSort === 'updated') {
+        url.searchParams.set('sort', savedSort);
+        changed = true;
       }
     }
+    if (!url.searchParams.has('store')) {
+      var savedStore = localStorage.getItem('notes_store');
+      if (savedStore && /^[A-Za-z]{1,4}$/.test(savedStore)) {
+        url.searchParams.set('store', savedStore);
+        changed = true;
+      }
+    }
+    if (changed) window.location.replace(url.toString());
   } catch (e) {}
 })();
 </script>
@@ -113,9 +122,11 @@
 
 {% if current_user.is_super_admin() %}
 <div class="store-tabs">
-  <a href="{{ url_for('notes.index') }}" class="store-tab {% if not current_store %}active{% endif %}" data-store="">全部</a>
+  <a href="{{ url_for('notes.index') }}" class="store-tab {% if not current_store %}active{% endif %}" data-store=""
+     onclick="try { localStorage.removeItem('notes_store'); } catch(e){}">全部</a>
   {% for s in stores %}
-  <a href="{{ url_for('notes.index', store=s) }}" class="store-tab {% if current_store == s %}active{% endif %}" data-store="{{ s }}">{{ s }}</a>
+  <a href="{{ url_for('notes.index', store=s) }}" class="store-tab {% if current_store == s %}active{% endif %}" data-store="{{ s }}"
+     onclick="try { localStorage.setItem('notes_store', '{{ s }}'); } catch(e){}">{{ s }}</a>
   {% endfor %}
 </div>
 {% elif current_user.store %}
