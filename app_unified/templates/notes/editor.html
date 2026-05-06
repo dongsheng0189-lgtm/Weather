@@ -2,6 +2,7 @@
 {% block title %}{% if note %}編輯筆記{% else %}新增筆記{% endif %} — NOTE{% endblock %}
 {% block extra_head %}
 <script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=4"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/notes-fullscreen.css') }}">
 <style>
 .editor-wrap { display: grid; grid-template-rows: auto 1fr; gap: 1rem; }
 .editor-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
@@ -131,7 +132,12 @@
   <input type="hidden" id="editor-type" value="{{ editor_type }}">
 
   {% if editor_type != 'checklist' %}
-  <textarea id="content-area" placeholder="開始輸入筆記內容…">{{ note.content if note else '' }}</textarea>
+  <div id="content-wrap" style="position:relative;">
+    {% if note and note.is_ai_summary %}
+    <button type="button" class="summary-fullscreen-toggle" onclick="document.getElementById('content-wrap').classList.toggle('summary-fullscreen')" title="全螢幕">⛶</button>
+    {% endif %}
+    <textarea id="content-area" placeholder="開始輸入筆記內容…">{{ note.content if note else '' }}</textarea>
+  </div>
 
   <!-- 附件區（一般筆記）-->
   <div class="attachment-section" id="attachment-section">

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}我的筆記{% endblock %}
 {% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/notes-fullscreen.css') }}">
 <style>
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .note-card { background: #fff; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.07); cursor: pointer; transition: box-shadow .2s; border-left: 4px solid #3498db; }
@@ -87,7 +88,10 @@
     <span id="ai-status" style="font-size:.8rem;color:#666;"></span>
   </div>
   <div style="font-size:.75rem;color:#888;margin-top:.35rem;">ⓘ 以早上 8 點為營業日分界。8 點後要看 8 點前的事項請選「昨天」。</div>
-  <div id="ai-summary-output" style="display:none;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:1rem;margin-top:.75rem;white-space:pre-wrap;font-size:.88rem;line-height:1.6;"></div>
+  <div id="ai-summary-wrap" style="display:none;position:relative;margin-top:.75rem;">
+    <button type="button" class="summary-fullscreen-toggle" onclick="toggleSummaryFullscreen('ai-summary-wrap')" title="全螢幕">⛶</button>
+    <div id="ai-summary-output" style="background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:1rem;padding-right:3rem;white-space:pre-wrap;font-size:.88rem;line-height:1.6;"></div>
+  </div>
   <button id="btn-save-summary" class="btn btn-success" style="display:none;margin-top:.5rem;font-size:.85rem;padding:.4rem .8rem;" onclick="saveSummaryAsNote()">💾 儲存為筆記</button>
 </div>
 {% endif %}
@@ -372,6 +376,11 @@ function pollAiTask(taskId, onDone, onError, onTick) {
 var _aiBusinessDay = 'today';
 var _summaryBusinessDay = null;  // 鎖定「這份摘要是哪天的」，避免存檔時標題對不上
 var _summaryBusinessDate = null;  // 由 server 回傳的 YYYY-MM-DD，避免 client 端時區算錯
+function toggleSummaryFullscreen(elId) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  el.classList.toggle('summary-fullscreen');
+}
 function selectBusinessDay(bd) {
   _aiBusinessDay = bd;
   var t = document.getElementById('ai-bd-today');
@@ -387,6 +396,7 @@ function generateSummary() {
   var btn = document.getElementById('btn-ai-summary');
   var statusEl = document.getElementById('ai-status');
   var outputEl = document.getElementById('ai-summary-output');
+  var wrapEl = document.getElementById('ai-summary-wrap');
   var saveBtn = document.getElementById('btn-save-summary');
   if (!store) {
     alert('請先選擇店別');
@@ -394,7 +404,7 @@ function generateSummary() {
   }
   btn.disabled = true;
   statusEl.textContent = 'AI 整理中… 已等待 0 秒';
-  outputEl.style.display = 'none';
+  wrapEl.style.display = 'none';
   saveBtn.style.display = 'none';
   saveBtn.disabled = false;
   saveBtn.textContent = '💾 儲存為筆記';
@@ -410,7 +420,7 @@ function generateSummary() {
     if (data.status === 'accepted' && data.task_id) {
       pollAiTask(data.task_id, function(result) {
         outputEl.textContent = result;
-        outputEl.style.display = 'block';
+        wrapEl.style.display = 'block';
         saveBtn.style.display = 'inline-block';
         statusEl.textContent = '完成';
         btn.disabled = false;
@@ -422,7 +432,7 @@ function generateSummary() {
       });
     } else if (data.status === 'ok') {
       outputEl.textContent = data.summary;
-      outputEl.style.display = 'block';
+      wrapEl.style.display = 'block';
       saveBtn.style.display = 'inline-block';
       statusEl.textContent = '';
       btn.disabled = false;
