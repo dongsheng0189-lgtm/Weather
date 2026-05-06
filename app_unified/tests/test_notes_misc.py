@@ -86,3 +86,56 @@ def test_range_all_no_date_filter(app, client, user_alice):
     body2 = r2.data.decode("utf-8")
     assert "new-note-xyz" in body2
     assert "old-note-xyz" in body2
+
+
+def _active_sort_from_html(body: str) -> str:
+    """Parse rendered notes index HTML to find which sort tab is active.
+
+    Sort tab template (templates/notes/index.html ~166):
+      <a href=...sort=updated... class="store-tab {% if current_sort == val %}active{% endif %}"
+         style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">照更新</a>
+
+    The active one has both `active` class and the purple background style applied.
+    We look for the substring `sort=<val>` followed (within the same <a>) by `active`
+    AND `#8e44ad` before the closing </a>.
+    """
+    import re
+    # Find all sort tab anchors
+    for m in re.finditer(r'<a[^>]*sort=([a-z]+)[^>]*>[^<]*</a>', body):
+        anchor = m.group(0)
+        val = m.group(1)
+        if val in ("updated", "created") and "active" in anchor and "#8e44ad" in anchor:
+            return val
+    return ""
+
+
+def test_sort_param_not_persisted_in_session(app, client, user_alice):
+    """Backend 不再用 session 存 sort：no `?sort=` 一律 default updated（即使先前訪問過 ?sort=created）。"""
+    _login_as(client, user_alice)
+
+    # 先帶 sort=created 訪問一次（之前會寫 session["notes_sort"]）
+    r1 = client.get("/notes/?store=A&range=all&sort=created")
+    assert r1.status_code == 200
+    assert _active_sort_from_html(r1.data.decode("utf-8")) == "created"
+
+    # 再訪問不帶 sort → 應該 default 回 updated（不再從 session 撈 created）
+    r2 = client.get("/notes/?store=A&range=all")
+    assert r2.status_code == 200
+    active = _active_sort_from_html(r2.data.decode("utf-8"))
+    assert active == "updated", f"Expected default 'updated' (no session memory), got: {active!r}"
+
+
+def test_sort_param_explicit_updated(app, client, user_alice):
+    """?sort=updated 顯式指定 → updated tab active。"""
+    _login_as(client, user_alice)
+    r = client.get("/notes/?store=A&range=all&sort=updated")
+    assert r.status_code == 200
+    assert _active_sort_from_html(r.data.decode("utf-8")) == "updated"
+
+
+def test_sort_param_invalid_falls_back_to_updated(app, client, user_alice):
+    """?sort=garbage → fallback default updated。"""
+    _login_as(client, user_alice)
+    r = client.get("/notes/?store=A&range=all&sort=garbage")
+    assert r.status_code == 200
+    assert _active_sort_from_html(r.data.decode("utf-8")) == "updated"

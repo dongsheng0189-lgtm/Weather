@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from flask import Blueprint, request, jsonify, render_template, current_app, session
+from flask import Blueprint, request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
 from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE, SHIFT_CHOICES
@@ -186,13 +186,9 @@ def index():
     per_page = 20
     stores = _get_stores()
 
-    # 排序偏好：URL 帶就更新 session、套用；URL 沒帶 → 讀 session，否則預設 updated
+    # 排序偏好：純 URL query param；偏好持久化由前端 localStorage 處理（不再用 session）
     sort_param = request.args.get("sort", "")
-    if sort_param in ("updated", "created"):
-        session["notes_sort"] = sort_param
-        current_sort = sort_param
-    else:
-        current_sort = session.get("notes_sort", "updated")
+    current_sort = sort_param if sort_param in ("updated", "created") else "updated"
     sort_order = Note.created_at.desc() if current_sort == "created" else Note.updated_at.desc()
 
     query = Note.query

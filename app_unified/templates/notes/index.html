@@ -1,6 +1,21 @@
 {% extends "base.html" %}
 {% block title %}我的筆記{% endblock %}
 {% block extra_head %}
+<script>
+// 必須早於 body 渲染：如果 URL 沒帶 ?sort= 但 localStorage 有存，redirect 過去（避免 flash）
+(function() {
+  try {
+    var url = new URL(window.location.href);
+    if (!url.searchParams.has('sort')) {
+      var saved = localStorage.getItem('notes_sort');
+      if (saved === 'created' || saved === 'updated') {
+        url.searchParams.set('sort', saved);
+        window.location.replace(url.toString());
+      }
+    }
+  } catch (e) {}
+})();
+</script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/notes-fullscreen.css') }}">
 <style>
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
@@ -164,6 +179,7 @@
   <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">排列：</span>
   {% for val, label in sort_labels %}
   <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=current_status, sort=val) }}"
+     onclick="try { localStorage.setItem('notes_sort', '{{ val }}'); } catch(e){}"
      class="store-tab {% if current_sort == val %}active{% endif %}"
      style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
