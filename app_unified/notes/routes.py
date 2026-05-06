@@ -19,7 +19,7 @@ def _gate_notes_feature():
         abort(404)
 
 
-RANGE_DAYS = {"today": 0, "3d": 3, "7d": 7, "30d": 30}
+RANGE_DAYS = {"today": 0, "3d": 3, "7d": 7, "all": None}
 
 _TW = timezone(timedelta(hours=8))
 
@@ -157,6 +157,9 @@ def _get_stores():
 
 def _date_filter(query, range_param):
     days = RANGE_DAYS.get(range_param, 3)
+    if days is None:
+        # range=all → 不過濾日期
+        return query
     if days == 0:
         start_utc, end_utc = _get_business_day_range()
         return query.filter(Note.updated_at >= start_utc, Note.updated_at < end_utc)
