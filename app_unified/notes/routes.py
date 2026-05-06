@@ -81,6 +81,37 @@ def _acquire_lock(note):
     note.locked_at = datetime.utcnow()
 
 
+LOCK_TTL_SEC = 5 * 60  # 鎖過期：5 分鐘無心跳即可被搶
+
+
+def _ensure_lock_for_mutation(note, user_id):
+    """所有 mutation API 進入前呼叫此 helper。
+
+    回傳 (ok: bool, locker: User|None)
+    - ok=True, locker=None: 已 acquire（自己原本就持鎖、或剛剛搶到）
+    - ok=False, locker=<User>: 別人持有未過期鎖，呼叫端應回 409
+    """
+    from models import User
+    if not note.locked_by or not note.locked_at:
+        # 沒人持鎖
+        note.locked_by = user_id
+        note.locked_at = datetime.utcnow()
+        return True, None
+    if note.locked_by == user_id:
+        # 自己持鎖：refresh timestamp（等同心跳）
+        note.locked_at = datetime.utcnow()
+        return True, None
+    age_sec = (datetime.utcnow() - note.locked_at).total_seconds()
+    if age_sec > LOCK_TTL_SEC:
+        # 過期鎖搶過來
+        note.locked_by = user_id
+        note.locked_at = datetime.utcnow()
+        return True, None
+    # 別人持鎖未過期
+    locker = User.query.get(note.locked_by)
+    return False, locker
+
+
 def _get_business_day_range(offset_days=0):
     """回傳營業日的 (start, end)，以 UTC 表示（無 tzinfo）。
 
@@ -405,10 +436,13 @@ def update_note(note_id):
             diff_parts.append(f"類別: {note.category} → {data['category']}")
         note.category = data["category"]
 
-    # 編輯鎖檢查：如果被別人鎖定（非過期），拒絕
-    is_locked, locker = _lock_status(note)
-    if is_locked:
-        return jsonify({"status": "error", "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
+    # 編輯鎖：lazy acquire（沒鎖就 acquire；自己持鎖通過；別人持鎖 409）
+    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    if not ok:
+        return jsonify({
+            "status": "error",
+            "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"
+        }), 409
 
     note.updated_by = current_user.id
     note.updated_at = datetime.utcnow()
