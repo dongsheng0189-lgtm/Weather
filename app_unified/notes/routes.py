@@ -1150,7 +1150,8 @@ def notes_ai_summary():
 
     # === LOCAL Python 摘要：取代 Gemini，避免敏感資料外流 ===
     # 既有 Gemini 路徑（_run_ai_task / _run_split_summary / MANAGER_PROMPT）保留供 git revert
-    logger.warning("[ai_summary] === using LOCAL python pipeline (NOT gemini) ===")
+    import logging as _logging_mod
+    _logging_mod.getLogger("ai_summary").warning("[ai_summary] === using LOCAL python pipeline (NOT gemini) ===")
     task_id = uuid.uuid4().hex[:12]
     _ai_tasks[task_id] = {"status": "processing"}
     import gevent
@@ -1172,7 +1173,8 @@ def _run_local_summary(task_id, app, store, since, until, store_label, range_lab
             result = summarize_local(notes, since, until, store_label, range_label, inrange_label)
             _ai_tasks[task_id] = {"status": "done", "result": result}
         except Exception as e:
-            logger.exception("[ai_summary] local pipeline failed")
+            import logging as _logging_mod
+            _logging_mod.getLogger("ai_summary").exception("[ai_summary] local pipeline failed")
             _ai_tasks[task_id] = {"status": "error", "message": f"本地摘要失敗：{e}"}
 
 
