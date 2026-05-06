@@ -389,11 +389,26 @@ window.addEventListener('beforeunload', function() {
 // 「返回」按鈕點擊時主動釋放鎖
 document.addEventListener('DOMContentLoaded', function() {
   var backBtn = document.getElementById('btn-back');
-  if (backBtn && !IS_READONLY) {
-    backBtn.addEventListener('click', function() {
+  if (backBtn) {
+    backBtn.addEventListener('click', function(e) {
       stopHeartbeat();
-      // 只有在自己持鎖時才嘗試釋放（避免進來看一眼就鎖住別人）
-      if (_lockOwnedByMe === true) releaseLock();
+      // 沒持鎖直接 navigate（純看不鎖）
+      if (_lockOwnedByMe !== true) return;
+      // 持鎖：用 fetch + await 確保 server 收到 release + broadcast lr 給 room
+      // 跟 save 同樣 round-trip 模式，避免 sendBeacon 在某些 navigation 情境被 cancel
+      e.preventDefault();
+      var href = backBtn.href;
+      // 保險：2 秒沒回應就強制 navigate 避免使用者卡住
+      var navTimer = setTimeout(function() { window.location.href = href; }, 2000);
+      fetch('/notes/api/' + NOTE_ID + '/lock/release', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: '{}',
+        keepalive: true,
+      }).finally(function() {
+        clearTimeout(navTimer);
+        window.location.href = href;
+      });
     });
   }
   // Lazy acquire：title / content focus 時觸發 lock acquire
