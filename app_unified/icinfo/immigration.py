@@ -49,15 +49,6 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
         "Referer": f"{_BASE}/zh",
     }
 
-    # DEBUG: 印出完整 outbound request（mask 後）
-    masked = {**payload}
-    if masked.get("uino"):
-        masked["uino"] = masked["uino"][:2] + "***" + masked["uino"][-2:]
-    if masked.get("serialNo"):
-        masked["serialNo"] = "***" + masked["serialNo"][-3:]
-    print(f"=== icinfo SEARCH outbound: jsessionid={jsessionid[:8] if jsessionid else '(none)'}... "
-          f"payload={masked} headers_keys={list(headers.keys())}", flush=True)
-
     try:
         resp = requests.post(
             _SEARCH_URL,
@@ -68,12 +59,7 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
         )
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"=== icinfo SEARCH RequestException: {e}", flush=True)
         raise UpstreamError(f"search failed: {e}")
-
-    body_preview = resp.text[:500] if not resp.headers.get("Content-Type", "").startswith("image/") else "(binary)"
-    print(f"=== icinfo SEARCH response: status={resp.status_code} "
-          f"content-type={resp.headers.get('Content-Type')} body_preview={body_preview}", flush=True)
 
     try:
         data = resp.json()
@@ -85,8 +71,6 @@ def submit_search(payload: dict, jsessionid: str) -> dict:
     # 上游成功 code 是 "0000"（page chunk 看到 x.SUCCESS 常數名，實際 string value 是 "0000"）
     # 保險起見也接受 "SUCCESS" 字面值，以防上游改回常數名
     matched = rcode in ("0000", "SUCCESS")
-
-    print(f"=== icinfo SEARCH parsed: rcode={rcode} matched={matched} has_image={bool(body.get('image'))}", flush=True)
 
     return {
         "matched": matched,
