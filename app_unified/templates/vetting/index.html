@@ -223,7 +223,8 @@ function renderResult(d) {
     d.npa.forEach(function(e) {
       html += '<div style="border:1px solid #e0e0e0; border-radius:6px; padding:.6rem; margin-bottom:.5rem;">';
       html += '<div style="font-weight:600;">' + escapeHtml(e.name) + '</div>';
-      if (e.crime) html += '<div style="font-size:.9rem;">罪名：' + escapeHtml(e.crime) + '</div>';
+      if (e.id_no) html += '<div style="font-size:.9rem;">身分證號：' + escapeHtml(e.id_no) + '</div>';
+      if (e.wt_unit) html += '<div style="font-size:.9rem;">通緝機關：' + escapeHtml(e.wt_unit) + '</div>';
       if (e.detail_url) html += '<div><a href="' + escapeHtml(e.detail_url) + '" target="_blank" rel="noopener">→ 詳情</a></div>';
       html += '</div>';
     });

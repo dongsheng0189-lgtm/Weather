@@ -8,6 +8,7 @@ Flow（實機 recon 結果）：
 
 注意：Authorization 是當作 form field 送，不是 HTTP header。
 """
+import re
 import time
 from urllib.parse import urljoin
 
@@ -44,55 +45,49 @@ EMPTY_RESULT_MARKERS = (
 )
 
 
-def parse_results(html: str) -> list:
-    """解析 doCEQuery 結果頁。
+_NAME_ID_RE = re.compile(r"^E8_NAME(\d+)$")
 
-    1. 先掃常見「查無」字樣 → 直接回 []
-    2. 否則用寬鬆 selector 嘗試命中，但加嚴格條件避免 boilerplate 誤判
-    3. 結構未知時，需在 prod 跑一次拿真實 HTML 再寫精準 parser
+
+def parse_results(html: str) -> list:
+    """解析 doCEQuery 結果頁（live recon 2026-05-06 命中樣本）。
+
+    NPA 結果結構：每筆通緝犯一個 <dl>，含 3 個 <span id="E8_NAMEx/E8_IDNx"> 與
+    <dd id="E8_WT_UNIT_NMx">。注意事項區用 id="E8_NOTE" 不會誤判。
+    回傳 dict 帶 `name`, `id_no`, `wt_unit`，並用 `wt_unit` 同時填入 `crime`
+    維持前端相容（NPA 結果頁無「罪名」欄）。
     """
     soup = BeautifulSoup(html, "html.parser")
     full_text = soup.get_text(" ", strip=True)
 
-    # 早退：明確的「查無」訊號
     if any(marker in full_text for marker in EMPTY_RESULT_MARKERS):
         return []
 
     results = []
-    # 卡片 / row 寬鬆 selector
-    for sel in [".result-item", ".wanted-card", ".card"]:
-        items = soup.select(sel)
-        for item in items:
-            text = item.get_text(" ", strip=True)
-            if not text or len(text) < 10:
-                continue
-            if any(kw in text for kw in ("罪", "通緝", "嫌疑")):
-                name_el = item.select_one(".name, h3, .title")
-                crime_el = item.select_one(".crime, .charge")
-                link = item.find("a")
-                results.append({
-                    "name": name_el.get_text(strip=True) if name_el else "",
-                    "crime": crime_el.get_text(strip=True) if crime_el else text[:80],
-                    "detail_url": urljoin(QUERY_URL, link["href"]) if link and link.get("href") else "",
-                })
-        if results:
-            break
+    for name_span in soup.find_all("span", id=_NAME_ID_RE):
+        m = _NAME_ID_RE.match(name_span.get("id", ""))
+        if not m:
+            continue
+        idx = m.group(1)
+        name = name_span.get_text(strip=True)
+        if not name:
+            continue
 
-    # 表格 fallback：tr 嚴格條件 — 至少 3 個 td、跳過全 th 的 header row
-    if not results:
-        for row in soup.select("tr"):
-            tds = row.find_all("td", recursive=False)
-            if len(tds) < 3:
-                continue
-            text = row.get_text(" ", strip=True)
-            if not any(kw in text for kw in ("罪", "通緝", "嫌疑")):
-                continue
-            link = row.find("a")
-            results.append({
-                "name": tds[1].get_text(strip=True) if len(tds) > 1 else "",
-                "crime": tds[2].get_text(strip=True) if len(tds) > 2 else text[:80],
-                "detail_url": urljoin(QUERY_URL, link["href"]) if link and link.get("href") else "",
-            })
+        idn_el = soup.find(id=f"E8_IDN{idx}")
+        id_no = idn_el.get_text(strip=True) if idn_el else ""
+
+        unit_el = soup.find(id=f"E8_WT_UNIT_NM{idx}")
+        wt_unit = ""
+        if unit_el:
+            items = [li.get_text(strip=True) for li in unit_el.find_all("li")]
+            wt_unit = " / ".join(i for i in items if i) or unit_el.get_text(" ", strip=True)
+
+        results.append({
+            "name": name,
+            "id_no": id_no,
+            "wt_unit": wt_unit,
+            "crime": wt_unit,
+            "detail_url": "",
+        })
 
     return results
 
@@ -164,18 +159,19 @@ def submit_query(session, tokens: dict, jwt_token: str,
     # 偵測驗證碼錯誤 / token 過期
     if "驗證碼" in r.text and ("錯誤" in r.text or "不正確" in r.text):
         raise ValueError("captcha_invalid")
-    # debug log: 萃取 body 主要內容（去除 head/script/style/link，留下結果區塊）
+    # debug log（DEBUG level；要重新偵錯時把 logger 切到 DEBUG）：
+    # 萃取 body 主要內容（去除 head/script/style/link）切 4 段印出
     import logging
     _log = logging.getLogger("vetting.npa")
-    try:
-        _soup = BeautifulSoup(r.text, "html.parser")
-        for tag in _soup(["script", "style", "link", "meta", "noscript"]):
-            tag.decompose()
-        body_html = (_soup.body and str(_soup.body)) or r.text
-    except Exception:
-        body_html = r.text
-    # 切成 4 段每段 ~3500 字方便 log 不被截斷
-    chunk_size = 3500
-    for i in range(0, min(len(body_html), 14000), chunk_size):
-        _log.warning("=== NPA body chunk %d ===\n%s", i // chunk_size + 1, body_html[i:i + chunk_size])
+    if _log.isEnabledFor(logging.DEBUG):
+        try:
+            _soup = BeautifulSoup(r.text, "html.parser")
+            for tag in _soup(["script", "style", "link", "meta", "noscript"]):
+                tag.decompose()
+            body_html = (_soup.body and str(_soup.body)) or r.text
+        except Exception:
+            body_html = r.text
+        chunk_size = 3500
+        for i in range(0, min(len(body_html), 14000), chunk_size):
+            _log.debug("=== NPA body chunk %d ===\n%s", i // chunk_size + 1, body_html[i:i + chunk_size])
     return parse_results(r.text)

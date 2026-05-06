@@ -33,15 +33,21 @@ def test_parse_results_no_match():
     assert parse_results(html) == []
 
 
-def test_parse_results_with_entries():
-    """有命中時，每筆含 name + crime + detail_url（依實際 HTML 結構，先以最寬鬆比對）。"""
-    html = """<html><body>
-    <div class="result-item">
-      <h3 class="name">王某某</h3>
-      <p class="crime">詐欺</p>
-      <a href="/NpaE8ServerRWD/detail?uid=123">詳情</a>
-    </div>
-    </body></html>"""
+def test_parse_results_real_hit():
+    """真實命中頁（live recon 2026-05-06）→ 用 E8_NAMEx id 精準抓 1 筆。"""
+    html = _read_fixture("npa_real_hit.html")
     results = parse_results(html)
-    # 即使 selector 不匹配，至少不能炸
-    assert isinstance(results, list)
+    assert len(results) == 1
+    r = results[0]
+    assert r["name"] == "林肯帝"
+    assert r["id_no"] == ""
+    assert r["wt_unit"] == "基隆地檢"
+    assert r["crime"] == "基隆地檢"  # 前端相容：crime 同 wt_unit
+
+
+def test_parse_results_ignores_e8_note_section():
+    """E8_NOTE（查詢結果注意事項）不能被誤判為通緝犯資料。"""
+    html = _read_fixture("npa_real_hit.html")
+    results = parse_results(html)
+    assert all("依據刑事訴訟法" not in r["name"] for r in results)
+    assert all("勿移作他用" not in r.get("crime", "") for r in results)
