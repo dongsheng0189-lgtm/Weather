@@ -516,6 +516,10 @@ def release_lock_endpoint(note_id):
         note.locked_by = None
         note.locked_at = None
         db.session.commit()
+        # 廣播鎖釋放給同筆記的其他 client（被踢出去的人 UI 自動恢復可編輯，不用 reload）
+        from extensions import socketio
+        socketio.emit('r', {'op': 'lr', 'note_id': note.id, 'by': current_user.id},
+                      to=f'note-{note.id}')
         return jsonify({"status": "ok", "forced": True})
     # 一般釋放：只能釋放自己的鎖
     if note.locked_by == current_user.id:
@@ -536,6 +540,14 @@ def delete_note(note_id):
         note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
     else:
         note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+
+    # 編輯鎖：別人持鎖中時不可刪除（避免別人正在編輯被刪導致工作消失）
+    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    if not ok:
+        return jsonify({
+            "status": "error",
+            "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"
+        }), 409
 
     for att in note.attachments:
         r2_delete(att.object_key)

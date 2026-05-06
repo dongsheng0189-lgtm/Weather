@@ -197,6 +197,14 @@ def register_ws_events(socketio):
             emit('r', {'op': 'er', 'message': 'not found'})
             return
 
+        # 編輯鎖：別人持鎖中時不可刪除
+        from notes.routes import _ensure_lock_for_mutation
+        ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+        if not ok:
+            emit('r', {'op': 'dn', 'status': 'error',
+                       'message': f"目前由 {locker.username if locker else '他人'} 編輯中"})
+            return
+
         for att in note.attachments:
             r2_delete(att.object_key)
 

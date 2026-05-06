@@ -103,3 +103,55 @@ def test_checklist_create_rejects_when_other_locked(app, client, db_session):
     assert r.status_code == 409, r.get_data(as_text=True)
     body = r.get_json() or {}
     assert alice_username in body.get("message", "")
+
+
+def test_delete_note_rejects_when_other_locked(app, client, db_session):
+    """HTTP DELETE /notes/api/<id> 應該在別人持鎖時回 409，避免別人正在編輯時被刪除。"""
+    alice, bob = _make_users(db_session)
+    n = _make_note(db_session)
+    nid = n.id
+    n.locked_by = alice.id
+    n.locked_at = datetime.utcnow()
+    db_session.commit()
+    alice_username = alice.username
+    _login_as(client, bob)
+    r = client.delete(f"/notes/api/{nid}")
+    assert r.status_code == 409, r.get_data(as_text=True)
+    body = r.get_json() or {}
+    assert alice_username in body.get("message", "")
+    # 確認 note 沒有被刪除
+    from models import Note as _N
+    assert _N.query.get(nid) is not None
+
+
+def test_force_release_broadcasts_lr(app, client, db_session, monkeypatch):
+    """force=True 釋放後應該 socketio.emit 'lr' 廣播，被踢出去那位 UI 可自動恢復。"""
+    from extensions import socketio
+    emissions = []
+
+    def fake_emit(event, payload=None, *args, **kwargs):
+        emissions.append({"event": event, "payload": payload, "kwargs": kwargs})
+
+    monkeypatch.setattr(socketio, "emit", fake_emit)
+
+    alice, bob = _make_users(db_session)
+    # bob 升 admin 才能 force release
+    bob.role = "admin"
+    n = _make_note(db_session)
+    nid = n.id
+    n.locked_by = alice.id
+    n.locked_at = datetime.utcnow()
+    db_session.commit()
+    _login_as(client, bob)
+    r = client.post(f"/notes/api/{nid}/lock/release", json={"force": True})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    body = r.get_json() or {}
+    assert body.get("forced") is True
+    # 至少應該有一筆 lr broadcast，note_id 對應、to=note-<id>
+    lr_events = [e for e in emissions
+                 if e["event"] == "r"
+                 and isinstance(e["payload"], dict)
+                 and e["payload"].get("op") == "lr"
+                 and e["payload"].get("note_id") == nid
+                 and e["kwargs"].get("to") == f"note-{nid}"]
+    assert lr_events, f"force release 沒廣播 lr，emissions={emissions}"
