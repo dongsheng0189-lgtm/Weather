@@ -68,14 +68,12 @@
   <a href="{{ url_for('notes.index') }}" class="btn btn-secondary" id="btn-back">← 返回</a>
   <span class="save-status" id="save-status"></span>
 </div>
-{% if is_readonly %}
-<div id="lock-banner" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#856404;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
-  <span>⚠️ 目前由 <strong>{{ locker_name }}</strong> 編輯中，無法編輯</span>
+<div id="lock-banner" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#856404;display:{% if is_readonly %}flex{% else %}none{% endif %};align-items:center;gap:.75rem;flex-wrap:wrap;">
+  <span id="lock-banner-text">⚠️ 目前由 <strong id="lock-banner-name">{{ locker_name or '' }}</strong> 編輯中，無法編輯</span>
   {% if current_user.is_admin() or current_user.is_super_admin() %}
   <button class="btn btn-danger" id="btn-force-release" type="button" onclick="forceReleaseLock()" style="font-size:.8rem;padding:.3rem .7rem;margin-left:auto;">強制釋放鎖</button>
   {% endif %}
 </div>
-{% endif %}
 <div class="card editor-wrap">
   <input type="text" id="title-input" placeholder="筆記標題…" value="{{ note.title if note else default_title }}">
   {% if note and note.updated_by %}
@@ -197,6 +195,9 @@ var currentStatus = {{ (note.status if note else 'pending')|tojson }};
 var currentCategory = {{ (note.category if note else (default_category or 'misc'))|tojson }};
 var currentShift = {{ (note.shift if note else default_shift)|tojson }};
 var IS_READONLY = {{ (is_readonly or false)|tojson }};
+var LOCKER_NAME = {{ (locker_name or '')|tojson }};
+// 用 _lockOwnedByMe 追蹤 lazy lock 狀態：null=尚未確認, true=自己持鎖, false=被別人鎖
+var _lockOwnedByMe = IS_READONLY ? false : null;
 
 // Readonly 模式：禁用所有輸入和按鈕（除了返回和強制釋放）
 function applyReadonly() {
@@ -215,26 +216,66 @@ function applyReadonly() {
 }
 document.addEventListener('DOMContentLoaded', applyReadonly);
 
+// Lazy lock acquire：mutation 回傳 409 時，切到 readonly 並顯示鎖定者
+function _enterReadonlyDueTo409(lockerName) {
+  IS_READONLY = true;
+  _lockOwnedByMe = false;
+  if (lockerName) LOCKER_NAME = lockerName;
+  // 顯示 banner
+  var banner = document.getElementById('lock-banner');
+  var nameEl = document.getElementById('lock-banner-name');
+  if (nameEl && LOCKER_NAME) nameEl.textContent = LOCKER_NAME;
+  if (banner) banner.style.display = 'flex';
+  // 停心跳
+  stopHeartbeat();
+  // 禁用所有輸入
+  applyReadonly();
+}
+
+// 統一處理 mutation API 回應：409 → 切 readonly 並回 false（呼叫端不要繼續）
+// 200/2xx → 第一次成功時記錄已持鎖，回 true（呼叫端繼續原流程）
+function handleMutationResponse(resp, jsonBody) {
+  if (resp.status === 409) {
+    var msg = (jsonBody && jsonBody.message) || '';
+    var m = msg.match(/由\s*(.+?)\s*編輯/);
+    _enterReadonlyDueTo409(m ? m[1] : null);
+    var saveStatus = document.getElementById('save-status');
+    if (saveStatus) saveStatus.textContent = msg || '已被其他人鎖定';
+    return false;
+  }
+  if (resp.ok && _lockOwnedByMe !== true) {
+    // 第一次 mutation 成功 → 確認自己持鎖；啟動心跳（若還沒）
+    _lockOwnedByMe = true;
+    if (NOTE_ID && !_hbTimer) startHeartbeat();
+  }
+  return true;
+}
+
 // 編輯鎖 heartbeat
 var _hbTimer = null;
 function startHeartbeat() {
-  if (!NOTE_ID || IS_READONLY) return;
+  if (!NOTE_ID || IS_READONLY || _hbTimer) return;
   _hbTimer = setInterval(function() {
     fetch('/notes/api/' + NOTE_ID + '/lock/heartbeat', { method: 'POST' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d.status !== 'ok') {
-          // 鎖被搶走，停止 heartbeat 並提示
-          clearInterval(_hbTimer);
-          alert('編輯鎖已失效：' + (d.message || '未知'));
+      .then(function(r) { return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; }); })
+      .then(function(pair) {
+        var r = pair[0], d = pair[1];
+        if (d && d.status !== 'ok') {
+          // 鎖被搶走，停止 heartbeat 並切到 readonly UI
+          stopHeartbeat();
+          var msg = (d && d.message) || '';
+          var m = msg.match(/由\s*(.+?)\s*持有|由\s*(.+?)\s*編輯/);
+          var lockerName = m ? (m[1] || m[2]) : null;
+          _enterReadonlyDueTo409(lockerName);
         }
       }).catch(function() {});
   }, 30000); // 30 秒
 }
-function stopHeartbeat() { if (_hbTimer) clearInterval(_hbTimer); }
+function stopHeartbeat() { if (_hbTimer) { clearInterval(_hbTimer); _hbTimer = null; } }
 
 function releaseLock() {
-  if (!NOTE_ID || IS_READONLY) return;
+  // 只有真正持鎖時才送 release（避免「看一眼」就誤觸 release 端點）
+  if (!NOTE_ID || _lockOwnedByMe !== true) return;
   try {
     navigator.sendBeacon && navigator.sendBeacon('/notes/api/' + NOTE_ID + '/lock/release', new Blob(['{}'], { type: 'application/json' }));
   } catch (e) {}
@@ -268,10 +309,12 @@ document.addEventListener('DOMContentLoaded', function() {
   if (backBtn && !IS_READONLY) {
     backBtn.addEventListener('click', function() {
       stopHeartbeat();
-      releaseLock();
+      // 只有在自己持鎖時才嘗試釋放（避免進來看一眼就鎖住別人）
+      if (_lockOwnedByMe === true) releaseLock();
     });
   }
-  if (NOTE_ID && !IS_READONLY) startHeartbeat();
+  // lazy lock：不在進入頁面時 auto-start heartbeat。
+  // heartbeat 改為「第一次 mutation 成功後」才啟動（見 handleMutationResponse）。
 });
 
 {% if note and note.updated_by %}
@@ -344,7 +387,11 @@ function doSave() {
     method: method,
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
-  }).then(function(res) { return res.json(); }).then(function(data) {
+  }).then(function(res) {
+    return res.json().catch(function() { return {}; }).then(function(j) { return [res, j]; });
+  }).then(function(pair) {
+    var res = pair[0], data = pair[1];
+    if (!handleMutationResponse(res, data)) { saveBtn.disabled = false; return; }
     if (data.status === 'ok' || data.id) {
       if (!NOTE_ID && data.id) {
         NOTE_ID = data.id;
@@ -378,7 +425,11 @@ function ensureNoteExists() {
       title: title, content: '', store: store,
       status: currentStatus, category: currentCategory, shift: currentShift, note_type: EDITOR_TYPE
     })
-  }).then(function(r) { return r.json(); }).then(function(d) {
+  }).then(function(r) {
+    return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+  }).then(function(pair) {
+    var r = pair[0], d = pair[1];
+    if (!handleMutationResponse(r, d)) throw new Error(d.message || '已被鎖定');
     if (d.id) {
       NOTE_ID = d.id;
       history.replaceState(null, '', '/notes/' + NOTE_ID);
@@ -393,9 +444,7 @@ function ensureNoteExists() {
         b.onclick = doDelete;
         tb.appendChild(b);
       }
-      // 取得編輯鎖並啟動 heartbeat（適用於 checklist 自動建立流程）
-      fetch('/notes/api/' + NOTE_ID + '/lock/heartbeat', { method: 'POST' }).catch(function() {});
-      if (!_hbTimer) startHeartbeat();
+      // 新建筆記後我們就是 owner — handleMutationResponse 已啟動 heartbeat
       return NOTE_ID;
     }
     throw new Error(d.message || '儲存失敗');
@@ -409,8 +458,12 @@ function uploadPendingFiles() {
     formData.append('file', file);
     formData.append('note_id', NOTE_ID);
     return fetch('/notes/api/attachments/upload', { method: 'POST', body: formData })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
+      .then(function(r) {
+        return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+      })
+      .then(function(pair) {
+        var r = pair[0], d = pair[1];
+        if (!handleMutationResponse(r, d)) throw new Error(d.message || '已被鎖定');
         if (d.status !== 'ok') throw new Error(d.message || '上傳失敗');
       });
   });
@@ -423,7 +476,14 @@ function doDelete() {
     window._ws.emit('d', { op: 'dn', id: NOTE_ID });
     window._ws.once('r', function() { window.location.href = '/notes/'; });
   } else {
-    fetch('/notes/api/' + NOTE_ID, { method: 'DELETE' }).then(function() { window.location.href = '/notes/'; });
+    fetch('/notes/api/' + NOTE_ID, { method: 'DELETE' })
+      .then(function(r) {
+        return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+      })
+      .then(function(pair) {
+        if (!handleMutationResponse(pair[0], pair[1])) return;
+        window.location.href = '/notes/';
+      });
   }
 }
 
@@ -475,8 +535,12 @@ function createAttItem(att) {
     e.stopPropagation();
     if (!confirm('刪除此附件？')) return;
     fetch('/notes/api/attachments/' + att.id, { method: 'DELETE' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
+      .then(function(r) {
+        return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+      })
+      .then(function(pair) {
+        var r = pair[0], d = pair[1];
+        if (!handleMutationResponse(r, d)) return;
         if (d.status === 'ok') {
           var el = document.getElementById('att-' + att.id);
           if (el) el.remove();
@@ -525,6 +589,19 @@ function handleFileUpload(input) {
         }
       };
       xhr.onload = function() {
+        // 模擬 fetch response 給 handleMutationResponse
+        var jbody = {};
+        try { jbody = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+        var fakeResp = { status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300 };
+        if (!handleMutationResponse(fakeResp, jbody)) {
+          done++;
+          statusEl.textContent = (jbody && jbody.message) || '已被鎖定';
+          if (done >= total) {
+            progressWrap.style.display = 'none';
+            progressBar.style.width = '0%';
+          }
+          return;
+        }
         done++;
         statusEl.textContent = done + '/' + total + ' 完成';
         if (done >= total) {
@@ -869,7 +946,18 @@ function toggleChecklistItem(itemId, isChecked, rowEl) {
     method: 'PATCH',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ is_checked: isChecked })
-  }).then(function(r) { return r.json(); }).then(function(d) {
+  }).then(function(r) {
+    return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+  }).then(function(pair) {
+    var r = pair[0], d = pair[1];
+    if (!handleMutationResponse(r, d)) {
+      // 409：rollback checkbox state
+      if (rowEl) {
+        var cb = rowEl.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = !isChecked;
+      }
+      return;
+    }
     if (d.status !== 'ok') return;
     // 在原地更新 DOM：避免重新排序造成項目跳動
     // 排序變動會在下次重新進入頁面時生效
@@ -903,8 +991,14 @@ function toggleChecklistItem(itemId, isChecked, rowEl) {
 function deleteChecklistItem(itemId) {
   if (!confirm('確定刪除這個項目？')) return;
   fetch('/notes/api/items/' + itemId, { method: 'DELETE' })
-    .then(function(r) { return r.json(); })
-    .then(function(d) { if (d.status === 'ok') loadChecklistItems(); });
+    .then(function(r) {
+      return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+    })
+    .then(function(pair) {
+      var r = pair[0], d = pair[1];
+      if (!handleMutationResponse(r, d)) return;
+      if (d.status === 'ok') loadChecklistItems();
+    });
 }
 
 function openAddItemDialog() {
@@ -951,10 +1045,15 @@ function renderItemAttachmentList() {
     x.type = 'button';
     x.style.cssText = 'position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:14px;';
     x.onclick = function() {
-      fetch('/notes/api/attachments/' + a.id, { method: 'DELETE' }).then(function() {
-        _itemAttachmentsSaved.splice(idx, 1);
-        renderItemAttachmentList();
-      });
+      fetch('/notes/api/attachments/' + a.id, { method: 'DELETE' })
+        .then(function(r) {
+          return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+        })
+        .then(function(pair) {
+          if (!handleMutationResponse(pair[0], pair[1])) return;
+          _itemAttachmentsSaved.splice(idx, 1);
+          renderItemAttachmentList();
+        });
     };
     wrap.appendChild(x);
     list.appendChild(wrap);
@@ -1018,7 +1117,11 @@ function saveItemFromDialog() {
       method: method,
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ text: text })
-    }).then(function(r) { return r.json(); }).then(function(d) {
+    }).then(function(r) {
+      return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+    }).then(function(pair) {
+      var r = pair[0], d = pair[1];
+      if (!handleMutationResponse(r, d)) throw new Error(d.message || '已被鎖定');
       if (d.status !== 'ok') throw new Error(d.message || '儲存失敗');
       return d.item.id;
     });
@@ -1031,8 +1134,14 @@ function saveItemFromDialog() {
       fd.append('note_id', NOTE_ID);
       fd.append('item_id', savedItemId);
       return fetch('/notes/api/attachments/upload', { method: 'POST', body: fd })
-        .then(function(r) { return r.json(); })
-        .then(function(d) { if (d.status !== 'ok') throw new Error(d.message || '附件上傳失敗'); });
+        .then(function(r) {
+          return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
+        })
+        .then(function(pair) {
+          var r = pair[0], d = pair[1];
+          if (!handleMutationResponse(r, d)) throw new Error(d.message || '已被鎖定');
+          if (d.status !== 'ok') throw new Error(d.message || '附件上傳失敗');
+        });
     });
     return Promise.all(uploads).then(function() { return savedItemId; });
   }).then(function() {
