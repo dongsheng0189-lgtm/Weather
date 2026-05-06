@@ -489,6 +489,14 @@ def heartbeat_lock(note_id):
         # 沒人持有，重新取得
         _acquire_lock(note)
         db.session.commit()
+        # 廣播鎖被取得 → room 內其他 client 切 readonly
+        from extensions import socketio
+        socketio.emit('r', {
+            'op': 'la',
+            'note_id': note.id,
+            'by': current_user.id,
+            'by_name': current_user.username,
+        }, to=f'note-{note.id}')
         return jsonify({"status": "ok", "reacquired": True})
     return jsonify({"status": "error", "message": f"鎖已由 {locker.username if locker else '其他人'} 持有"}), 409
 
@@ -522,6 +530,10 @@ def release_lock_endpoint(note_id):
         note.locked_by = None
         note.locked_at = None
         db.session.commit()
+        # 廣播鎖釋放 → room 內其他 client 退出 readonly
+        from extensions import socketio
+        socketio.emit('r', {'op': 'lr', 'note_id': note.id, 'by': current_user.id},
+                      to=f'note-{note.id}')
         return jsonify({"status": "ok"})
     return jsonify({"status": "ok", "skipped": True})
 

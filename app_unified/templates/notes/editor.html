@@ -202,6 +202,7 @@ var currentCategory = {{ (note.category if note else (default_category or 'misc'
 var currentShift = {{ (note.shift if note else default_shift)|tojson }};
 var IS_READONLY = {{ (is_readonly or false)|tojson }};
 var LOCKER_NAME = {{ (locker_name or '')|tojson }};
+window.CURRENT_USER_ID = {{ current_user.id|tojson }};
 // Lazy 鎖狀態：null=未動沒鎖, true=自己持鎖（已 acquire）, false=被別人鎖
 var _lockOwnedByMe = IS_READONLY ? false : null;
 // 從 URL 拿 sort 參數，跟外層 notes list 共用（created vs updated）
@@ -259,11 +260,18 @@ function _setupNoteWsRoom() {
   if (sock.connected) _join();
   sock.on('connect', _join);  // 重連時也要重新加入
   sock.on('r', function(msg) {
-    if (!msg || msg.op !== 'lr') return;
-    if (msg.note_id !== NOTE_ID) return;
-    // 鎖被釋放 — 若我目前是 readonly，自動切 editable
-    // (idempotent：HTTP 路徑自己儲存也會收到，但 IS_READONLY=false 時 no-op)
-    if (IS_READONLY) exitReadonly();
+    if (!msg || !msg.note_id || msg.note_id !== NOTE_ID) return;
+    if (msg.op === 'lr') {
+      // 鎖被釋放 — 若我目前是 readonly，自動切 editable
+      if (IS_READONLY) exitReadonly();
+    } else if (msg.op === 'la') {
+      // 別人剛 acquire 鎖 → 自己切 readonly + 顯示 banner
+      // 過濾自己（acquire 的 client 也在 room 裡會收到）
+      if (msg.by === window.CURRENT_USER_ID) return;
+      if (_lockOwnedByMe !== true) {
+        _enterReadonlyDueTo409(msg.by_name || null);
+      }
+    }
   });
 }
 if (document.readyState === 'complete') _setupNoteWsRoom();
