@@ -69,10 +69,13 @@ def register_ws_events(socketio):
                 query = query.filter_by(status=status_filter)
             # status='' (全部狀態) → 不加 filter
         else:
-            from notes.routes import _get_business_day_range
-            range_days = {'today': 0, '3d': 3, '5d': 5, '7d': 7}
-            days = range_days.get(range_param if range_param else 'today', 3)
-            if days == 0:
+            from notes.routes import RANGE_DAYS, _get_business_day_range
+            key = range_param if range_param else 'today'
+            days = RANGE_DAYS.get(key, 3)
+            if days is None:
+                # range=all → 不過濾日期
+                pass
+            elif days == 0:
                 start_utc, end_utc = _get_business_day_range()
                 query = query.filter(Note.updated_at >= start_utc, Note.updated_at < end_utc)
             else:

@@ -167,7 +167,7 @@ def test_filter_by_category(app, client, db_session):
     _mk_note(db_session, u, category="employee", title="emp_note_uniqXYZ")
     _mk_note(db_session, u, category="customer", title="cust_note_uniqXYZ")
     _mk_note(db_session, u, category="misc", title="misc_note_uniqXYZ")
-    r = client.get("/notes/?category=employee&range=30d")
+    r = client.get("/notes/?category=employee&range=all")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
     assert "emp_note_uniqXYZ" in html
@@ -179,7 +179,7 @@ def test_filter_misc_visible(app, client, db_session):
     u = _mk_user(db_session, role="super_admin", store="B")
     _login(client, u)
     _mk_note(db_session, u, category="misc", title="old_note_abc")
-    r = client.get("/notes/?category=misc&range=30d")
+    r = client.get("/notes/?category=misc&range=all")
     assert r.status_code == 200
     assert "old_note_abc" in r.get_data(as_text=True)
 
@@ -202,7 +202,7 @@ def test_filter_category_and_status_combined(app, client, db_session):
     _mk_note(db_session, u, category="employee", status="pending", title="noteA")
     _mk_note(db_session, u, category="employee", status="resolved", title="noteB")
     _mk_note(db_session, u, category="customer", status="pending", title="noteC")
-    r = client.get("/notes/?category=employee&status=pending&range=30d")
+    r = client.get("/notes/?category=employee&status=pending&range=all")
     html = r.get_data(as_text=True)
     assert "noteA" in html
     assert "noteB" not in html

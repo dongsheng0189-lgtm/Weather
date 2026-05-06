@@ -175,7 +175,7 @@ def test_index_shift_filter_a(app, client, db_session):
     _mk_note(db_session, u, title="alpha-A", category="employee", shift="A")
     _mk_note(db_session, u, title="alpha-B", category="employee", shift="B")
     _mk_note(db_session, u, title="alpha-NONE", category="employee", shift=None)
-    res = client.get("/notes/?store=B&category=employee&shift=A&range=30d")
+    res = client.get("/notes/?store=B&category=employee&shift=A&range=all")
     body = res.get_data(as_text=True)
     assert "alpha-A" in body
     assert "alpha-B" not in body
@@ -190,8 +190,8 @@ def test_index_shift_filter_none_means_show_all(app, client, db_session):
     _mk_note(db_session, u, title="bravo-B", category="employee", shift="B")
     _mk_note(db_session, u, title="bravo-NULL", category="employee", shift=None)
     # 不帶 shift 或 shift=none → 顯示全部
-    for url in ["/notes/?store=B&category=employee&range=30d",
-                "/notes/?store=B&category=employee&shift=none&range=30d"]:
+    for url in ["/notes/?store=B&category=employee&range=all",
+                "/notes/?store=B&category=employee&shift=none&range=all"]:
         body = client.get(url).get_data(as_text=True)
         assert "bravo-A" in body, f"missing A in {url}"
         assert "bravo-B" in body, f"missing B in {url}"
