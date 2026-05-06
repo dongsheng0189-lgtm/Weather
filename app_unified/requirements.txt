@@ -19,3 +19,5 @@ flask-socketio>=5.3
 gevent>=23.0
 gevent-websocket>=0.10
 beautifulsoup4>=4.12
+sentence-transformers>=2.5
+scikit-learn>=1.3

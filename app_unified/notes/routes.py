@@ -1146,33 +1146,34 @@ def notes_ai_summary():
     if not notes:
         return jsonify({"status": "ok", "summary": "（近期無筆記）", "business_day_date": business_day_date})
 
-    # 拆成一般筆記 / 確認表單兩段（已完成項目只列區間內 updated 的）
-    data_block, has_cl, nreg, ncl = _build_ai_sections(notes, since=start_utc, until=end_utc, inrange_label=inrange_label)
-
     store_label = f"「{store}店」"
-    extra = f"\n# 額外要求\n請在輸出最前面標明這是「{store}店」的彙整。\n"
 
-    # 資料量大時拆成筆記 + 確認表單兩批分別呼叫
-    if nreg > 0 and has_cl and len(data_block) > 6000:
-        task_id = uuid.uuid4().hex[:12]
-        _ai_tasks[task_id] = {"status": "processing"}
-        import gevent
-        gevent.spawn(
-            _run_split_summary, task_id, current_app._get_current_object(),
-            notes, since=start_utc, until=end_utc, store_label=store_label, range_label=range_label, extra=extra, inrange_label=inrange_label,
-        )
-    else:
-        prompt = (
-            MANAGER_PROMPT + extra
-            + _build_output_structure_prompt(nreg > 0, has_cl)
-            + f"\n# 待整理資料（{store_label}{range_label}，一般筆記 {nreg} 筆 / 確認表單 {ncl} 筆）\n\n{data_block}"
-        )
-        task_id = uuid.uuid4().hex[:12]
-        _ai_tasks[task_id] = {"status": "processing"}
-        import gevent
-        gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
-                     prompt, 65536)
+    # === LOCAL Python 摘要：取代 Gemini，避免敏感資料外流 ===
+    # 既有 Gemini 路徑（_run_ai_task / _run_split_summary / MANAGER_PROMPT）保留供 git revert
+    logger.warning("[ai_summary] === using LOCAL python pipeline (NOT gemini) ===")
+    task_id = uuid.uuid4().hex[:12]
+    _ai_tasks[task_id] = {"status": "processing"}
+    import gevent
+    gevent.spawn(_run_local_summary, task_id, current_app._get_current_object(),
+                 store, start_utc, end_utc, store_label, range_label, inrange_label)
     return jsonify({"status": "accepted", "task_id": task_id, "business_day_date": business_day_date})
+
+
+def _run_local_summary(task_id, app, store, since, until, store_label, range_label, inrange_label):
+    """純 Python 摘要 task（取代 Gemini）。與 _run_ai_task 同 task_id 機制相容。"""
+    with app.app_context():
+        try:
+            notes = (Note.query
+                     .filter(Note.is_ai_summary.is_(False))
+                     .filter_by(store=store)
+                     .order_by(Note.updated_at.desc())
+                     .all())
+            from notes.ai_local import summarize_local
+            result = summarize_local(notes, since, until, store_label, range_label, inrange_label)
+            _ai_tasks[task_id] = {"status": "done", "result": result}
+        except Exception as e:
+            logger.exception("[ai_summary] local pipeline failed")
+            _ai_tasks[task_id] = {"status": "error", "message": f"本地摘要失敗：{e}"}
 
 
 # ── Checklist Item CRUD ────────────────────────────────
