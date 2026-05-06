@@ -20,6 +20,24 @@ def _log_user_action(action, target_user, detail=None):
     )
     db.session.add(log)
 
+
+def _sync_features_for_role(user, role):
+    """同步 user.features 與 role：
+    - admin/super_admin → 補 notes + vetting（若還沒有）
+    - user → 確保 notes 存在，移除 vetting
+    其他 feature（mynotes 等）不動 — 由「設定模組權限」UI 獨立管理。
+    """
+    current = list(user.get_features())
+    if role in ("admin", "super_admin"):
+        for key in ("notes", "vetting"):
+            if key not in current:
+                current.append(key)
+    elif role == "user":
+        if "notes" not in current:
+            current.append("notes")
+        current = [f for f in current if f != "vetting"]
+    user.set_features(current)
+
 try:
     import face_recognition_models
     import face_recognition
@@ -316,6 +334,7 @@ def set_role(user_id):
     user.role = role
     if old_role != role:
         _log_user_action("set_role", user, detail=f"{old_role}→{role}")
+        _sync_features_for_role(user, role)
     db.session.commit()
     return jsonify({"status": "ok"})
 
