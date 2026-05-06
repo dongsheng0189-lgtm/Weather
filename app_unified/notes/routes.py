@@ -1197,6 +1197,10 @@ def create_checklist_item(note_id):
     note = _get_note_for_edit(note_id)
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
+    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    if not ok:
+        return jsonify({"status": "error",
+                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     # order_index 仍保留（向下相容），但實際排序用 updated_at
@@ -1225,6 +1229,10 @@ def update_checklist_item(item_id):
     note = _get_note_for_edit(item.note_id)
     if not note:
         return jsonify({"status": "error", "message": "無權限"}), 403
+    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    if not ok:
+        return jsonify({"status": "error",
+                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
     data = request.get_json(silent=True) or {}
     changed = False
     if "text" in data:
@@ -1267,6 +1275,10 @@ def delete_checklist_item(item_id):
     note = _get_note_for_edit(item.note_id)
     if not note:
         return jsonify({"status": "error", "message": "無權限"}), 403
+    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    if not ok:
+        return jsonify({"status": "error",
+                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
     # 刪 R2 上的附件
     for a in list(item.attachments):
         try:
@@ -1306,6 +1318,11 @@ def upload_attachment_api():
         note = Note.query.filter_by(id=note_id, store=current_user.store).first()
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
+
+    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    if not ok:
+        return jsonify({"status": "error",
+                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
 
     # 驗證 item 屬於這個 note
     if item_id:
@@ -1417,6 +1434,11 @@ def delete_attachment_api(attachment_id):
 
     if not can_delete:
         return jsonify({"status": "error", "message": "無權限刪除"}), 403
+
+    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    if not ok:
+        return jsonify({"status": "error",
+                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
 
     delete_attachment(attachment.object_key)
     item_id = attachment.checklist_item_id

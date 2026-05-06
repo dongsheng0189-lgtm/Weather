@@ -69,3 +69,37 @@ def test_ensure_lock_steals_expired_lock(app, db_session):
     ok, locker = _ensure_lock_for_mutation(n, bob.id)
     assert ok is True
     assert n.locked_by == bob.id
+
+
+def _login_as(client, user):
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(user.id)
+
+
+def test_checklist_create_acquires_lock_when_unlocked(app, client, db_session):
+    """create_checklist_item 應該觸發 lazy acquire（之前完全沒檢查鎖）。"""
+    alice, _bob = _make_users(db_session)
+    n = _make_note(db_session)
+    nid = n.id
+    aid = alice.id
+    _login_as(client, alice)
+    r = client.post(f"/notes/api/{nid}/items", json={"text": "x"})
+    assert r.status_code in (200, 201), r.get_data(as_text=True)
+    from models import Note
+    n2 = Note.query.get(nid)
+    assert n2.locked_by == aid  # alice 自動 acquire
+
+
+def test_checklist_create_rejects_when_other_locked(app, client, db_session):
+    alice, bob = _make_users(db_session)
+    n = _make_note(db_session)
+    nid = n.id
+    n.locked_by = alice.id
+    n.locked_at = datetime.utcnow()
+    db_session.commit()
+    alice_username = alice.username
+    _login_as(client, bob)
+    r = client.post(f"/notes/api/{nid}/items", json={"text": "y"})
+    assert r.status_code == 409, r.get_data(as_text=True)
+    body = r.get_json() or {}
+    assert alice_username in body.get("message", "")
