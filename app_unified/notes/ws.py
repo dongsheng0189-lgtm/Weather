@@ -26,6 +26,7 @@ def register_ws_events(socketio):
             elif op == 'dn': _delete_note(data)
             elif op == 'gn': _get_note(data)
             elif op == 'as': _ai_summary(data)
+            elif op == 'jn': _join_note(data)
             else: emit('r', {'op': 'er', 'message': 'unknown op'})
         except Exception as e:
             emit('r', {'op': 'er', 'message': str(e)})
@@ -174,6 +175,10 @@ def register_ws_events(socketio):
             log = NoteLog(note_id=note.id, note_title=note.title, user_id=current_user.id, action='edit', diff='; '.join(diff_parts))
             db.session.add(log)
         db.session.commit()
+        # 廣播鎖釋放給同筆記的其他 client (排除自己)
+        from extensions import socketio
+        socketio.emit('r', {'op': 'lr', 'note_id': note.id, 'by': current_user.id},
+                      to=f'note-{note.id}', include_self=False)
         emit('r', {'op': 'un', 'status': 'ok'})
 
     def _delete_note(data):
@@ -226,3 +231,22 @@ def register_ws_events(socketio):
     def _ai_summary(data):
         # AI 摘要已改為 HTTP 異步處理，WebSocket 不再直接呼叫 LLM
         emit('r', {'op': 'er', 'message': '請使用 HTTP 介面'})
+
+    def _join_note(data):
+        from flask_socketio import join_room
+        nid = data.get('id')
+        if not nid:
+            emit('r', {'op': 'er', 'message': 'missing id'})
+            return
+        # 權限檢查（同 _get_note）
+        if current_user.is_super_admin():
+            note = Note.query.get(nid)
+        elif current_user.is_admin():
+            note = Note.query.filter_by(id=nid, store=current_user.store).first()
+        else:
+            note = Note.query.filter_by(id=nid, store=current_user.store).first()
+        if not note:
+            emit('r', {'op': 'er', 'message': 'not found'})
+            return
+        join_room(f'note-{nid}')
+        emit('r', {'op': 'jn', 'status': 'ok', 'note_id': nid})

@@ -462,6 +462,11 @@ def update_note(note_id):
         db.session.add(log)
 
     db.session.commit()
+    # 廣播鎖釋放給同筆記的其他 client（HTTP 路徑無 self sid，
+    # 由 frontend 自行 idempotent 處理；自己的 UI 已經是正確狀態）
+    from extensions import socketio
+    socketio.emit('r', {'op': 'lr', 'note_id': note.id, 'by': current_user.id},
+                  to=f'note-{note.id}')
     return jsonify({"status": "ok"})
 
 

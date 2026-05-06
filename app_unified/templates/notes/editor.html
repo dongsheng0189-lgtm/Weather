@@ -216,6 +216,51 @@ function applyReadonly() {
 }
 document.addEventListener('DOMContentLoaded', applyReadonly);
 
+// 退出 readonly：解除 input/button 鎖定 + 隱藏 banner
+function exitReadonly() {
+  IS_READONLY = false;
+  _lockOwnedByMe = null;  // 還沒 acquire — 等下次 mutation 才確認
+  var EXEMPT_IDS = ['btn-back', 'btn-force-release'];
+  var inputs = document.querySelectorAll('input, textarea, select, button');
+  for (var i = 0; i < inputs.length; i++) {
+    var el = inputs[i];
+    if (EXEMPT_IDS.indexOf(el.id) >= 0) continue;
+    if (el.tagName === 'BUTTON') el.disabled = false;
+    else if (el.tagName === 'INPUT' && el.type === 'checkbox') el.disabled = false;
+    else el.readOnly = false;
+    el.style.opacity = '';
+    el.style.cursor = '';
+  }
+  var banner = document.getElementById('lock-banner');
+  if (banner) banner.style.display = 'none';
+  var saveStatus = document.getElementById('save-status');
+  if (saveStatus) saveStatus.textContent = '對方已儲存，可以開始編輯';
+}
+
+// WS：加入 per-note room 並監聽 'lr' (lock_released) 廣播
+// base.html 在本 block 之後才初始化 window._ws，故延後到 window load
+function _setupNoteWsRoom() {
+  if (!NOTE_ID) return;
+  var sock = window._ws;
+  if (!sock) {
+    // 還沒 ready，再試一次
+    setTimeout(_setupNoteWsRoom, 200);
+    return;
+  }
+  function _join() { sock.emit('d', { op: 'jn', id: NOTE_ID }); }
+  if (sock.connected) _join();
+  sock.on('connect', _join);  // 重連時也要重新加入
+  sock.on('r', function(msg) {
+    if (!msg || msg.op !== 'lr') return;
+    if (msg.note_id !== NOTE_ID) return;
+    // 鎖被釋放 — 若我目前是 readonly，自動切 editable
+    // (idempotent：HTTP 路徑自己儲存也會收到，但 IS_READONLY=false 時 no-op)
+    if (IS_READONLY) exitReadonly();
+  });
+}
+if (document.readyState === 'complete') _setupNoteWsRoom();
+else window.addEventListener('load', _setupNoteWsRoom);
+
 // Lazy lock acquire：mutation 回傳 409 時，切到 readonly 並顯示鎖定者
 function _enterReadonlyDueTo409(lockerName) {
   IS_READONLY = true;
