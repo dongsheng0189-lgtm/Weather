@@ -1189,10 +1189,17 @@ def list_checklist_items(note_id):
     note = _get_note_for_edit(note_id)
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
-    # 排序：updated_at 新→舊，相同時 id 大→小
-    items = ChecklistItem.query.filter_by(note_id=note_id).order_by(
-        ChecklistItem.updated_at.desc(), ChecklistItem.id.desc()
-    ).all()
+    # 排序：sort=created → created_at DESC（跟外層筆記列表一致時不會因勾選而上浮）
+    # 預設 sort=updated → updated_at DESC（舊行為，相容性）
+    sort_mode = request.args.get("sort", "updated")
+    if sort_mode == "created":
+        items = ChecklistItem.query.filter_by(note_id=note_id).order_by(
+            ChecklistItem.created_at.desc(), ChecklistItem.id.desc()
+        ).all()
+    else:  # default: updated
+        items = ChecklistItem.query.filter_by(note_id=note_id).order_by(
+            ChecklistItem.updated_at.desc(), ChecklistItem.id.desc()
+        ).all()
     return jsonify({"status": "ok", "items": [_checklist_item_json(i) for i in items]})
 
 

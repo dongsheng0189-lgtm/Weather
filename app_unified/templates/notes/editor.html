@@ -198,6 +198,8 @@ var IS_READONLY = {{ (is_readonly or false)|tojson }};
 var LOCKER_NAME = {{ (locker_name or '')|tojson }};
 // 用 _lockOwnedByMe 追蹤 lazy lock 狀態：null=尚未確認, true=自己持鎖, false=被別人鎖
 var _lockOwnedByMe = IS_READONLY ? false : null;
+// 從 URL 拿 sort 參數，跟外層 notes list 共用（created vs updated）
+var CURRENT_SORT = (new URLSearchParams(window.location.search).get('sort')) || 'updated';
 
 // Readonly 模式：禁用所有輸入和按鈕（除了返回和強制釋放）
 function applyReadonly() {
@@ -878,7 +880,7 @@ var _itemAttachmentsSaved = [];   // 編輯模式下已儲存的附件
 
 function loadChecklistItems() {
   if (!NOTE_ID || EDITOR_TYPE !== 'checklist') return;
-  fetch('/notes/api/' + NOTE_ID + '/items')
+  fetch('/notes/api/' + NOTE_ID + '/items?sort=' + encodeURIComponent(CURRENT_SORT))
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.status !== 'ok') return;
