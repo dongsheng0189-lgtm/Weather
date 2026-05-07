@@ -5,7 +5,6 @@
 不依賴雲端 LLM、不依賴 sentence-transformers / sklearn。
 """
 import re
-from typing import Optional
 
 
 # 偵測 section header：可有可無【】或 [] 包覆、可有可無冒號、整行只有 header

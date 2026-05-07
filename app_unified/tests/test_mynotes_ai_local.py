@@ -79,3 +79,18 @@ def test_split_sections_preamble_dropped():
     result = _split_sections(text)
     assert "日期" not in result.get("店務", "")
     assert "出席" not in result.get("店務", "")
+
+
+def test_split_sections_duplicate_header_last_wins():
+    """重複 section header → 後出現的覆蓋前面（記錄當前 contract，避免 regression）。"""
+    text = """
+店務:
+1. 第一段店務
+
+店務:
+2. 第二段店務
+""".strip()
+    result = _split_sections(text)
+    assert "店務" in result
+    assert "第二段店務" in result["店務"]
+    assert "第一段店務" not in result["店務"]
