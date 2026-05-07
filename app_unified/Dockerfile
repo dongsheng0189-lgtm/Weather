@@ -21,13 +21,18 @@ RUN pip install --no-cache-dir --no-deps /tmp/wheels/*.whl && rm -rf /tmp/wheels
 COPY app_unified/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app_unified/ .
+# Pre-load MiniLM model into image (saves 5-15s on first AI summary after redeploy)
+ENV SENTENCE_TRANSFORMERS_HOME=/opt/st_cache
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
 
 # 驗證 wheels 已安裝（face_recognition 需要 pkg_resources shim，在 wsgi.py 提供）
 RUN python -c "import dlib; print('dlib OK')"
 
+COPY app_unified/ .
+
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app && \
-    chown -R appuser:appuser /usr/local/lib/python3.12/site-packages
+    chown -R appuser:appuser /usr/local/lib/python3.12/site-packages && \
+    chown -R appuser:appuser /opt/st_cache
 USER appuser
 
 EXPOSE 8080
