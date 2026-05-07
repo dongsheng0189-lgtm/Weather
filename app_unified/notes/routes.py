@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, request, jsonify, render_template, current_app
@@ -672,23 +673,34 @@ def _run_ai_task(task_id, app, prompt, max_tokens, note_id=None, field=None):
             _ai_tasks[task_id] = {"status": "error", "message": str(e)}
 
 
+_AI_TASK_GRACE_SEC = 30
+
+
 @notes_bp.route("/ai/task/<task_id>", methods=["GET"])
 @login_required
 def get_ai_task(task_id):
     """輪詢 AI 任務狀態"""
     if not current_user.is_admin():
         return jsonify({"status": "error", "message": "僅限管理員"}), 403
+
+    # Lazy GC：把已過 grace window 的完成 task 掃掉，避免無限增長
+    now = time.time()
+    expired = [tid for tid, t in _ai_tasks.items() if t.get("delete_at", float("inf")) < now]
+    for tid in expired:
+        _ai_tasks.pop(tid, None)
+
     task = _ai_tasks.get(task_id)
     if not task:
         return jsonify({"status": "error", "message": "任務不存在"}), 404
+
+    # 第一次讀到 done/error 時設定刪除時間，讓重疊 polling 在 grace 內仍取得相同結果
+    if task["status"] in ("done", "error") and "delete_at" not in task:
+        task["delete_at"] = now + _AI_TASK_GRACE_SEC
+
     if task["status"] == "done":
-        result = task["result"]
-        del _ai_tasks[task_id]
-        return jsonify({"status": "done", "result": result})
+        return jsonify({"status": "done", "result": task["result"]})
     if task["status"] == "error":
-        msg = task["message"]
-        del _ai_tasks[task_id]
-        return jsonify({"status": "error", "message": msg})
+        return jsonify({"status": "error", "message": task["message"]})
     return jsonify({"status": "processing"})
 
 
