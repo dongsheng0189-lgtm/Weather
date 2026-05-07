@@ -18,7 +18,17 @@ class _TaipeiFormatter(logging.Formatter):
 
 _handler = logging.StreamHandler(sys.stdout)
 _handler.setFormatter(_TaipeiFormatter("%(asctime)s %(name)s %(levelname)s: %(message)s"))
-logging.basicConfig(level=logging.WARNING, handlers=[_handler], force=True)
+
+# Workaround: Zeabur runtime log viewer 在這個 service 卡 stale 不更新（postgres 等別的 service log 正常）。
+# 多寫一份到 /tmp/app.log，debug 時進「指令」shell `tail -f /tmp/app.log` 看。
+# 10MB 自動 rotate 留兩份備份，避免無限長大；container restart 時 /tmp 自動清空。
+import logging.handlers
+_file_handler = logging.handlers.RotatingFileHandler(
+    "/tmp/app.log", maxBytes=10 * 1024 * 1024, backupCount=2
+)
+_file_handler.setFormatter(_TaipeiFormatter("%(asctime)s %(name)s %(levelname)s: %(message)s"))
+
+logging.basicConfig(level=logging.WARNING, handlers=[_handler, _file_handler], force=True)
 
 from datetime import timedelta
 from flask import Flask, redirect, url_for, render_template, request, session
