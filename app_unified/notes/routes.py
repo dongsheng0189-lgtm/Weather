@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from extensions import db
 from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE, SHIFT_CHOICES
 from admin.routes import call_llm
+from tw_time import tw_iso, tw_str
 
 notes_bp = Blueprint("notes", __name__, url_prefix="/notes")
 
@@ -327,8 +328,8 @@ def list_notes():
         "category": n.category or "misc",
         "shift": n.shift,
         "author": n.display_author,
-        "created_at": n.created_at.isoformat() if n.created_at else "",
-        "updated_at": n.updated_at.isoformat() if n.updated_at else "",
+        "created_at": tw_iso(n.created_at),
+        "updated_at": tw_iso(n.updated_at),
     } for n in notes])
 
 
@@ -391,8 +392,8 @@ def get_note(note_id):
         "category": note.category or "misc",
         "ai_summary": note.ai_summary, "ai_outline": note.ai_outline,
         "updated_by": updater,
-        "created_at": note.created_at.isoformat() if note.created_at else "",
-        "updated_at": note.updated_at.isoformat() if note.updated_at else "",
+        "created_at": tw_iso(note.created_at),
+        "updated_at": tw_iso(note.updated_at),
     })
 
 
@@ -705,7 +706,7 @@ def get_ai_task(task_id):
 
 
 def _note_source_label(n):
-    return f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{n.updated_at.strftime('%m%d') if n.updated_at else ''}_{n.id}】"
+    return f"【檔名：{n.store or '未分店'}店_{n.author_name or (n.author.username if n.author else '?')}_{tw_str(n.updated_at, '%m%d')}_{n.id}】"
 
 
 def _format_note_for_ai(n, since=None, until=None):
@@ -1208,9 +1209,9 @@ def _checklist_item_json(item):
         "order_index": item.order_index,
         "text": item.text,
         "is_checked": item.is_checked,
-        "checked_at": item.checked_at.isoformat() if item.checked_at else None,
+        "checked_at": tw_iso(item.checked_at, fallback=None),
         "checked_by_name": item.checked_by_name or (item.checker.username if item.checker else None),
-        "created_at": item.created_at.isoformat() if item.created_at else "",
+        "created_at": tw_iso(item.created_at),
         "attachments": [{
             "id": a.id,
             "filename": a.filename,
@@ -1457,7 +1458,7 @@ def list_attachments():
             "file_size": a.file_size,
             "url": url,
             "uploader": a.uploader.username if a.uploader else "",
-            "created_at": a.created_at.isoformat() if a.created_at else "",
+            "created_at": tw_iso(a.created_at),
         })
     return jsonify({"status": "ok", "attachments": result})
 

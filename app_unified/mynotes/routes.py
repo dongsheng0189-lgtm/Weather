@@ -16,6 +16,7 @@ from models import (
     PrivateNote, PrivateChecklistItem, PrivateAttachment, PRIVATE_NOTE_TYPES
 )
 from features import user_has_feature
+from tw_time import tw_iso
 
 logger = logging.getLogger(__name__)
 mynotes_bp = Blueprint("mynotes", __name__, url_prefix="/mynotes")
@@ -59,8 +60,8 @@ def _note_json(n: PrivateNote):
         "content": n.content,
         "ai_summary": n.ai_summary,
         "reminder_date": n.reminder_date.isoformat() if n.reminder_date else None,
-        "created_at": n.created_at.isoformat() if n.created_at else None,
-        "updated_at": n.updated_at.isoformat() if n.updated_at else None,
+        "created_at": tw_iso(n.created_at, fallback=None),
+        "updated_at": tw_iso(n.updated_at, fallback=None),
         "item_count": len(n.items) if n.note_type == "todo_checklist" else 0,
         "done_count": sum(1 for i in n.items if i.is_checked) if n.note_type == "todo_checklist" else 0,
     }
@@ -71,7 +72,7 @@ def _item_json(i: PrivateChecklistItem):
         "id": i.id,
         "text": i.text,
         "is_checked": i.is_checked,
-        "checked_at": i.checked_at.isoformat() if i.checked_at else None,
+        "checked_at": tw_iso(i.checked_at, fallback=None),
         "reminder_date": i.reminder_date.isoformat() if i.reminder_date else None,
         "order_index": i.order_index,
         "attachments": [_attachment_json(a) for a in i.attachments],

@@ -4,6 +4,7 @@ from flask_login import current_user
 from flask_socketio import emit
 from extensions import db
 from models import Note, Store, NoteLog, User, STATUS_CHOICES, CATEGORY_CHOICES
+from tw_time import tw_iso
 
 
 def register_ws_events(socketio):
@@ -94,8 +95,8 @@ def register_ws_events(socketio):
             'category': n.category or 'misc',
             'shift': n.shift,
             'author': n.display_author,
-            'created_at': n.created_at.isoformat() if n.created_at else '',
-            'updated_at': n.updated_at.isoformat() if n.updated_at else '',
+            'created_at': tw_iso(n.created_at),
+            'updated_at': tw_iso(n.updated_at),
         } for n in notes]})
 
     def _create_note(data):
@@ -235,8 +236,8 @@ def register_ws_events(socketio):
             'category': note.category or 'misc',
             'shift': note.shift,
             'updated_by': updater,
-            'created_at': note.created_at.isoformat() if note.created_at else '',
-            'updated_at': note.updated_at.isoformat() if note.updated_at else '',
+            'created_at': tw_iso(note.created_at),
+            'updated_at': tw_iso(note.updated_at),
         }})
 
     def _ai_summary(data):

@@ -45,13 +45,16 @@ def create_app():
         return User.query.get(int(user_id))
 
     # Date formatting filter for templates (handles both datetime and legacy str)
+    # 後端統一存 naive UTC，模板顯示前轉台灣時間
+    from tw_time import to_tw
+
     @app.template_filter("fmt_date")
     def fmt_date(value, fmt="%Y-%m-%d"):
         if not value:
             return ""
         if isinstance(value, str):
             return value[:10]
-        return value.strftime(fmt)
+        return to_tw(value).strftime(fmt)
 
     @app.template_filter("fmt_datetime")
     def fmt_datetime(value, fmt="%Y-%m-%d %H:%M"):
@@ -59,7 +62,7 @@ def create_app():
             return ""
         if isinstance(value, str):
             return value[:16]
-        return value.strftime(fmt)
+        return to_tw(value).strftime(fmt)
 
     @app.context_processor
     def inject_features():
