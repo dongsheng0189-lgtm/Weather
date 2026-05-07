@@ -1174,16 +1174,31 @@ def notes_ai_summary():
 
 
 def _run_local_summary(task_id, app, store, since, until, store_label, range_label, inrange_label):
-    """純 Python 摘要 task（取代 Gemini）。與 _run_ai_task 同 task_id 機制相容。"""
+    """純 Python 摘要 task（取代 Gemini）。與 _run_ai_task 同 task_id 機制相容。
+
+    CPU-bound 部份（model.encode / DBSCAN.fit）走 gevent.threadpool 在 real OS thread 跑，
+    避免阻塞 gevent reactor。否則 reactor 卡死時 /healthz 回不了 → Zeabur readiness probe
+    超時 → 殺 pod 重啟 → module-level _ai_tasks dict 跟著清空 → 前端輪詢拿到「任務不存在」。
+    """
     with app.app_context():
         try:
+            from sqlalchemy.orm import joinedload
+            # joinedload 預先載入 author + checklist_items，避免 thread 內 lazy load
+            # 觸發跨 session 訪問（thread 沒有 Flask app_context / SA session）。
             notes = (Note.query
+                     .options(joinedload(Note.author), joinedload(Note.checklist_items))
                      .filter(Note.is_ai_summary.is_(False))
                      .filter_by(store=store)
                      .order_by(Note.updated_at.desc())
                      .all())
             from notes.ai_local import summarize_local
-            result = summarize_local(notes, since, until, store_label, range_label, inrange_label)
+            import gevent
+            # threadpool.apply 把 fn 派到 real OS thread；目前 greenlet 等結果，
+            # 但會 yield hub 給其他 greenlet（含 /healthz、其他 request）。
+            result = gevent.get_hub().threadpool.apply(
+                summarize_local,
+                args=(notes, since, until, store_label, range_label, inrange_label),
+            )
             _ai_tasks[task_id] = {"status": "done", "result": result}
         except Exception as e:
             import logging as _logging_mod
