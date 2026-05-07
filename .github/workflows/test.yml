@@ -34,7 +34,7 @@ jobs:
       - name: Run tests
         env:
           SECRET_KEY: test-secret-key
-          DATABASE_URL: sqlite:///:memory:
+          DATABASE_URL: "sqlite:///:memory:"
           FLASK_ENV: testing
         run: pytest tests/ -v --tb=short --cov=. --cov-report=term-missing
 
