@@ -47,4 +47,9 @@ EXPOSE 8080
 ENV PYTHONUNBUFFERED=1
 ENV SESSION_COOKIE_SECURE=true
 
+# GHA push 時自動帶 commit SHA 進來；管理頁面顯示前 4 碼供版本比對
+# 放在最後不影響上面 layer 的 cache（每次 commit 一定會變）
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
+
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "wsgi:app"]

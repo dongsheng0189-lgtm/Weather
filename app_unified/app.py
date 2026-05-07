@@ -85,6 +85,13 @@ def create_app():
             "multi_feature": len(feats) >= 2,
         }
 
+    @app.context_processor
+    def inject_git_sha():
+        # GHA build 時透過 build-arg 注入 GIT_SHA，再由 Dockerfile ENV 帶到 runtime。
+        # 本機 / 沒設值時 fallback 顯示 'dev'。只取前 4 碼讓管理頁面好比對。
+        sha = os.environ.get("GIT_SHA", "dev")
+        return {"git_sha": (sha[:4] if sha else "dev")}
+
     with app.app_context():
         try:
             print(f"=== DB URI: {app.config['SQLALCHEMY_DATABASE_URI'][:30]}... ===", flush=True)

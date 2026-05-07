@@ -300,6 +300,10 @@ th { background: #f8f9fa; font-weight: 700; }
 </div>
 {% endif %}
 
+<div style="margin-top:2rem;padding:.6rem 1rem;text-align:center;font-size:.8rem;color:#888;border-top:1px solid #eee;">
+  版本 <code style="background:#f4f4f4;padding:.1rem .35rem;border-radius:4px;font-family:monospace;">{{ git_sha or '未知' }}</code>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
