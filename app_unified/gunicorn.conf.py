@@ -10,8 +10,9 @@ errorlog = "-"
 loglevel = "info"
 
 
-def post_fork(server, worker):
-    from wsgi import app
-    from extensions import db
-    with app.app_context():
-        db.engine.dispose()
+# post_fork hook removed: previously did `with app.app_context(): db.engine.dispose()`
+# to reset connections inherited from a preloaded master. We don't use --preload,
+# AND the DB engine is now created inside this worker's lazy-init thread (see
+# wsgi_lazy.LazyAppProxy), so there's nothing fork-inherited to dispose. Keeping
+# the hook would block worker startup on `app.app_context()` (which waits for
+# init via LazyAppProxy.__getattr__), defeating the /healthz fast-path purpose.
