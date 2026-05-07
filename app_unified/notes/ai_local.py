@@ -213,9 +213,7 @@ def summarize_local(notes, since, until, store_label, range_label, inrange_label
     cl_buckets = _categorize_checklists(notes, since, until)
     buckets = _merge_buckets(note_buckets, cl_buckets)
 
-    lines = [f"# {store_label}{range_label} 摘要", ""]
-    lines.append("> ℹ️ 使用 Python 本地分析（無雲端 LLM；事件聚類 + 代表句抽取，無店長視角總結段）")
-    lines.append("")
+    lines = [f"# {store_label}{range_label} 摘要", "", "【摘要開始】", ""]
 
     has_any = False
     for cat_key, (header, _order) in sorted(CATEGORY_TO_BUCKET.items(), key=lambda x: x[1][1]):
@@ -242,6 +240,9 @@ def summarize_local(notes, since, until, store_label, range_label, inrange_label
 
     if not has_any:
         lines.append("（區間內無筆記）")
+        lines.append("")
+
+    lines.append("【摘要結束】")
 
     out = "\n".join(lines).rstrip() + "\n"
     logger.warning("[ai_local] === done, output %d chars ===", len(out))
