@@ -14,6 +14,22 @@ SECTION_HEADER_RE = re.compile(
 )
 
 
+# 偵測項目起始：
+#   數字+. / 數字+、 / 數字+) / 數字+）
+#   (1) / （1）
+#   bullet: ●, •, ・, ▪, ◆, ◇, ★, ☆, -, *
+ITEM_START_RE = re.compile(
+    r"^\s*"
+    r"(?:"
+    r"\d+[.、)）]"
+    r"|[(（]\d+[)）]"
+    r"|[●•・▪◆◇★☆\-\*]"
+    r")"
+    r"\s*",
+    re.MULTILINE,
+)
+
+
 def _split_sections(text: str) -> dict[str, str]:
     """切「店務」「人員」section。
 
@@ -30,3 +46,22 @@ def _split_sections(text: str) -> dict[str, str]:
         body = text[start:end].strip()
         result[name] = body
     return result
+
+
+def _split_items(section_body: str) -> list[str]:
+    """切項目。
+
+    回傳 list of item texts (含結論詞、不含項目編號 / bullet 字元)。
+    每個項目可跨多行，直到下個 bullet pattern 出現。
+    """
+    if not section_body or not section_body.strip():
+        return []
+    matches = list(ITEM_START_RE.finditer(section_body))
+    if not matches:
+        return []
+    items: list[str] = []
+    for i, m in enumerate(matches):
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(section_body)
+        items.append(section_body[start:end].strip())
+    return items

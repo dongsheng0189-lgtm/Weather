@@ -94,3 +94,73 @@ def test_split_sections_duplicate_header_last_wins():
     assert "店務" in result
     assert "第二段店務" in result["店務"]
     assert "第一段店務" not in result["店務"]
+
+
+from mynotes.ai_local import _split_items
+
+
+def test_split_items_arabic_dot():
+    section = """
+1. 外牆修補
+2. 客訴
+3. 庫存不足
+""".strip()
+    items = _split_items(section)
+    assert len(items) == 3
+    assert items[0] == "外牆修補"
+    assert items[1] == "客訴"
+
+
+def test_split_items_chinese_punct():
+    section = """
+1、外牆修補
+2、客訴
+""".strip()
+    items = _split_items(section)
+    assert len(items) == 2
+    assert items[0] == "外牆修補"
+
+
+def test_split_items_paren():
+    section = """
+(1) 外牆修補
+(2) 客訴
+""".strip()
+    items = _split_items(section)
+    assert len(items) == 2
+    assert items[0] == "外牆修補"
+
+
+def test_split_items_bullets():
+    section = """
+- 外牆修補
+- 客訴
+* 庫存不足
+● 收銀機卡紙
+""".strip()
+    items = _split_items(section)
+    assert len(items) == 4
+
+
+def test_split_items_multiline_item():
+    """每個項目可跨多行直到下個 item bullet。"""
+    section = """
+1. 外牆修補, 廠商報價 8 萬太貴
+   結論：請小張下週前找 3 家報價
+2. 客訴
+""".strip()
+    items = _split_items(section)
+    assert len(items) == 2
+    assert "結論" in items[0]
+    assert "請小張下週前找 3 家報價" in items[0]
+
+
+def test_split_items_empty():
+    assert _split_items("") == []
+    assert _split_items("   \n  ") == []
+
+
+def test_split_items_no_bullets():
+    """沒 bullet 的內容回空 list（避免誤把整段當一個項目）。"""
+    section = "今天討論很多事情但沒列點"
+    assert _split_items(section) == []
