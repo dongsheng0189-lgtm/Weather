@@ -96,6 +96,7 @@ def _split_items(section_body: str) -> list[str]:
 
 
 _ISSUE_TRAILING_TRIM = " ：:、，,。\n\r\t"
+_CONCLUSION_PREFIX = "   → "  # 3 空白 + 箭頭 + 空白；用於議題下方一行縮排
 
 
 def _extract_conclusion(item_text: str) -> tuple[str, str | None]:
@@ -128,17 +129,17 @@ def _classify_personnel(item_text: str) -> str:
     return "其他"
 
 
-def summarize_meeting(title: str, content: str) -> str:
+def summarize_meeting(title: str, content: str) -> str:  # noqa: ARG001
     """主入口：title + content → markdown 摘要字串。
 
     輸出 Format C：議題一行、結論縮排一行（→ 前綴）；沒結論的項目只列議題。
     人員 section 自動分 4 小類（離職/資遣/調整/其他），空小類不輸出。
     完全找不到 section header 時回 ⚠️ 提示文字。
 
-    `title` 目前未使用（routes.py 仍會傳進來），保留是為了之後若要在
-    summary 開頭加 meeting title 時不必動 caller 簽名。
+    `title` 目前未使用（routes.py 仍會傳進來、tests 也用 keyword arg
+    傳入），保留 param 名是為了：(1) 不破 caller 與 test 簽名；
+    (2) 之後若要在 summary 開頭加 meeting title 時不必動 caller。
     """
-    del title  # 顯示告知 reader title 是有意保留未用，不是漏拿
     text = (content or "").strip()
     if not text:
         return "# 會議摘要\n\n（無內文）\n"
@@ -161,7 +162,7 @@ def summarize_meeting(title: str, content: str) -> str:
                 issue, conclusion = _extract_conclusion(item)
                 lines.append(f"{idx}. {issue}")
                 if conclusion:
-                    lines.append(f"   → {conclusion}")
+                    lines.append(f"{_CONCLUSION_PREFIX}{conclusion}")
             lines.append("")
 
     # ── 人員 section + 4 小類分桶 ─────────────────────────────

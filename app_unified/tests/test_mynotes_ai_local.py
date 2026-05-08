@@ -340,6 +340,8 @@ def test_summarize_meeting_no_sections_warns():
     result = summarize_meeting(title="x", content=content)
     assert "⚠️" in result
     assert "店務" in result and "人員" in result  # 提示文字裡有
+    # 提示文字有具體引導動作，不只是含關鍵字
+    assert "請在會議紀錄加上" in result
 
 
 def test_summarize_meeting_no_summary_markers():
@@ -390,6 +392,21 @@ def test_summarize_meeting_section_with_no_items_dropped():
     result = summarize_meeting(title="x", content=content)
     assert "🏪 店務" not in result
     assert "👥 人員" in result
+
+
+def test_summarize_meeting_only_storeops_no_personnel():
+    """只有店務沒人員的 mirror case，確認非對稱情境也走得通。"""
+    content = """
+店務:
+1. 庫存不足
+2. 收銀機卡紙
+""".strip()
+    result = summarize_meeting(title="x", content=content)
+    assert "🏪 店務" in result
+    assert "1. 庫存不足" in result
+    assert "2. 收銀機卡紙" in result
+    assert "👥 人員" not in result
+    assert "###" not in result  # 沒人員小類 header
 
 
 def test_summarize_meeting_empty_content():
