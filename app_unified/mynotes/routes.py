@@ -424,7 +424,9 @@ def delete_attachment_api(attachment_id):
     return jsonify({"status": "ok"})
 
 
-# ═══ AI 摘要（僅 meeting）══════════════════════════════
+# ═══ AI 摘要（僅 meeting，local Python pipeline）═══════════
+# 從雲端 LLM 換到 local regex parser；同模式參考 notes/routes.py 5/7 7a1465f
+# CPU 工作走 gevent.threadpool 避免 block reactor → /healthz / pod 不被殺。
 
 _ai_tasks = {}
 
@@ -432,76 +434,39 @@ _ai_tasks = {}
 @mynotes_bp.route("/api/<int:note_id>/summarize", methods=["POST"])
 @login_required
 def summarize(note_id):
-    from admin.routes import call_llm
     n = _get_my_note(note_id)
     if n.note_type != "meeting":
         return jsonify({"status": "error", "message": "僅會議紀錄可摘要"}), 400
 
-    prompt = f"""# Role
-你是專業的店務管理會議摘要助理。
-
-# Task
-請將下方會議原文**精簡摘要**為兩大區塊：第一部份「店務」、第二部份「人員」，最後附上「結論與待辦」。
-要求：
-1. 每個事項只寫一句話的重點摘要，不要寫出討論過程或細節。
-2. 同一事件只列一次，多處提到請合併為一句。
-3. 沒提到的資訊不要捏造。
-4. 沒對應事項的子分類請整段省略，不要輸出空標題。
-5. 絕對禁止連續重複同一句或同一條目。
-
-# Output Structure（嚴格遵守）
-
-## 📌 會議主題
-（一行摘要）
-
-## 🏪 第一部份：店務
-依下列子分類列點，每點用 1. 2. 3. 編號，每點限一句話：
-
-### 進貨 / 庫存
-### 設備 / 修繕
-### 營運 / 活動 / 行銷
-### 顧客 / 服務
-### 其他店務
-
-## 👥 第二部份：人員
-依下列子分類列點，每點限一句話：
-
-### 🟥 資遣
-格式：姓名 — 原因／生效日
-### 🟧 自請離職
-格式：姓名 — 原因／離職日
-### 🔄 異動（職位／部門／排班）
-格式：姓名 — 異動內容／生效日
-### 其他人員（請假／獎懲／招募／訓練／績效）
-
-## ✅ 結論與待辦
-將會議中明確決定的事項、需要後續追蹤的待辦列出，每點一句話：
-1. ...
-
-# 會議原文
-標題：{n.title}
-
-{n.content or "（無內文）"}
-"""
     task_id = uuid.uuid4().hex[:12]
     _ai_tasks[task_id] = {"status": "processing"}
     import gevent
-    gevent.spawn(_run_summary, task_id, current_app._get_current_object(), prompt, n.id)
+    gevent.spawn(_run_summary, task_id, current_app._get_current_object(), n.id)
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
-def _run_summary(task_id, app, prompt, note_id):
-    from admin.routes import call_llm
+def _run_summary(task_id, app, note_id):
+    """Local Python parser task — 走 gevent.threadpool 不阻塞 reactor。"""
     with app.app_context():
         try:
-            result = call_llm(prompt, max_tokens=8192)
             n = PrivateNote.query.get(note_id)
-            if n:
-                n.ai_summary = result
-                n.updated_at = datetime.utcnow()
-                db.session.commit()
+            if not n:
+                _ai_tasks[task_id] = {"status": "error", "message": "筆記不存在"}
+                return
+            from mynotes.ai_local import summarize_meeting
+            import gevent
+            # threadpool.apply 把 fn 派到 real OS thread；目前 greenlet 等結果，
+            # 但會 yield hub 給其他 greenlet（含 /healthz、其他 request）。
+            result = gevent.get_hub().threadpool.apply(
+                summarize_meeting,
+                args=(n.title or "", n.content or ""),
+            )
+            n.ai_summary = result
+            n.updated_at = datetime.utcnow()
+            db.session.commit()
             _ai_tasks[task_id] = {"status": "done", "result": result}
         except Exception as e:
+            logger.exception("[mynotes] local summary pipeline failed")
             _ai_tasks[task_id] = {"status": "error", "message": str(e)}
 
 
