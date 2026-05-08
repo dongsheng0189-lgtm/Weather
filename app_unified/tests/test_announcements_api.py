@@ -100,6 +100,41 @@ def test_post_requires_title(client, db):
     assert r.status_code == 400
 
 
+def test_post_store_empty_string_rejected(client, db):
+    sa = _make_user(db, "super_admin", username="sa_post_empty")
+    _login(client, sa)
+    r = client.post("/notes/announcement/api",
+                    json={"title": "x", "content": "x", "store": ""})
+    assert r.status_code == 400
+
+
+def test_post_store_whitespace_only_rejected(client, db):
+    sa = _make_user(db, "super_admin", username="sa_post_ws")
+    _login(client, sa)
+    r = client.post("/notes/announcement/api",
+                    json={"title": "x", "content": "x", "store": "   "})
+    assert r.status_code == 400
+
+
+def test_post_store_non_string_rejected(client, db):
+    sa = _make_user(db, "super_admin", username="sa_post_nonstr")
+    _login(client, sa)
+    r = client.post("/notes/announcement/api",
+                    json={"title": "x", "content": "x", "store": 123})
+    assert r.status_code == 400
+
+
+def test_post_store_with_trailing_space_normalized(client, db):
+    """trailing/leading whitespace on store is stripped, then validated."""
+    sa = _make_user(db, "super_admin", username="sa_post_strip")
+    _login(client, sa)
+    r = client.post("/notes/announcement/api",
+                    json={"title": "x", "content": "x", "store": "B店  "})
+    assert r.status_code == 201
+    body = r.get_json()
+    assert body["store"] == "B店"  # stripped
+
+
 # ── GET /notes/announcement/api (list) ────────────────────────
 
 def test_list_user_sees_global_and_own(client, db):

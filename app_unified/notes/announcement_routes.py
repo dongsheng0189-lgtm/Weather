@@ -49,7 +49,7 @@ def _can_view(announcement) -> bool:
 from datetime import datetime
 from sqlalchemy import or_
 
-from models import Announcement, AnnouncementAttachment, Store
+from models import Announcement, AnnouncementAttachment
 from tw_time import tw_iso
 
 
@@ -95,16 +95,21 @@ def _visibility_query():
 
 
 def _validate_store_payload(store):
-    """store 必須是 None 或非空字串。回傳 (ok, err_msg)。
+    """store 必須是 None 或非空字串。
 
-    註：不強制要 Store table 有對應 row（與 Note.store 欄位一致；
-    Store 表只用在登入流程，公告對 store 是 free-text snapshot）。
+    註：偏離 spec 5.5「store 不是合法 Store.name → 400」— 改不強制 Store-FK 存在性
+    （因 Note.store 也是 free-text 快照、conftest fixtures 不種 Store rows）。
+    安全保證來自 _can_target_store 的 role × store 比對。
+    回傳 (ok, normalized_or_None, err_msg)。
     """
     if store is None:
-        return True, None
-    if not isinstance(store, str) or not store.strip():
-        return False, "store 必須是非空字串或 null"
-    return True, None
+        return True, None, None
+    if not isinstance(store, str):
+        return False, None, "store 必須是字串或 null"
+    stripped = store.strip()
+    if not stripped:
+        return False, None, "store 不可為空字串"
+    return True, stripped, None
 
 
 # ── POST /notes/announcement/api ─────────────────────────────
@@ -118,12 +123,12 @@ def announcement_create():
     payload = request.get_json(silent=True) or {}
     title = (payload.get("title") or "").strip()
     content = payload.get("content") or ""
-    store = payload.get("store")  # None or str
+    raw_store = payload.get("store")
 
     if not title:
         return jsonify({"status": "error", "message": "title 不可為空"}), 400
 
-    ok, err = _validate_store_payload(store)
+    ok, store, err = _validate_store_payload(raw_store)
     if not ok:
         return jsonify({"status": "error", "message": err}), 400
 
