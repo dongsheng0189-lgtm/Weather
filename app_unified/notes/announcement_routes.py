@@ -353,3 +353,39 @@ def announcement_attachment_delete(attachment_id):
     a.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({"status": "ok"})
+
+
+# ── HTML pages ───────────────────────────────────────────────
+
+@notes_bp.route("/announcement/new", methods=["GET"])
+@login_required
+def announcement_new_page():
+    if not _can_create():
+        abort(403)
+    from models import Store
+    stores = Store.query.order_by(Store.name).all()
+    return render_template(
+        "announcements/new.html",
+        stores=stores,
+        is_super_admin=current_user.is_super_admin(),
+        user_store=current_user.store,
+    )
+
+
+@notes_bp.route("/announcement/<int:announcement_id>/edit", methods=["GET"])
+@login_required
+def announcement_edit_page(announcement_id):
+    a = Announcement.query.get(announcement_id)
+    if not a or not _can_view(a):
+        abort(404)
+    if not _can_modify(a):
+        abort(403)
+    from models import Store
+    stores = Store.query.order_by(Store.name).all()
+    return render_template(
+        "announcements/edit.html",
+        announcement=a,
+        stores=stores,
+        is_super_admin=current_user.is_super_admin(),
+        user_store=current_user.store,
+    )

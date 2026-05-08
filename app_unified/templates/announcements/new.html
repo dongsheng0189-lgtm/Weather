@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}新增公告{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/announcements.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="ann-form-page">
+  <h1>📢 新增公告</h1>
+
+  <form id="ann-form" onsubmit="return submitAnnouncement(event)">
+    <label for="ann-title">標題 <span class="required">*</span></label>
+    <input type="text" id="ann-title" name="title" required maxlength="200"
+           placeholder="輸入公告標題">
+
+    <label>適用範圍 <span class="required">*</span></label>
+    <div class="scope-radios">
+      {% if is_super_admin %}
+      <label class="scope-opt"><input type="radio" name="store" value="" checked> 全部（所有店看得到）</label>
+      {% for s in stores %}
+      <label class="scope-opt"><input type="radio" name="store" value="{{ s.name }}"> {{ s.name }}</label>
+      {% endfor %}
+      {% else %}
+      <input type="hidden" name="store" value="{{ user_store }}">
+      <span class="scope-locked">{{ user_store }}（admin 只能對自己店發公告）</span>
+      {% endif %}
+    </div>
+
+    <label for="ann-content">內容</label>
+    <textarea id="ann-content" name="content" rows="10"
+              placeholder="輸入公告內容..."></textarea>
+
+    <div class="attachment-section">
+      <h4>附件</h4>
+      <input type="file" id="ann-file-input"
+             accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+             multiple onchange="handleAnnFileUpload(this)">
+      <div class="attachment-list" id="ann-attachment-list"></div>
+      <div id="ann-upload-status" class="upload-status"></div>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('notes.index') }}" class="btn btn-secondary">取消</a>
+      <button type="submit" class="btn btn-primary">建立公告</button>
+    </div>
+  </form>
+</div>
+
+<script>
+window.ANN_ID = null;
+window.ANN_PENDING_FILES = [];
+</script>
+<script src="{{ url_for('static', filename='js/announcement_attachments.js') }}"></script>
+<script>
+function submitAnnouncement(e) {
+  e.preventDefault();
+  var form = e.target;
+  var fd = new FormData(form);
+  var payload = {
+    title: fd.get('title'),
+    content: fd.get('content'),
+    store: fd.get('store') || null,
+  };
+  if (payload.store === '') payload.store = null;
+  fetch('/notes/announcement/api', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then(function(r) { return r.json().then(function(j) { return [r, j]; }); })
+    .then(function(pair) {
+      var r = pair[0], j = pair[1];
+      if (r.status !== 201) {
+        alert('建立失敗：' + (j.message || r.statusText));
+        return;
+      }
+      uploadAnnPendingFiles(j.id, function() {
+        location.href = "{{ url_for('notes.index') }}";
+      });
+    });
+  return false;
+}
+</script>
+{% endblock %}
