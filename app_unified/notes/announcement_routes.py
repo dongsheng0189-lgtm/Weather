@@ -175,3 +175,76 @@ def announcement_list():
         "has_next": pag.has_next,
         "has_prev": pag.has_prev,
     })
+
+
+from storage import delete_attachment as _r2_delete
+
+
+# ── GET /notes/announcement/api/<id> ─────────────────────────
+
+@notes_bp.route("/announcement/api/<int:announcement_id>", methods=["GET"])
+@login_required
+def announcement_get(announcement_id):
+    a = Announcement.query.get(announcement_id)
+    if not a or not _can_view(a):
+        return jsonify({"status": "error", "message": "公告不存在"}), 404
+    return jsonify(_ann_to_json(a))
+
+
+# ── PUT /notes/announcement/api/<id> ─────────────────────────
+
+@notes_bp.route("/announcement/api/<int:announcement_id>", methods=["PUT"])
+@login_required
+def announcement_update(announcement_id):
+    a = Announcement.query.get(announcement_id)
+    if not a or not _can_view(a):
+        return jsonify({"status": "error", "message": "公告不存在"}), 404
+    if not _can_modify(a):
+        return jsonify({"status": "error", "message": "無權限編輯"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    title = payload.get("title")
+    if title is not None:
+        title = title.strip()
+        if not title:
+            return jsonify({"status": "error", "message": "title 不可為空"}), 400
+    content = payload.get("content")
+    has_store_in_payload = "store" in payload
+    new_store = a.store
+    if has_store_in_payload:
+        ok, normalized_store, err = _validate_store_payload(payload.get("store"))
+        if not ok:
+            return jsonify({"status": "error", "message": err}), 400
+        if not _can_target_store(normalized_store):
+            return jsonify({"status": "error", "message": "無此 scope 的權限"}), 403
+        new_store = normalized_store
+
+    if title is not None:
+        a.title = title
+    if content is not None:
+        a.content = content
+    if has_store_in_payload:
+        a.store = new_store
+    a.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(_ann_to_json(a))
+
+
+# ── DELETE /notes/announcement/api/<id> ───────────────────────
+
+@notes_bp.route("/announcement/api/<int:announcement_id>", methods=["DELETE"])
+@login_required
+def announcement_delete(announcement_id):
+    a = Announcement.query.get(announcement_id)
+    if not a or not _can_view(a):
+        return jsonify({"status": "error", "message": "公告不存在"}), 404
+    if not _can_modify(a):
+        return jsonify({"status": "error", "message": "無權限刪除"}), 403
+
+    # 先 R2 清理（cascade=delete-orphan 會處理 DB rows）
+    for att in list(a.attachments or []):
+        _r2_delete(att.object_key)
+
+    db.session.delete(a)
+    db.session.commit()
+    return jsonify({"status": "ok"})

@@ -192,3 +192,143 @@ def test_list_orders_by_created_at_desc(client, db):
     titles = [it["title"] for it in r.get_json()["items"]]
     # 最新建立的在最上面
     assert titles.index("THIRD") < titles.index("SECOND") < titles.index("FIRST")
+
+
+# ── GET /notes/announcement/api/<id> ─────────────────────────
+
+def test_get_single_visible(client, db):
+    sa = _make_user(db, "super_admin", username="sa_get_seed")
+    u_b = _make_user(db, "user", store="B店", username="u_get_b")
+
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "B店公告", "content": "x", "store": "B店"})
+    aid = rc.get_json()["id"]
+
+    _login(client, u_b)
+    r = client.get(f"/notes/announcement/api/{aid}")
+    assert r.status_code == 200
+    assert r.get_json()["title"] == "B店公告"
+
+
+def test_get_single_invisible_returns_404(client, db):
+    sa = _make_user(db, "super_admin", username="sa_get_inv_seed")
+    u_b = _make_user(db, "user", store="B店", username="u_get_inv")
+
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "C店公告", "content": "x", "store": "C店"})
+    aid = rc.get_json()["id"]
+
+    _login(client, u_b)
+    r = client.get(f"/notes/announcement/api/{aid}")
+    assert r.status_code == 404
+
+
+def test_get_single_not_found(client, db):
+    sa = _make_user(db, "super_admin", username="sa_get_404")
+    _login(client, sa)
+    r = client.get("/notes/announcement/api/999999")
+    assert r.status_code == 404
+
+
+# ── PUT /notes/announcement/api/<id> ─────────────────────────
+
+def test_put_super_admin_can_edit_anything(client, db):
+    sa = _make_user(db, "super_admin", username="sa_put_any")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "old", "content": "x", "store": "C店"})
+    aid = rc.get_json()["id"]
+
+    r = client.put(f"/notes/announcement/api/{aid}",
+                   json={"title": "new", "content": "y", "store": "C店"})
+    assert r.status_code == 200
+    assert r.get_json()["title"] == "new"
+
+
+def test_put_admin_cannot_edit_other_store(client, db):
+    sa = _make_user(db, "super_admin", username="sa_put_seed")
+    adm_b = _make_user(db, "admin", store="B店", username="adm_put_b")
+
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "C店", "content": "x", "store": "C店"})
+    aid = rc.get_json()["id"]
+
+    _login(client, adm_b)
+    r = client.put(f"/notes/announcement/api/{aid}",
+                   json={"title": "hijack", "content": "x", "store": "C店"})
+    # admin (B店) 不可修改 C店 公告 → 看不見 → 404
+    assert r.status_code == 404
+
+
+def test_put_admin_cannot_change_global(client, db):
+    sa = _make_user(db, "super_admin", username="sa_put_global_seed")
+    adm_b = _make_user(db, "admin", store="B店", username="adm_put_global")
+
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "全店", "content": "x", "store": None})
+    aid = rc.get_json()["id"]
+
+    _login(client, adm_b)
+    r = client.put(f"/notes/announcement/api/{aid}",
+                   json={"title": "x", "content": "x", "store": None})
+    assert r.status_code == 403  # 看得到（visibility 通過）但 modify 失敗
+
+
+def test_put_admin_cannot_change_store_to_other(client, db):
+    adm_b = _make_user(db, "admin", store="B店", username="adm_put_change")
+    _login(client, adm_b)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "B店", "content": "x", "store": "B店"})
+    aid = rc.get_json()["id"]
+
+    r = client.put(f"/notes/announcement/api/{aid}",
+                   json={"title": "B店", "content": "x", "store": "C店"})
+    assert r.status_code == 403  # _can_target_store("C店") 失敗
+
+
+# ── DELETE /notes/announcement/api/<id> ───────────────────────
+
+def test_delete_super_admin_ok(client, db):
+    sa = _make_user(db, "super_admin", username="sa_del")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "to delete", "content": "x", "store": None})
+    aid = rc.get_json()["id"]
+
+    r = client.delete(f"/notes/announcement/api/{aid}")
+    assert r.status_code == 200
+
+    r2 = client.get(f"/notes/announcement/api/{aid}")
+    assert r2.status_code == 404
+
+
+def test_delete_admin_other_store_forbidden(client, db):
+    sa = _make_user(db, "super_admin", username="sa_del_seed")
+    adm_b = _make_user(db, "admin", store="B店", username="adm_del_b")
+
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "C店", "content": "x", "store": "C店"})
+    aid = rc.get_json()["id"]
+
+    _login(client, adm_b)
+    r = client.delete(f"/notes/announcement/api/{aid}")
+    assert r.status_code == 404  # 看不見
+
+
+def test_delete_user_forbidden(client, db):
+    sa = _make_user(db, "super_admin", username="sa_del_user_seed")
+    u = _make_user(db, "user", store="B店", username="u_del")
+
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "B店", "content": "x", "store": "B店"})
+    aid = rc.get_json()["id"]
+
+    _login(client, u)
+    r = client.delete(f"/notes/announcement/api/{aid}")
+    assert r.status_code == 403  # 看得到但無權限刪
