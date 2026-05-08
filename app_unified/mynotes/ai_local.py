@@ -32,6 +32,10 @@ ITEM_START_RE = re.compile(
 )
 
 
+# 偵測「結論／決定／決議」+ 冒號 + 內容（直到行尾）。半形 / 全形冒號都吃。
+CONCLUSION_RE = re.compile(r"(?:結論|決定|決議)\s*[:：]\s*(.+?)(?=\n|$)")
+
+
 def _split_sections(text: str) -> dict[str, str]:
     """切「店務」「人員」section。
 
@@ -67,3 +71,21 @@ def _split_items(section_body: str) -> list[str]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(section_body)
         items.append(section_body[start:end].strip())
     return items
+
+
+def _extract_conclusion(item_text: str) -> tuple[str, str | None]:
+    """抽結論。
+
+    回傳 (議題文字, 結論文字 or None)。多個結論詞取最後一個（會議紀錄
+    通常先討論再寫結論，最後出現的最定論）。空字串結論視為無結論。
+    """
+    matches = list(CONCLUSION_RE.finditer(item_text))
+    if not matches:
+        return item_text.strip(), None
+    last = matches[-1]
+    conclusion = last.group(1).strip()
+    if not conclusion:
+        return item_text.strip(), None
+    # 議題 = 最後一個結論詞之前的全部，去除尾端標點/換行
+    issue = item_text[: last.start()].rstrip(" ：:、，,。\n\r\t").strip()
+    return issue, conclusion
