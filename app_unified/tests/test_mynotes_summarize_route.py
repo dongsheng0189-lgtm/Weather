@@ -14,6 +14,14 @@ from mynotes import routes as mn_routes
 from models import PrivateNote, User
 
 
+@pytest.fixture(autouse=True)
+def _reset_ai_tasks():
+    """`_ai_tasks` 是 module-level dict，跨 test 會累積殘渣。每 test 前後清乾淨。"""
+    mn_routes._ai_tasks.clear()
+    yield
+    mn_routes._ai_tasks.clear()
+
+
 @pytest.fixture
 def _user(app, db_session):
     suffix = uuid.uuid4().hex[:6]
@@ -153,4 +161,5 @@ def test_summarize_route_returns_task_id_for_meeting(app, client, _user, _meetin
         spawn_args = mock_spawn.call_args.args
         assert spawn_args[0] is mn_routes._run_summary
         assert spawn_args[1] == body["task_id"]
+        assert spawn_args[2] is not None  # 解 proxy 後的 Flask app obj
         assert spawn_args[3] == _meeting_note.id  # task_id, app, note_id

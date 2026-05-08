@@ -466,6 +466,9 @@ def _run_summary(task_id, app, note_id):
             db.session.commit()
             _ai_tasks[task_id] = {"status": "done", "result": result}
         except Exception as e:
+            # commit() raise 時 session 會留 dirty state；rollback 一下
+            # 才不會讓後續 request 在同一 scoped session 看到 partial write。
+            db.session.rollback()
             logger.exception("[mynotes] local summary pipeline failed")
             _ai_tasks[task_id] = {"status": "error", "message": str(e)}
 
