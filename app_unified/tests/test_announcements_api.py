@@ -332,3 +332,35 @@ def test_delete_user_forbidden(client, db):
     _login(client, u)
     r = client.delete(f"/notes/announcement/api/{aid}")
     assert r.status_code == 403  # 看得到但無權限刪
+
+
+# ── PUT/DELETE coverage parity ───────────────────────────────
+
+def test_put_store_key_absent_preserves_store(client, db):
+    """PUT body without 'store' key must NOT change a.store (key-presence semantics)."""
+    adm = _make_user(db, "admin", store="B店", username="adm_put_absent")
+    _login(client, adm)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "old", "content": "x", "store": "B店"})
+    aid = rc.get_json()["id"]
+    # Send PUT WITHOUT 'store' key — only title
+    r = client.put(f"/notes/announcement/api/{aid}", json={"title": "new"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["title"] == "new"
+    assert body["store"] == "B店"  # unchanged
+
+
+def test_put_not_found(client, db):
+    sa = _make_user(db, "super_admin", username="sa_put_404")
+    _login(client, sa)
+    r = client.put("/notes/announcement/api/999999",
+                   json={"title": "x", "content": "x", "store": None})
+    assert r.status_code == 404
+
+
+def test_delete_not_found(client, db):
+    sa = _make_user(db, "super_admin", username="sa_del_404")
+    _login(client, sa)
+    r = client.delete("/notes/announcement/api/999999")
+    assert r.status_code == 404
