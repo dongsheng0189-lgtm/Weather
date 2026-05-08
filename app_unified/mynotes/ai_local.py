@@ -18,12 +18,14 @@ SECTION_HEADER_RE = re.compile(
 #   數字+. / 數字+、 / 數字+) / 數字+）
 #   (1) / （1）
 #   bullet: ●, •, ・, ▪, ◆, ◇, ★, ☆, -, *
+# 結尾 \s* (relaxed from spec's \s+): 中文「1、外牆修補」punct 後不空白為慣例；
+# `-` 放字元類最後一個位置以免被當 range delimiter，*  literal 不需 escape。
 ITEM_START_RE = re.compile(
     r"^\s*"
     r"(?:"
     r"\d+[.、)）]"
     r"|[(（]\d+[)）]"
-    r"|[●•・▪◆◇★☆\-\*]"
+    r"|[●•・▪◆◇★☆*-]"
     r")"
     r"\s*",
     re.MULTILINE,

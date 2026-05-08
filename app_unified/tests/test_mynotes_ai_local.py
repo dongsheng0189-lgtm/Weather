@@ -1,7 +1,7 @@
 """mynotes meeting note local parser — unit tests for pure functions."""
 import pytest
 
-from mynotes.ai_local import _split_sections
+from mynotes.ai_local import _split_items, _split_sections
 
 
 def test_split_sections_both_present():
@@ -96,9 +96,6 @@ def test_split_sections_duplicate_header_last_wins():
     assert "第一段店務" not in result["店務"]
 
 
-from mynotes.ai_local import _split_items
-
-
 def test_split_items_arabic_dot():
     section = """
 1. 外牆修補
@@ -140,6 +137,10 @@ def test_split_items_bullets():
 """.strip()
     items = _split_items(section)
     assert len(items) == 4
+    assert items[0] == "外牆修補"
+    assert items[1] == "客訴"
+    assert items[2] == "庫存不足"
+    assert items[3] == "收銀機卡紙"
 
 
 def test_split_items_multiline_item():
@@ -155,8 +156,11 @@ def test_split_items_multiline_item():
     assert "請小張下週前找 3 家報價" in items[0]
 
 
-def test_split_items_empty():
+def test_split_items_empty_string():
     assert _split_items("") == []
+
+
+def test_split_items_whitespace_only():
     assert _split_items("   \n  ") == []
 
 
