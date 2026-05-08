@@ -6,6 +6,7 @@ from mynotes.ai_local import (
     _extract_conclusion,
     _split_items,
     _split_sections,
+    summarize_meeting,
 )
 
 
@@ -286,3 +287,111 @@ def test_classify_personnel_does_not_match_bare_shang_xia():
     assert _classify_personnel("上週討論的客訴") == "其他"
     assert _classify_personnel("下個月排班檢討") == "其他"
     assert _classify_personnel("上班時間調整") == "調整"  # 「調整」單字仍命中
+
+
+def test_summarize_meeting_e2e():
+    """完整 spec 範例 input → 對齊 expected output。"""
+    content = """
+店務:
+1. 外牆修補, 廠商報價 8 萬太貴, 先問其他家
+   結論：請小張下週前找 3 家報價
+2. 客訴：上週六飲料品質有問題, 已退費道歉
+   決定：本週六開檢討會
+3. 庫存不足, 紙杯只剩 2 箱
+4. 收銀機卡紙
+
+人員:
+1. 小李提離職, 5/15 生效
+2. 阿華因業績不佳資遣, 月底前
+3. 王經理升上副總, 6/1 生效
+4. 店長 5/12-14 請假
+""".strip()
+
+    expected = """# 會議摘要
+
+🏪 店務
+1. 外牆修補, 廠商報價 8 萬太貴, 先問其他家
+   → 請小張下週前找 3 家報價
+2. 客訴：上週六飲料品質有問題, 已退費道歉
+   → 本週六開檢討會
+3. 庫存不足, 紙杯只剩 2 箱
+4. 收銀機卡紙
+
+👥 人員
+### 離職
+1. 小李提離職, 5/15 生效
+
+### 資遣
+1. 阿華因業績不佳資遣, 月底前
+
+### 調整
+1. 王經理升上副總, 6/1 生效
+
+### 其他
+1. 店長 5/12-14 請假
+"""
+
+    result = summarize_meeting(title="5/7 月會", content=content)
+    assert result == expected
+
+
+def test_summarize_meeting_no_sections_warns():
+    content = "今天會議聊了很多但沒分類"
+    result = summarize_meeting(title="x", content=content)
+    assert "⚠️" in result
+    assert "店務" in result and "人員" in result  # 提示文字裡有
+
+
+def test_summarize_meeting_no_summary_markers():
+    """輸出絕不可包含『摘要開始』『摘要結束』 marker（user 明確要求拿掉）。"""
+    content = """
+店務:
+1. 外牆修補
+""".strip()
+    result = summarize_meeting(title="x", content=content)
+    assert "摘要開始" not in result
+    assert "摘要結束" not in result
+
+
+def test_summarize_meeting_no_conclusion_label_omitted():
+    """店務 / 人員 兩者沒結論的項目都不顯示『（無結論）』。"""
+    content = """
+店務:
+1. 庫存不足
+
+人員:
+1. 店長請假
+""".strip()
+    result = summarize_meeting(title="x", content=content)
+    assert "無結論" not in result
+
+
+def test_summarize_meeting_empty_personnel_buckets_omitted():
+    """空小類不輸出（只有離職的話，資遣/調整/其他 標頭都不出現）。"""
+    content = """
+人員:
+1. 小李離職
+""".strip()
+    result = summarize_meeting(title="x", content=content)
+    assert "### 離職" in result
+    assert "### 資遣" not in result
+    assert "### 調整" not in result
+    assert "### 其他" not in result
+
+
+def test_summarize_meeting_section_with_no_items_dropped():
+    """有 section header 但沒項目 → 該 section 整個不輸出。"""
+    content = """
+店務:
+
+人員:
+1. 小李離職
+""".strip()
+    result = summarize_meeting(title="x", content=content)
+    assert "🏪 店務" not in result
+    assert "👥 人員" in result
+
+
+def test_summarize_meeting_empty_content():
+    result = summarize_meeting(title="x", content="")
+    assert "（無內文）" in result

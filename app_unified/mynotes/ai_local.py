@@ -126,3 +126,62 @@ def _classify_personnel(item_text: str) -> str:
             if kw in item_text:
                 return category
     return "其他"
+
+
+def summarize_meeting(title: str, content: str) -> str:
+    """主入口：title + content → markdown 摘要字串。
+
+    輸出 Format C：議題一行、結論縮排一行（→ 前綴）；沒結論的項目只列議題。
+    人員 section 自動分 4 小類（離職/資遣/調整/其他），空小類不輸出。
+    完全找不到 section header 時回 ⚠️ 提示文字。
+
+    `title` 目前未使用（routes.py 仍會傳進來），保留是為了之後若要在
+    summary 開頭加 meeting title 時不必動 caller 簽名。
+    """
+    del title  # 顯示告知 reader title 是有意保留未用，不是漏拿
+    text = (content or "").strip()
+    if not text:
+        return "# 會議摘要\n\n（無內文）\n"
+
+    sections = _split_sections(text)
+    if not sections:
+        return (
+            "# 會議摘要\n\n"
+            "⚠️ 未偵測到分類，請在會議紀錄加上『店務:』『人員:』標題\n"
+        )
+
+    lines: list[str] = ["# 會議摘要", ""]
+
+    # ── 店務 section ──────────────────────────────────────────
+    if "店務" in sections:
+        items = _split_items(sections["店務"])
+        if items:
+            lines.append("🏪 店務")
+            for idx, item in enumerate(items, start=1):
+                issue, conclusion = _extract_conclusion(item)
+                lines.append(f"{idx}. {issue}")
+                if conclusion:
+                    lines.append(f"   → {conclusion}")
+            lines.append("")
+
+    # ── 人員 section + 4 小類分桶 ─────────────────────────────
+    if "人員" in sections:
+        items = _split_items(sections["人員"])
+        if items:
+            buckets: dict[str, list[str]] = {cat: [] for cat in PERSONNEL_ORDER}
+            for item in items:
+                cat = _classify_personnel(item)
+                buckets[cat].append(item)
+            non_empty = [cat for cat in PERSONNEL_ORDER if buckets[cat]]
+            if non_empty:
+                lines.append("👥 人員")
+                for cat in non_empty:
+                    lines.append(f"### {cat}")
+                    for idx, item in enumerate(buckets[cat], start=1):
+                        issue, conclusion = _extract_conclusion(item)
+                        lines.append(f"{idx}. {issue}")
+                        if conclusion:
+                            lines.append(f"   → {conclusion}")
+                    lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
