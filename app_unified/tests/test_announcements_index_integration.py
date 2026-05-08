@@ -93,5 +93,10 @@ def test_admin_sees_edit_button_for_own_store(client, db):
     html = r.get_data(as_text=True)
     # 看得到自己店公告
     assert "B_OWN" in html
+    # Verify the edit anchor for own-store announcement renders
+    # (URL pattern: /notes/announcement/<id>/edit, rewritten to /n/announcement/<id>/edit)
+    import re
+    edit_link_pattern = re.compile(r'/(?:notes|n)/announcement/\d+/edit')
+    assert edit_link_pattern.search(html), "Expected edit link to render for own-store announcement"
     # 看不到 C 店
     assert "C_NOT_MINE" not in html

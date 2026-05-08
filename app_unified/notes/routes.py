@@ -252,6 +252,7 @@ def index():
                             if a.store == current_user.store}
     else:
         editable_ann_ids = set()
+    ann_times = {a.id: tw_str(a.created_at, "%Y-%m-%d %H:%M") for a in announcements}
 
     return render_template("notes/index.html", notes=pagination.items, pagination=pagination,
                            stores=stores,
@@ -270,7 +271,8 @@ def index():
                            ai_today_label=today_label,
                            ai_yesterday_label=yesterday_label,
                            announcements=announcements,
-                           editable_ann_ids=editable_ann_ids)
+                           editable_ann_ids=editable_ann_ids,
+                           ann_times=ann_times)
 
 
 @notes_bp.route("/new", methods=["GET"])
