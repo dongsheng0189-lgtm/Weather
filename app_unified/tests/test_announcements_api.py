@@ -462,7 +462,7 @@ def test_attachment_delete_cascades_when_announcement_deleted(client, db, monkey
                         lambda *a, **kw: "announcements/1/x.jpg")
     monkeypatch.setattr("storage.get_signed_url",
                         lambda *a, **kw: "https://x")
-    monkeypatch.setattr("storage.delete_attachment",
+    monkeypatch.setattr("notes.announcement_routes._r2_delete",
                         lambda *a, **kw: True)
 
     sa = _make_user(db, "super_admin", username="sa_cascade")
@@ -482,3 +482,65 @@ def test_attachment_delete_cascades_when_announcement_deleted(client, db, monkey
     client.delete(f"/notes/announcement/api/{aid}")
 
     assert AnnouncementAttachment.query.filter_by(announcement_id=aid).count() == 0
+
+
+def test_attachment_delete_endpoint_super_admin_ok(client, db, monkeypatch):
+    """Direct DELETE on attachment endpoint as super_admin → 200, row gone."""
+    monkeypatch.setattr("storage.upload_attachment",
+                        lambda *a, **kw: "announcements/1/x.jpg")
+    monkeypatch.setattr("storage.get_signed_url",
+                        lambda *a, **kw: "https://x")
+    monkeypatch.setattr("notes.announcement_routes._r2_delete",
+                        lambda *a, **kw: True)
+
+    sa = _make_user(db, "super_admin", username="sa_att_del_endpoint")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "x", "content": "y", "store": None})
+    aid = rc.get_json()["id"]
+
+    from io import BytesIO
+    data = {"file": (BytesIO(b"x"), "a.jpg", "image/jpeg")}
+    upload = client.post(f"/notes/announcement/api/{aid}/attachments",
+                         data=data, content_type="multipart/form-data")
+    att_id = upload.get_json()["attachment"]["id"]
+
+    r = client.delete(f"/notes/announcement/api/attachments/{att_id}")
+    assert r.status_code == 200
+
+    from models import AnnouncementAttachment
+    assert AnnouncementAttachment.query.get(att_id) is None
+
+
+def test_attachment_delete_endpoint_user_forbidden(client, db, monkeypatch):
+    """User without modify permission → 403."""
+    monkeypatch.setattr("storage.upload_attachment",
+                        lambda *a, **kw: "announcements/1/x.jpg")
+    monkeypatch.setattr("storage.get_signed_url",
+                        lambda *a, **kw: "https://x")
+    monkeypatch.setattr("notes.announcement_routes._r2_delete",
+                        lambda *a, **kw: True)
+
+    sa = _make_user(db, "super_admin", username="sa_att_del_seed")
+    u = _make_user(db, "user", store="B店", username="u_att_del")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "x", "content": "y", "store": "B店"})
+    aid = rc.get_json()["id"]
+
+    from io import BytesIO
+    data = {"file": (BytesIO(b"x"), "a.jpg", "image/jpeg")}
+    upload = client.post(f"/notes/announcement/api/{aid}/attachments",
+                         data=data, content_type="multipart/form-data")
+    att_id = upload.get_json()["attachment"]["id"]
+
+    _login(client, u)
+    r = client.delete(f"/notes/announcement/api/attachments/{att_id}")
+    assert r.status_code == 403
+
+
+def test_attachment_delete_endpoint_not_found(client, db):
+    sa = _make_user(db, "super_admin", username="sa_att_del_404")
+    _login(client, sa)
+    r = client.delete("/notes/announcement/api/attachments/999999")
+    assert r.status_code == 404
