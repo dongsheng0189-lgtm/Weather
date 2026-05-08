@@ -238,7 +238,7 @@ def ingest():
 
 ### `GET /` (login_required)
 
-簡單 dashboard 頁，內含 `/api/logs` 與 `/api/status` 的 fetch + table render（vanilla JS、不引入 framework）。預設顯示「最近 24h、ERROR+」。
+簡單 dashboard 頁，內含 `/api/logs` 與 `/api/status` 的 fetch + table render（vanilla JS、不引入 framework）。預設顯示**滑動 24h**（`since = now() - 24h`）內的 `ERROR+`，UI 上有 level / source / logger_prefix filter，with `?since=` 改 query string 即可往前撈。
 
 ### `GET /api/logs?level=&source=&logger_prefix=&since=&limit=` (login_required, JSON)
 
@@ -338,7 +338,7 @@ def _sweep_loop(app, interval_sec=3600, batch_size=10_000):
 
 `create_app()` 結尾呼叫 `start_retention_sweep(app)` 起 thread。test 時用 `MONITOR_DISABLE_RETENTION=1` 關掉。
 
-monitor 跑 `worker_class = "sync"` 不開 gevent，沒 monkey-patch，所以這條 thread 用 `threading.Thread` 即可、不需 `get_original`。
+monitor 跑 `worker_class = "sync"` 不開 gevent，沒 monkey-patch，所以這條 thread 用 `threading.Thread` 即可、不需 `get_original`。**注意：`get_original` 雷只發生在 app-unified 端**（gevent worker），monitor 端完全不沾這個問題。
 
 ## 部署管道
 
