@@ -1,7 +1,12 @@
 """mynotes meeting note local parser — unit tests for pure functions."""
 import pytest
 
-from mynotes.ai_local import _extract_conclusion, _split_items, _split_sections
+from mynotes.ai_local import (
+    _classify_personnel,
+    _extract_conclusion,
+    _split_items,
+    _split_sections,
+)
 
 
 def test_split_sections_both_present():
@@ -228,3 +233,48 @@ def test_extract_conclusion_keyword_inside_issue_text():
     issue, conclusion = _extract_conclusion(text)
     assert issue == "客訴：上週六飲料品質有問題, 已退費道歉"
     assert conclusion == "本週六開檢討會"
+
+
+def test_classify_personnel_lizhi():
+    assert _classify_personnel("小李提離職, 5/15 生效") == "離職"
+    assert _classify_personnel("王副店請辭") == "離職"
+    assert _classify_personnel("阿美辭職") == "離職"
+    assert _classify_personnel("自請離開") == "離職"
+
+
+def test_classify_personnel_ziqian():
+    assert _classify_personnel("阿華因業績不佳資遣") == "資遣"
+    assert _classify_personnel("解雇") == "資遣"
+    assert _classify_personnel("公司決定解僱") == "資遣"
+    assert _classify_personnel("終止勞動契約") == "資遣"
+    assert _classify_personnel("被開除") == "資遣"
+
+
+def test_classify_personnel_tiaozheng():
+    assert _classify_personnel("王經理升上副總") == "調整"
+    assert _classify_personnel("小張調下倉庫部") == "調整"
+    assert _classify_personnel("升職通知") == "調整"
+    assert _classify_personnel("人事異動") == "調整"
+    assert _classify_personnel("由 A 班轉上 B 班") == "調整"
+    assert _classify_personnel("從正職下來打工") == "調整"
+    assert _classify_personnel("升上去店長") == "調整"
+
+
+def test_classify_personnel_qita():
+    """不命中任何關鍵字 → 其他。"""
+    assert _classify_personnel("店長 5/12-14 請假") == "其他"
+    assert _classify_personnel("小王績效好, 考慮獎金") == "其他"
+    assert _classify_personnel("生日禮金發放") == "其他"
+
+
+def test_classify_personnel_priority_order():
+    """順序：離職 → 資遣 → 調整 → 其他。同時命中時取較前面類別。"""
+    # 含「離職」與「調整」→ 應為離職
+    assert _classify_personnel("小李離職, 由 B 升上接替") == "離職"
+
+
+def test_classify_personnel_does_not_match_bare_shang_xia():
+    """『上週討論』『下個月』不應誤判為調整。"""
+    assert _classify_personnel("上週討論的客訴") == "其他"
+    assert _classify_personnel("下個月排班檢討") == "其他"
+    assert _classify_personnel("上班時間調整") == "調整"  # 「調整」單字仍命中

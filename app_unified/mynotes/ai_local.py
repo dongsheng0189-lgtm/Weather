@@ -39,6 +39,23 @@ ITEM_START_RE = re.compile(
 CONCLUSION_RE = re.compile(r"(?:結論|決定|決議)\s*[:：]\s*(.*?)(?=\n|$)")
 
 
+# 人員小類關鍵字。順序：離職 → 資遣 → 調整 → 其他（其他在 _classify_personnel
+# 內當 fallback）。「調整」不含單字「上」「下」（會誤判「上週」「下個月」），
+# 改用 2 字組合捕捉升降轉調語意。
+PERSONNEL_KEYWORDS: dict[str, list[str]] = {
+    "離職": ["離職", "請辭", "辭職", "自請"],
+    "資遣": ["資遣", "解雇", "解僱", "終止勞動契約", "開除"],
+    "調整": [
+        "異動", "調整", "調職", "調班", "轉部門",
+        "升職", "升遷", "升任", "升上", "上去",
+        "降職", "降下", "調上", "調下", "下調", "下放", "下來",
+        "轉上", "轉下",
+    ],
+}
+
+PERSONNEL_ORDER: list[str] = ["離職", "資遣", "調整", "其他"]
+
+
 def _split_sections(text: str) -> dict[str, str]:
     """切「店務」「人員」section。
 
@@ -93,3 +110,16 @@ def _extract_conclusion(item_text: str) -> tuple[str, str | None]:
     issue = item_text[: last.start()].rstrip(_ISSUE_TRAILING_TRIM).strip()
     conclusion = last.group(1).strip()
     return issue, (conclusion or None)
+
+
+def _classify_personnel(item_text: str) -> str:
+    """判斷人員小類。回傳 '離職' / '資遣' / '調整' / '其他'。
+
+    順序固定：離職 → 資遣 → 調整 → 其他。第一個命中的類別決定分類；
+    沒命中歸『其他』。
+    """
+    for category in ("離職", "資遣", "調整"):
+        for kw in PERSONNEL_KEYWORDS[category]:
+            if kw in item_text:
+                return category
+    return "其他"
