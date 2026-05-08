@@ -747,5 +747,22 @@ EditKeepalive.init();
     document.getElementById('btn-share').style.display = 'inline-block';
   }
 })();
+
+// Tab 鍵插 4 空白（不跳焦），方便會議紀錄縮排對齊店務/人員小類
+(function setupContentTabHandler() {
+  var ta = document.getElementById('content-area');
+  if (!ta) return;
+  ta.addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab' || e.shiftKey) return;
+    e.preventDefault();
+    var start = ta.selectionStart;
+    var end = ta.selectionEnd;
+    var value = ta.value;
+    ta.value = value.slice(0, start) + '    ' + value.slice(end);
+    ta.selectionStart = ta.selectionEnd = start + 4;
+    // 觸發 input 事件讓 auto-save / keepalive 之類的 listener 收到
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+})();
 </script>
 {% endblock %}
