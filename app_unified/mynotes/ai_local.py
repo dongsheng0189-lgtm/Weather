@@ -33,7 +33,10 @@ ITEM_START_RE = re.compile(
 
 
 # 偵測「結論／決定／決議」+ 冒號 + 內容（直到行尾）。半形 / 全形冒號都吃。
-CONCLUSION_RE = re.compile(r"(?:結論|決定|決議)\s*[:：]\s*(.+?)(?=\n|$)")
+# `.*?` (允許零字內容): 讓「結論：」後面什麼都沒寫的 case 也能 match keyword，
+# 才能在 _extract_conclusion 裡把 keyword 從 issue text 裡 strip 掉，
+# 而不是落到 no-match 分支把整段含 keyword 的 raw text 還回去。
+CONCLUSION_RE = re.compile(r"(?:結論|決定|決議)\s*[:：]\s*(.*?)(?=\n|$)")
 
 
 def _split_sections(text: str) -> dict[str, str]:
@@ -73,19 +76,20 @@ def _split_items(section_body: str) -> list[str]:
     return items
 
 
+_ISSUE_TRAILING_TRIM = " ：:、，,。\n\r\t"
+
+
 def _extract_conclusion(item_text: str) -> tuple[str, str | None]:
     """抽結論。
 
     回傳 (議題文字, 結論文字 or None)。多個結論詞取最後一個（會議紀錄
-    通常先討論再寫結論，最後出現的最定論）。空字串結論視為無結論。
+    通常先討論再寫結論，最後出現的最定論）。空字串結論視為無結論，
+    但 keyword（結論／決定／決議：）仍會從 issue text 裡剝掉。
     """
     matches = list(CONCLUSION_RE.finditer(item_text))
     if not matches:
         return item_text.strip(), None
     last = matches[-1]
+    issue = item_text[: last.start()].rstrip(_ISSUE_TRAILING_TRIM).strip()
     conclusion = last.group(1).strip()
-    if not conclusion:
-        return item_text.strip(), None
-    # 議題 = 最後一個結論詞之前的全部，去除尾端標點/換行
-    issue = item_text[: last.start()].rstrip(" ：:、，,。\n\r\t").strip()
-    return issue, conclusion
+    return issue, (conclusion or None)

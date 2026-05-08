@@ -171,13 +171,16 @@ def test_split_items_no_bullets():
 
 
 def test_extract_conclusion_simple():
-    issue, conclusion = _extract_conclusion("外牆修補\n結論：請廠商評估")
+    """通常 case：半形冒號無空白，最常見的會議紀錄寫法。"""
+    issue, conclusion = _extract_conclusion("外牆修補\n結論:請廠商評估")
     assert issue == "外牆修補"
     assert conclusion == "請廠商評估"
 
 
 def test_extract_conclusion_full_width_colon():
+    """中文標準：全形冒號。"""
     issue, conclusion = _extract_conclusion("外牆修補\n結論：請廠商評估")
+    assert issue == "外牆修補"
     assert conclusion == "請廠商評估"
 
 
@@ -203,21 +206,25 @@ def test_extract_conclusion_none():
 
 
 def test_extract_conclusion_empty_string_treated_as_none():
+    """空結論：keyword 仍要從 issue 裡剝掉，不是把『結論：』還回去。"""
     issue, conclusion = _extract_conclusion("外牆修補\n結論：")
+    assert issue == "外牆修補"
     assert conclusion is None
 
 
 def test_extract_conclusion_multiple_takes_last():
-    """同一項目多個結論詞 → 取最後一個（議論後寫的最定論）。"""
+    """同一項目多個結論詞 → 取最後一個（議論後寫的最定論）。
+    issue 保留中段討論（含先前 keyword 行），不嘗試做語意拆解。
+    """
     text = "客訴\n結論：先退費\n後來重新討論\n決議：本週六開檢討會"
     issue, conclusion = _extract_conclusion(text)
     assert conclusion == "本週六開檢討會"
+    assert issue == "客訴\n結論：先退費\n後來重新討論"
 
 
 def test_extract_conclusion_keyword_inside_issue_text():
     """議題本身包含『客訴:』這種非關鍵字冒號 → 不應誤判為結論。"""
     text = "客訴：上週六飲料品質有問題, 已退費道歉\n決定：本週六開檢討會"
     issue, conclusion = _extract_conclusion(text)
-    assert "客訴：上週六飲料品質有問題" in issue
-    assert "已退費道歉" in issue
+    assert issue == "客訴：上週六飲料品質有問題, 已退費道歉"
     assert conclusion == "本週六開檢討會"
