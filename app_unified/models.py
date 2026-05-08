@@ -324,3 +324,66 @@ class VettingQueryLog(db.Model):
         server_default=db.func.now(),
         index=True,
     )
+
+
+# ════════════════════════════════════════════════════════
+# 公告（announcements）— 與店務筆記表獨立，UI 整合進 notes 模組
+# super_admin 可發「全部」或單店；admin 只能發自己店；user 唯讀
+# ════════════════════════════════════════════════════════
+
+class Announcement(db.Model):
+    __tablename__ = "announcements"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    author_name = db.Column(EncryptedText, nullable=True)
+    title = db.Column(EncryptedText, nullable=False, default="")
+    content = db.Column(EncryptedText, nullable=False, default="")
+    store = db.Column(db.Text, nullable=True)  # NULL = 全部；否則 = 單店店名
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    author = db.relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        db.Index("ix_announcements_created_at_desc", created_at.desc()),
+        db.Index("ix_announcements_store", store),
+    )
+
+    @property
+    def is_global(self) -> bool:
+        return self.store is None
+
+    @property
+    def display_author(self):
+        """同 Note.display_author pattern：作者刪除後 fallback 到 author_name"""
+        if self.user_id and self.author:
+            return self.author.username
+        return f"{self.author_name or '?'}（帳號已刪除）"
+
+
+class AnnouncementAttachment(db.Model):
+    __tablename__ = "announcement_attachments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    announcement_id = db.Column(
+        db.Integer,
+        db.ForeignKey("announcements.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    object_key = db.Column(db.Text, nullable=False)
+    filename = db.Column(db.Text, nullable=False)
+    content_type = db.Column(db.Text, nullable=False)
+    file_size = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    announcement = db.relationship(
+        "Announcement",
+        backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"),
+    )
+    uploader = db.relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        db.Index("ix_announcement_attachments_announcement_id", "announcement_id"),
+    )
