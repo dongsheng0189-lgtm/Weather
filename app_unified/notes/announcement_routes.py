@@ -362,6 +362,9 @@ def announcement_attachment_delete(attachment_id):
 def announcement_new_page():
     if not _can_create():
         abort(403)
+    # admin without store assignment cannot post (would hit confusing 403 on submit)
+    if not current_user.is_super_admin() and not current_user.store:
+        abort(403)
     from models import Store
     stores = Store.query.order_by(Store.name).all()
     return render_template(
