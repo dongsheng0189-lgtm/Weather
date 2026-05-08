@@ -364,3 +364,121 @@ def test_delete_not_found(client, db):
     _login(client, sa)
     r = client.delete("/notes/announcement/api/999999")
     assert r.status_code == 404
+
+
+# ── Attachments ──────────────────────────────────────────────
+
+def test_attachment_upload_returns_signed_url(client, db, monkeypatch):
+    """Confirm response url is R2 presigned (含 X-Amz-Signature) or fallback。"""
+    fake_key = "announcements/1/abc.jpg"
+    fake_signed = ("https://r2.example.com/announcements/1/abc.jpg"
+                   "?X-Amz-Signature=fakesig&X-Amz-Expires=3600")
+    monkeypatch.setattr("storage.upload_attachment",
+                        lambda *a, **kw: fake_key)
+    monkeypatch.setattr("storage.get_signed_url",
+                        lambda key, expires_in=3600: fake_signed)
+
+    sa = _make_user(db, "super_admin", username="sa_att_upload")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "x", "content": "y", "store": None})
+    aid = rc.get_json()["id"]
+
+    from io import BytesIO
+    data = {
+        "file": (BytesIO(b"\xff\xd8\xff\xe0fake_jpeg_content"), "menu.jpg",
+                 "image/jpeg"),
+    }
+    r = client.post(f"/notes/announcement/api/{aid}/attachments",
+                    data=data, content_type="multipart/form-data")
+    assert r.status_code == 201
+    body = r.get_json()
+    assert "X-Amz-Signature" in body["attachment"]["url"]
+
+
+def test_attachment_storage_prefix(client, db, monkeypatch):
+    """確認上傳時呼叫 upload_attachment(prefix='announcements')."""
+    captured = {}
+    def _capture(file_bytes, ann_id, filename, content_type, prefix="attachments"):
+        captured["prefix"] = prefix
+        captured["ann_id"] = ann_id
+        return f"{prefix}/{ann_id}/uuid.jpg"
+    monkeypatch.setattr("storage.upload_attachment", _capture)
+    monkeypatch.setattr("storage.get_signed_url", lambda *a, **kw: "https://x")
+
+    sa = _make_user(db, "super_admin", username="sa_att_prefix")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "x", "content": "y", "store": None})
+    aid = rc.get_json()["id"]
+
+    from io import BytesIO
+    data = {"file": (BytesIO(b"x"), "a.jpg", "image/jpeg")}
+    client.post(f"/notes/announcement/api/{aid}/attachments",
+                data=data, content_type="multipart/form-data")
+
+    assert captured["prefix"] == "announcements"
+    assert captured["ann_id"] == aid
+
+
+def test_attachment_disallowed_content_type(client, db, monkeypatch):
+    monkeypatch.setattr("storage.upload_attachment", lambda *a, **kw: "x")
+    monkeypatch.setattr("storage.get_signed_url", lambda *a, **kw: "https://x")
+    sa = _make_user(db, "super_admin", username="sa_att_disallow")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "x", "content": "y", "store": None})
+    aid = rc.get_json()["id"]
+
+    from io import BytesIO
+    data = {"file": (BytesIO(b"x"), "evil.exe", "application/x-msdownload")}
+    r = client.post(f"/notes/announcement/api/{aid}/attachments",
+                    data=data, content_type="multipart/form-data")
+    assert r.status_code == 400
+
+
+def test_attachment_user_forbidden(client, db, monkeypatch):
+    monkeypatch.setattr("storage.upload_attachment", lambda *a, **kw: "x")
+    monkeypatch.setattr("storage.get_signed_url", lambda *a, **kw: "https://x")
+
+    sa = _make_user(db, "super_admin", username="sa_att_user_seed")
+    u = _make_user(db, "user", store="B店", username="u_att")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "x", "content": "y", "store": "B店"})
+    aid = rc.get_json()["id"]
+
+    _login(client, u)
+    from io import BytesIO
+    data = {"file": (BytesIO(b"x"), "a.jpg", "image/jpeg")}
+    r = client.post(f"/notes/announcement/api/{aid}/attachments",
+                    data=data, content_type="multipart/form-data")
+    assert r.status_code == 403
+
+
+def test_attachment_delete_cascades_when_announcement_deleted(client, db, monkeypatch):
+    """刪公告後 attachment row 被 cascade 刪掉."""
+    monkeypatch.setattr("storage.upload_attachment",
+                        lambda *a, **kw: "announcements/1/x.jpg")
+    monkeypatch.setattr("storage.get_signed_url",
+                        lambda *a, **kw: "https://x")
+    monkeypatch.setattr("storage.delete_attachment",
+                        lambda *a, **kw: True)
+
+    sa = _make_user(db, "super_admin", username="sa_cascade")
+    _login(client, sa)
+    rc = client.post("/notes/announcement/api",
+                     json={"title": "x", "content": "y", "store": None})
+    aid = rc.get_json()["id"]
+
+    from io import BytesIO
+    data = {"file": (BytesIO(b"x"), "a.jpg", "image/jpeg")}
+    client.post(f"/notes/announcement/api/{aid}/attachments",
+                data=data, content_type="multipart/form-data")
+
+    from models import AnnouncementAttachment
+    assert AnnouncementAttachment.query.filter_by(announcement_id=aid).count() == 1
+
+    client.delete(f"/notes/announcement/api/{aid}")
+
+    assert AnnouncementAttachment.query.filter_by(announcement_id=aid).count() == 0

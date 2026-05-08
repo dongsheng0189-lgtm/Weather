@@ -248,3 +248,108 @@ def announcement_delete(announcement_id):
     db.session.delete(a)
     db.session.commit()
     return jsonify({"status": "ok"})
+
+
+# ── Attachments ──────────────────────────────────────────────
+
+@notes_bp.route("/announcement/api/<int:announcement_id>/attachments",
+                methods=["POST"])
+@login_required
+def announcement_attachment_upload(announcement_id):
+    from storage import (upload_attachment, get_signed_url,
+                         ALLOWED_CONTENT_TYPES, MAX_FILE_SIZE)
+
+    a = Announcement.query.get(announcement_id)
+    if not a or not _can_view(a):
+        return jsonify({"status": "error", "message": "公告不存在"}), 404
+    if not _can_modify(a):
+        return jsonify({"status": "error", "message": "無權限"}), 403
+
+    try:
+        file = request.files.get("file")
+    except OSError as e:
+        if "unexpected end of file" in str(e):
+            return jsonify({"status": "error", "message": "上傳中斷，請重試"}), 400
+        raise
+    if not file or not file.filename:
+        return jsonify({"status": "error", "message": "未選擇檔案"}), 400
+
+    content_type = file.content_type or ""
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        return jsonify({"status": "error", "message": "不支援的檔案格式"}), 400
+
+    file_bytes = file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        return jsonify({"status": "error", "message": "檔案超過 50MB 上限"}), 413
+
+    object_key = upload_attachment(file_bytes, a.id, file.filename,
+                                    content_type, prefix="announcements")
+    if not object_key:
+        return jsonify({"status": "error", "message": "儲存服務未設定"}), 503
+
+    att = AnnouncementAttachment(
+        announcement_id=a.id,
+        user_id=current_user.id,
+        object_key=object_key,
+        filename=file.filename,
+        content_type=content_type,
+        file_size=len(file_bytes),
+    )
+    db.session.add(att)
+    a.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        "status": "ok",
+        "attachment": {
+            "id": att.id,
+            "filename": att.filename,
+            "content_type": att.content_type,
+            "file_size": att.file_size,
+            "url": get_signed_url(att.object_key, expires_in=3600),
+        },
+    }), 201
+
+
+@notes_bp.route("/announcement/api/<int:announcement_id>/attachments",
+                methods=["GET"])
+@login_required
+def announcement_attachment_list(announcement_id):
+    from storage import get_signed_url
+    a = Announcement.query.get(announcement_id)
+    if not a or not _can_view(a):
+        return jsonify({"status": "error", "message": "公告不存在"}), 404
+    return jsonify({
+        "status": "ok",
+        "attachments": [
+            {
+                "id": att.id,
+                "filename": att.filename,
+                "content_type": att.content_type,
+                "file_size": att.file_size,
+                "url": get_signed_url(att.object_key, expires_in=3600),
+                "created_at": tw_iso(att.created_at),
+            }
+            for att in (a.attachments or [])
+        ],
+    })
+
+
+@notes_bp.route("/announcement/api/attachments/<int:attachment_id>",
+                methods=["DELETE"])
+@login_required
+def announcement_attachment_delete(attachment_id):
+    att = AnnouncementAttachment.query.get(attachment_id)
+    if not att:
+        return jsonify({"status": "error", "message": "附件不存在"}), 404
+    a = Announcement.query.get(att.announcement_id)
+    if not a or not _can_view(a):
+        return jsonify({"status": "error", "message": "公告不存在"}), 404
+    if not _can_modify(a):
+        return jsonify({"status": "error", "message": "無權限"}), 403
+
+    _r2_delete(att.object_key)
+    db.session.delete(att)
+    a.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"status": "ok"})
