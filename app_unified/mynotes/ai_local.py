@@ -182,7 +182,7 @@ def summarize_meeting(title: str, content: str) -> str:  # noqa: ARG001
                         issue, conclusion = _extract_conclusion(item)
                         lines.append(f"{idx}. {issue}")
                         if conclusion:
-                            lines.append(f"   → {conclusion}")
+                            lines.append(f"{_CONCLUSION_PREFIX}{conclusion}")
                     lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

@@ -7,7 +7,6 @@
 """
 import time
 import uuid
-import json
 import logging
 from datetime import datetime, date, timedelta, timezone
 from flask import Blueprint, request, jsonify, render_template, abort, current_app
