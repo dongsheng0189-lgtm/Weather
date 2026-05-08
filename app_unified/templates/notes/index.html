@@ -26,6 +26,7 @@
 })();
 </script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/notes-fullscreen.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/announcements.css') }}">
 <style>
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .note-card { background: #fff; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.07); cursor: pointer; transition: box-shadow .2s; border-left: 4px solid #3498db; }
@@ -86,8 +87,14 @@
   <div style="display:flex;gap:.5rem;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;">
     <button type="button" class="btn btn-primary" onclick="openCategoryModal('note')">+ 新增筆記</button>
     <button type="button" class="btn btn-primary" style="background:#27ae60;" onclick="openCategoryModal('checklist')">☑ 新增確認表單</button>
+    {% if current_user.is_admin() %}
+    <a href="{{ url_for('notes.announcement_new_page') }}" class="btn btn-primary"
+       style="background:#f39c12;text-decoration:none;display:inline-block;">📢 新增公告</a>
+    {% endif %}
   </div>
 </div>
+
+{% include 'announcements/_card_list.html' %}
 
 {% if current_user.is_admin() %}
 <div class="card" style="margin-bottom:1rem;">

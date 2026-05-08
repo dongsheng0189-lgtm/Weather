@@ -233,6 +233,26 @@ def index():
         pagination = query.order_by(sort_order).paginate(page=page, per_page=per_page, error_out=False)
 
     today_label, yesterday_label = _get_business_day_labels()
+
+    # ─── Announcements query (visibility-filtered) ───
+    from models import Announcement
+    from sqlalchemy import or_ as _or
+    if current_user.is_super_admin():
+        _ann_q = Announcement.query
+    else:
+        _ann_q = Announcement.query.filter(
+            _or(Announcement.store.is_(None),
+                Announcement.store == current_user.store)
+        )
+    announcements = _ann_q.order_by(Announcement.created_at.desc()).all()
+    if current_user.is_super_admin():
+        editable_ann_ids = {a.id for a in announcements}
+    elif current_user.is_admin():
+        editable_ann_ids = {a.id for a in announcements
+                            if a.store == current_user.store}
+    else:
+        editable_ann_ids = set()
+
     return render_template("notes/index.html", notes=pagination.items, pagination=pagination,
                            stores=stores,
                            current_store=store_filter,
@@ -248,7 +268,9 @@ def index():
                            category_labels=CATEGORY_LABELS,
                            shift_choices=SHIFT_CHOICES,
                            ai_today_label=today_label,
-                           ai_yesterday_label=yesterday_label)
+                           ai_yesterday_label=yesterday_label,
+                           announcements=announcements,
+                           editable_ann_ids=editable_ann_ids)
 
 
 @notes_bp.route("/new", methods=["GET"])
