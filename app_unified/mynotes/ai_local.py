@@ -43,7 +43,9 @@ CONCLUSION_RE = re.compile(r"(?:結論|決定|決議)\s*[:：]\s*(.*?)(?=\n|$)")
 # 內當 fallback）。「調整」不含單字「上」「下」（會誤判「上週」「下個月」），
 # 改用 2 字組合捕捉升降轉調語意。
 PERSONNEL_KEYWORDS: dict[str, list[str]] = {
-    "離職": ["離職", "請辭", "辭職", "自請"],
+    # 「自請離」(3 字) 替代「自請」(2 字)：原本「自請」會誤抓「自請假/自請病假」。
+    # 「自請離」能 cover「自請離開」「自請離職」；「自請辭呈」由「請辭」keyword 抓。
+    "離職": ["離職", "請辭", "辭職", "自請離"],
     "資遣": ["資遣", "解雇", "解僱", "終止勞動契約", "開除"],
     "調整": [
         "異動", "調整", "調職", "調班", "轉部門",
@@ -118,7 +120,8 @@ def _classify_personnel(item_text: str) -> str:
     順序固定：離職 → 資遣 → 調整 → 其他。第一個命中的類別決定分類；
     沒命中歸『其他』。
     """
-    for category in ("離職", "資遣", "調整"):
+    # 由 PERSONNEL_ORDER[:-1] 推導，避免新增類別時手寫 tuple 漂移。
+    for category in PERSONNEL_ORDER[:-1]:
         for kw in PERSONNEL_KEYWORDS[category]:
             if kw in item_text:
                 return category

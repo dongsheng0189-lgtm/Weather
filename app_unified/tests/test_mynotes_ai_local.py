@@ -242,6 +242,12 @@ def test_classify_personnel_lizhi():
     assert _classify_personnel("自請離開") == "離職"
 
 
+def test_classify_personnel_zi_qing_jia_not_lizhi():
+    """『自請假/自請病假』不應誤判為離職（「自請」keyword 太寬會中槍）。"""
+    assert _classify_personnel("小王自請病假三天") == "其他"
+    assert _classify_personnel("店長自請假處理家事") == "其他"
+
+
 def test_classify_personnel_ziqian():
     assert _classify_personnel("阿華因業績不佳資遣") == "資遣"
     assert _classify_personnel("解雇") == "資遣"
@@ -271,6 +277,8 @@ def test_classify_personnel_priority_order():
     """順序：離職 → 資遣 → 調整 → 其他。同時命中時取較前面類別。"""
     # 含「離職」與「調整」→ 應為離職
     assert _classify_personnel("小李離職, 由 B 升上接替") == "離職"
+    # 含「資遣」與「調整」→ 應為資遣
+    assert _classify_personnel("阿華被解雇後降職處置") == "資遣"
 
 
 def test_classify_personnel_does_not_match_bare_shang_xia():
