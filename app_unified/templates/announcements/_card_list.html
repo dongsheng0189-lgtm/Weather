@@ -1,0 +1,38 @@
+{% if announcements %}
+<section class="announcement-section">
+  <h2 class="announcement-section-title">📢 公告</h2>
+  {% for a in announcements %}
+  <article class="announcement-card {% if a.is_global %}is-global{% endif %}"
+           data-ann-id="{{ a.id }}">
+    <header class="ann-header">
+      <span class="scope-chip">{{ '全部' if a.is_global else a.store }}</span>
+      <h3 class="ann-title">{{ a.title }}</h3>
+    </header>
+    <div class="ann-content">{{ a.content }}</div>
+    <div class="ann-attachments" data-ann-id="{{ a.id }}"></div>
+    <footer class="ann-footer">
+      <span class="ann-author">{{ a.display_author }}</span>
+      <time class="ann-time">{{ ann_times[a.id] }}</time>
+      {% if a.id in editable_ann_ids %}
+      <a class="btn btn-secondary btn-sm"
+         href="{{ url_for('notes.announcement_edit_page', announcement_id=a.id) }}">編輯</a>
+      {% endif %}
+    </footer>
+  </article>
+  {% endfor %}
+</section>
+
+<script src="{{ url_for('static', filename='js/announcement_attachments.js') }}"></script>
+<script>
+document.querySelectorAll('.ann-attachments[data-ann-id]').forEach(function(holder) {
+  var id = holder.getAttribute('data-ann-id');
+  fetch('/notes/announcement/api/' + id + '/attachments')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      (d.attachments || []).forEach(function(att) {
+        holder.appendChild(renderAnnAttView(att));
+      });
+    });
+});
+</script>
+{% endif %}

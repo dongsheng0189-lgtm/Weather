@@ -1,0 +1,69 @@
+/* ===== Announcement card (in /notes/ index 上方) ===== */
+.announcement-section {
+  margin: 1rem 0 1.5rem;
+  border-left: 4px solid #f39c12;
+  padding-left: .75rem;
+}
+.announcement-section-title {
+  font-size: 1.1rem;
+  margin: 0 0 .5rem;
+  color: #b88a00;
+}
+.announcement-card {
+  background: #fffbea;
+  border: 1px solid #f9d77b;
+  border-radius: 6px;
+  padding: .75rem 1rem;
+  margin-bottom: .5rem;
+}
+.announcement-card.is-global {
+  background: #fff5f5;
+  border-color: #f5a3a3;
+}
+.ann-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .35rem; }
+.ann-title { margin: 0; font-size: 1rem; color: #333; }
+.scope-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  background: #f39c12;
+  color: white;
+  border-radius: 10px;
+  font-size: .75rem;
+}
+.announcement-card.is-global .scope-chip { background: #e74c3c; }
+.ann-content { white-space: pre-wrap; color: #555; margin-bottom: .5rem; }
+.ann-attachments { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .5rem; }
+.ann-attachments .att-view { max-width: 200px; }
+.ann-attachments .att-view img,
+.ann-attachments .att-view video { max-width: 200px; max-height: 150px; border-radius: 4px; cursor: pointer; }
+.ann-footer { display: flex; gap: .75rem; align-items: center; font-size: .8rem; color: #777; }
+.btn-sm { padding: .2rem .6rem; font-size: .75rem; }
+
+/* ===== Form pages (/notes/announcement/new + /<id>/edit) ===== */
+.ann-form-page { max-width: 720px; margin: 0 auto; padding: 1rem; }
+.ann-form-page label { display: block; margin-top: .75rem; font-weight: 600; color: #555; }
+.ann-form-page label .required { color: #e74c3c; }
+.ann-form-page input[type="text"],
+.ann-form-page textarea {
+  width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: 4px;
+  font-size: .95rem; box-sizing: border-box;
+}
+.ann-form-page textarea { resize: vertical; min-height: 200px; }
+.scope-radios { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .35rem; }
+.scope-opt { font-weight: normal; }
+.scope-locked { color: #888; font-style: italic; }
+.attachment-section { margin-top: 1.5rem; }
+.attachment-section h4 { font-size: .9rem; color: #666; margin-bottom: .5rem; }
+.attachment-list { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: .5rem; }
+.att-item { position: relative; }
+.att-item img,
+.att-item video { display: block; max-width: 280px; max-height: 200px; border-radius: 8px; }
+.att-item .att-info { font-size: .75rem; color: #777; margin-top: .25rem; }
+.att-delete {
+  position: absolute; top: 4px; right: 4px;
+  background: rgba(231, 76, 60, .9); color: white; border: none;
+  border-radius: 50%; width: 22px; height: 22px; cursor: pointer;
+  font-size: 14px; line-height: 18px; padding: 0;
+}
+.upload-status { margin-top: .5rem; font-size: .8rem; color: #888; }
+.form-actions { margin-top: 1.5rem; display: flex; gap: .5rem; }

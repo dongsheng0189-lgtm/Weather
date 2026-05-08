@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}編輯公告{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/announcements.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="ann-form-page">
+  <h1>📢 編輯公告</h1>
+
+  <form id="ann-form" onsubmit="return updateAnnouncement(event)">
+    <label for="ann-title">標題 <span class="required">*</span></label>
+    <input type="text" id="ann-title" name="title" value="{{ announcement.title }}"
+           required maxlength="200">
+
+    <label>適用範圍 <span class="required">*</span></label>
+    <div class="scope-radios">
+      {% if is_super_admin %}
+      <label class="scope-opt">
+        <input type="radio" name="store" value=""
+               {% if announcement.is_global %}checked{% endif %}>
+        全部
+      </label>
+      {% for s in stores %}
+      <label class="scope-opt">
+        <input type="radio" name="store" value="{{ s.name }}"
+               {% if announcement.store == s.name %}checked{% endif %}>
+        {{ s.name }}
+      </label>
+      {% endfor %}
+      {% else %}
+      <input type="hidden" name="store" value="{{ user_store }}">
+      <span class="scope-locked">{{ user_store }}</span>
+      {% endif %}
+    </div>
+
+    <label for="ann-content">內容</label>
+    <textarea id="ann-content" name="content" rows="10">{{ announcement.content }}</textarea>
+
+    <div class="attachment-section">
+      <h4>附件</h4>
+      <input type="file" id="ann-file-input"
+             accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+             multiple onchange="handleAnnFileUpload(this)">
+      <div class="attachment-list" id="ann-attachment-list"></div>
+      <div id="ann-upload-status" class="upload-status"></div>
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ url_for('notes.index') }}" class="btn btn-secondary">取消</a>
+      <button type="submit" class="btn btn-primary">儲存</button>
+      <button type="button" class="btn btn-danger" onclick="deleteAnnouncement()">刪除公告</button>
+    </div>
+  </form>
+</div>
+
+<script>
+window.ANN_ID = {{ announcement.id }};
+window.ANN_PENDING_FILES = [];
+</script>
+<script src="{{ url_for('static', filename='js/announcement_attachments.js') }}"></script>
+<script>
+fetch('/notes/announcement/api/{{ announcement.id }}/attachments')
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    var list = document.getElementById('ann-attachment-list');
+    list.innerHTML = '';
+    (d.attachments || []).forEach(function(att) {
+      list.appendChild(createAnnAttItem(att));
+    });
+  });
+
+function updateAnnouncement(e) {
+  e.preventDefault();
+  var form = e.target;
+  var fd = new FormData(form);
+  var payload = {
+    title: fd.get('title'),
+    content: fd.get('content'),
+    store: fd.get('store') || null,
+  };
+  if (payload.store === '') payload.store = null;
+  fetch('/notes/announcement/api/{{ announcement.id }}', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then(function(r) { return r.json().then(function(j) { return [r, j]; }); })
+    .then(function(pair) {
+      var r = pair[0], j = pair[1];
+      if (r.status !== 200) {
+        alert('儲存失敗：' + (j.message || r.statusText));
+        return;
+      }
+      uploadAnnPendingFiles({{ announcement.id }}, function() {
+        location.href = "{{ url_for('notes.index') }}";
+      });
+    });
+  return false;
+}
+
+function deleteAnnouncement() {
+  if (!confirm('確定刪除這則公告？')) return;
+  fetch('/notes/announcement/api/{{ announcement.id }}', {method: 'DELETE'})
+    .then(function(r) {
+      if (r.status === 200) location.href = "{{ url_for('notes.index') }}";
+      else alert('刪除失敗');
+    });
+}
+</script>
+{% endblock %}
