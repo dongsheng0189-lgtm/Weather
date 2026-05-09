@@ -85,30 +85,60 @@ def test_non_healthz_path_waits_for_init_then_delegates():
     assert result["body"] == b"flask response"
 
 
-def test_factory_exception_returns_500_for_non_healthz_but_healthz_still_works():
-    """If create_app crashes, non-/healthz returns 500 with diagnostic — but /healthz
-    must still respond 200 so the pod stays alive long enough to investigate."""
+def test_factory_exception_returns_503_on_healthz_so_k8s_restarts():
+    """If create_app crashes, /healthz must signal unhealthy (5xx) so the K8s
+    liveness probe fails and the pod is restarted. Previous behavior always
+    returned 200 to "keep the debugging window open"; in production that
+    leaves a permanently broken pod alive instead of letting K8s recreate it."""
 
     def bad_factory():
         raise RuntimeError("simulated create_app failure")
 
     proxy = LazyAppProxy(bad_factory)
 
-    # Wait briefly for the factory thread to fail.
     deadline = time.time() + 2
     while time.time() < deadline and not proxy._init_done.is_set():
         time.sleep(0.05)
     assert proxy._init_done.is_set(), "factory thread never finished"
 
-    # /healthz still 200 — debugging window stays open.
     healthz = _wsgi_call(proxy, "/healthz")
-    assert healthz["status"] == "200 OK"
-    assert healthz["body"] == b"ok"
+    assert healthz["status"].startswith("503"), (
+        f"after init failure /healthz must signal unhealthy, got {healthz['status']}"
+    )
 
-    # Other paths surface the error as 500 with diagnostic info in body.
     other = _wsgi_call(proxy, "/anything")
     assert other["status"].startswith("500"), f"got {other['status']}"
     assert b"simulated create_app failure" in other["body"]
+
+
+def test_healthz_delegates_to_flask_after_init_done():
+    """Once Flask is initialized, /healthz must hit the real Flask app's /healthz
+    route — not the fast-path. If Flask hub is later blocked (e.g. dlib in a
+    greenlet), the delegation hangs, K8s liveness probe times out, pod restarts.
+
+    Previous behavior: fast-path always returned 200 → K8s thought pod healthy
+    even when Flask hung → 10+ min outage waiting for gunicorn timeout=600
+    (incident 2026-05-09 20:00)."""
+
+    class HealthzAwareFakeApp:
+        config = {"TESTING": True}
+
+        def __call__(self, environ, start_response):
+            if environ.get("PATH_INFO") == "/healthz":
+                start_response("200 OK", [("Content-Type", "text/plain")])
+                return [b"flask-healthz"]
+            start_response("200 OK", [("Content-Type", "text/plain")])
+            return [b"flask response"]
+
+    proxy = LazyAppProxy(lambda: HealthzAwareFakeApp())
+    assert proxy._init_done.wait(timeout=2)
+
+    result = _wsgi_call(proxy, "/healthz")
+    assert result["status"] == "200 OK"
+    assert result["body"] == b"flask-healthz", (
+        f"post-init /healthz must delegate to Flask (body=flask-healthz), "
+        f"not return fast-path body=ok. Got: {result['body']}"
+    )
 
 
 def test_attribute_access_delegates_to_real_flask_app_after_init():

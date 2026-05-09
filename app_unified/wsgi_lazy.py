@@ -8,6 +8,12 @@ times out and kills the pod in a restart loop.
 This proxy answers GET /healthz with 200 OK immediately while real Flask init
 runs in a background OS thread (gevent threadpool, so the gevent hub stays free
 to handle the probe).
+
+After init completes, /healthz delegates to the real Flask /healthz route. A
+hung Flask (gevent hub blocked by sync work, DB deadlock) then trips the K8s
+liveness probe → pod restart → recovery. The previous always-fast-path masked
+runtime hangs and led to the 2026-05-09 20:00 incident (10+ min outage waiting
+for gunicorn timeout=600 to SIGKILL the worker).
 """
 import threading
 
@@ -52,14 +58,26 @@ class LazyAppProxy:
             self._init_done.set()
 
     def __call__(self, environ, start_response):
-        if environ.get("PATH_INFO") == "/healthz":
+        is_healthz = environ.get("PATH_INFO") == "/healthz"
+
+        # Fast-path /healthz only WHILE init is in progress (cold start window).
+        # Once init is done — success or failure — fall through so K8s probe
+        # reflects the real Flask state.
+        if is_healthz and not self._init_done.is_set():
             start_response("200 OK", [("Content-Type", "text/plain")])
             return [b"ok"]
+
         if not self._init_done.wait(timeout=_INIT_TIMEOUT_SECONDS):
             start_response("503 Service Unavailable",
                            [("Content-Type", "text/plain")])
             return [b"app init timeout"]
         if self._init_error is not None:
+            if is_healthz:
+                body = b"app init failed"
+                start_response("503 Service Unavailable",
+                               [("Content-Type", "text/plain"),
+                                ("Content-Length", str(len(body)))])
+                return [body]
             body = f"app init failed: {self._init_error!r}".encode("utf-8")
             start_response("500 Internal Server Error",
                            [("Content-Type", "text/plain"),
