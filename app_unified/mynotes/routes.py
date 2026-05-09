@@ -5,15 +5,19 @@
 - todo_note      筆記-純文字：可提醒日期、可附件
 - todo_checklist 清單：逐項勾選、可提醒日期、項目可附件
 """
+import json
 import time
 import uuid
 import logging
 from datetime import datetime, date, timedelta, timezone
+
+import gevent
+from gevent.lock import BoundedSemaphore
 from flask import Blueprint, request, jsonify, render_template, abort, current_app
 from flask_login import login_required, current_user
 from extensions import db
 from models import (
-    PrivateNote, PrivateChecklistItem, PrivateAttachment, PRIVATE_NOTE_TYPES
+    AiTask, PrivateNote, PrivateChecklistItem, PrivateAttachment, PRIVATE_NOTE_TYPES
 )
 from features import user_has_feature
 from tw_time import tw_iso
@@ -425,10 +429,69 @@ def delete_attachment_api(attachment_id):
 
 
 # ═══ AI 摘要（僅 meeting，local Python pipeline）═══════════
-# 從雲端 LLM 換到 local regex parser；同模式參考 notes/routes.py 5/7 7a1465f
-# CPU 工作走 gevent.threadpool 避免 block reactor → /healthz / pod 不被殺。
+# Task state 走 DB (AiTask, kind='mynotes') 跨 worker 都活；獨立 sem 限制每
+# worker 並發到 2 個（防 gunicorn timeout=60s 把 worker SIGKILL 整批死光）。
+# 細節同 notes/routes.py 的 fix（2026-05-10 commit ef2ca06）。
 
-_ai_tasks = {}
+_mynotes_ai_sem = BoundedSemaphore(2)
+_AI_TASK_TTL_SEC = 30
+_AI_TASK_STUCK_SEC = 60
+_AI_TASK_HARD_TIMEOUT_SEC = 45
+
+
+def _create_ai_task(user_id):
+    task_id = uuid.uuid4().hex[:12]
+    db.session.add(AiTask(id=task_id, kind="mynotes", user_id=user_id, status="processing"))
+    db.session.commit()
+    return task_id
+
+
+def _set_ai_task_done(task_id, result):
+    now = datetime.utcnow()
+    row = db.session.get(AiTask, task_id)
+    if row is None:
+        return
+    row.status = "done"
+    row.result_json = json.dumps(result, ensure_ascii=False)
+    row.error_msg = None
+    row.updated_at = now
+    row.expires_at = now + timedelta(seconds=_AI_TASK_TTL_SEC)
+    db.session.commit()
+
+
+def _set_ai_task_error(task_id, message):
+    now = datetime.utcnow()
+    row = db.session.get(AiTask, task_id)
+    if row is None:
+        return
+    row.status = "error"
+    row.error_msg = message
+    row.updated_at = now
+    row.expires_at = now + timedelta(seconds=_AI_TASK_TTL_SEC)
+    db.session.commit()
+
+
+def _sweep_ai_tasks():
+    now = datetime.utcnow()
+    AiTask.query.filter(
+        AiTask.kind == "mynotes",
+        AiTask.status == "processing",
+        AiTask.updated_at < now - timedelta(seconds=_AI_TASK_STUCK_SEC),
+    ).update(
+        {
+            AiTask.status: "error",
+            AiTask.error_msg: "任務逾時",
+            AiTask.updated_at: now,
+            AiTask.expires_at: now + timedelta(seconds=_AI_TASK_TTL_SEC),
+        },
+        synchronize_session=False,
+    )
+    AiTask.query.filter(
+        AiTask.kind == "mynotes",
+        AiTask.expires_at.isnot(None),
+        AiTask.expires_at < now,
+    ).delete(synchronize_session=False)
+    db.session.commit()
 
 
 @mynotes_bp.route("/api/<int:note_id>/summarize", methods=["POST"])
@@ -438,69 +501,57 @@ def summarize(note_id):
     if n.note_type != "meeting":
         return jsonify({"status": "error", "message": "僅會議紀錄可摘要"}), 400
 
-    task_id = uuid.uuid4().hex[:12]
-    _ai_tasks[task_id] = {"status": "processing"}
-    import gevent
+    if not _mynotes_ai_sem.acquire(blocking=False):
+        return jsonify({"status": "busy", "message": "AI 摘要忙線中，請稍後再試"}), 429
+    task_id = _create_ai_task(current_user.id)
     gevent.spawn(_run_summary, task_id, current_app._get_current_object(), n.id)
     return jsonify({"status": "accepted", "task_id": task_id})
 
 
 def _run_summary(task_id, app, note_id):
-    """Local Python parser task — 走 gevent.threadpool 不阻塞 reactor。"""
+    """Local Python parser task — threadpool 不阻塞 reactor、with_timeout 防 SIGKILL。"""
     with app.app_context():
         try:
-            n = PrivateNote.query.get(note_id)
-            if not n:
-                _ai_tasks[task_id] = {"status": "error", "message": "筆記不存在"}
-                return
-            from mynotes.ai_local import summarize_meeting
-            import gevent
-            # threadpool.apply 把 fn 派到 real OS thread；目前 greenlet 等結果，
-            # 但會 yield hub 給其他 greenlet（含 /healthz、其他 request）。
-            result = gevent.get_hub().threadpool.apply(
-                summarize_meeting,
-                args=(n.title or "", n.content or ""),
-            )
-            n.ai_summary = result
-            n.updated_at = datetime.utcnow()
-            db.session.commit()
-            _ai_tasks[task_id] = {"status": "done", "result": result}
-        except Exception as e:
-            # commit() raise 時 session 會留 dirty state；rollback 一下
-            # 才不會讓後續 request 在同一 scoped session 看到 partial write。
-            db.session.rollback()
-            logger.exception("[mynotes] local summary pipeline failed")
-            _ai_tasks[task_id] = {"status": "error", "message": str(e)}
-
-
-_AI_TASK_GRACE_SEC = 30
+            try:
+                n = PrivateNote.query.get(note_id)
+                if not n:
+                    _set_ai_task_error(task_id, "筆記不存在")
+                    return
+                from mynotes.ai_local import summarize_meeting
+                result = gevent.with_timeout(
+                    _AI_TASK_HARD_TIMEOUT_SEC,
+                    gevent.get_hub().threadpool.apply,
+                    summarize_meeting,
+                    args=(n.title or "", n.content or ""),
+                )
+                n.ai_summary = result
+                n.updated_at = datetime.utcnow()
+                db.session.commit()
+                _set_ai_task_done(task_id, result)
+            except gevent.Timeout:
+                db.session.rollback()
+                _set_ai_task_error(task_id, "摘要逾時，請稍後再試")
+            except Exception as e:
+                # commit() raise 時 session 會留 dirty state；rollback 才不會
+                # 讓後續 request 在同 scoped session 看到 partial write。
+                db.session.rollback()
+                logger.exception("[mynotes] local summary pipeline failed")
+                _set_ai_task_error(task_id, str(e))
+        finally:
+            _mynotes_ai_sem.release()
 
 
 @mynotes_bp.route("/api/ai/task/<task_id>", methods=["GET"])
 @login_required
 def get_ai_task(task_id):
-    """輪詢 AI 任務狀態。
+    """輪詢 AI 任務狀態（DB-backed，跨 worker / pod restart 都活）。"""
+    _sweep_ai_tasks()
 
-    Done/error 結果保留 30 秒 grace window 後才 GC，避免 frontend setInterval
-    重疊 polling 在第一次 done 讀取後立即拿到「任務不存在」(race bug，跟
-    notes/routes.py 5/7 0e9dda7 同模式)。
-    """
-    now = time.time()
-    expired = [tid for tid, t in _ai_tasks.items()
-               if t.get("delete_at", float("inf")) < now]
-    for tid in expired:
-        _ai_tasks.pop(tid, None)
-
-    task = _ai_tasks.get(task_id)
-    if not task:
+    row = db.session.get(AiTask, task_id)
+    if row is None or row.kind != "mynotes":
         return jsonify({"status": "error", "message": "任務不存在"}), 404
-
-    # 第一次讀到 done/error 時設定刪除時間；之後 grace_sec 內仍可重讀同結果
-    if task["status"] in ("done", "error") and "delete_at" not in task:
-        task["delete_at"] = now + _AI_TASK_GRACE_SEC
-
-    if task["status"] == "done":
-        return jsonify({"status": "done", "result": task["result"]})
-    if task["status"] == "error":
-        return jsonify({"status": "error", "message": task["message"]})
+    if row.status == "done":
+        return jsonify({"status": "done", "result": json.loads(row.result_json)})
+    if row.status == "error":
+        return jsonify({"status": "error", "message": row.error_msg or ""})
     return jsonify({"status": "processing"})

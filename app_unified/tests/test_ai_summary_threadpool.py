@@ -1,26 +1,25 @@
-"""Worker-recycle root-cause fix verification.
+"""notes/_run_local_summary spec.
 
-Background: 在 gevent worker 直接跑 sentence-transformers encode + DBSCAN 會 block
-整個 reactor，導致 /healthz readiness probe 超時，Zeabur 殺 pod 重啟，
-module-level _ai_tasks dict 被清空，前端輪詢拿到「任務不存在」。
-
-修法：CPU-bound 部份 (summarize_local) 改走 gevent.get_hub().threadpool.apply()
-在 real OS thread 執行，當前 greenlet 雖等結果但會 yield hub 給 /healthz
-與其他 request。
+Combined invariants:
+- summarize_local 必須走 gevent.threadpool.apply（5/7 7a1465f：CPU-bound C
+  extension 不釋 GIL，直接跑會 block reactor、/healthz 失敗、pod 重啟）
+- thread 內訪問 SA 物件不能 lazy load（無 Flask app_context）→ 預先 joinedload
+- task state 走 DB (AiTask, kind='notes')，跨 worker 都活（5/10 fix）
 """
+import json
 import uuid
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 
 import pytest
 
+from extensions import db
+from models import AiTask, Note, Store, User
 from notes import routes as notes_routes
-from models import Note, Store, User
 
 
 @pytest.fixture
 def _store_a(app, db_session):
-    from extensions import db
     if not Store.query.filter_by(name="A").first():
         db.session.add(Store(name="A"))
         db.session.commit()
@@ -60,13 +59,24 @@ def _seeded_notes(app, db_session, _admin):
     return notes
 
 
-def _call_run_local_summary(task_id, app, summarize_return="FAKE_SUMMARY", apply_side_effect=None):
-    """Helper：mock 掉 summarize_local 跟 gevent.get_hub.threadpool.apply 後呼叫 _run_local_summary。
+def _seed_processing(user_id, task_id):
+    """Pre-create the AiTask row that the spawn site would have created. Also
+    acquire the sem so _run_local_summary's finally-release doesn't underflow."""
+    db.session.add(AiTask(
+        id=task_id, kind="notes", user_id=user_id, status="processing",
+    ))
+    db.session.commit()
+    assert notes_routes._ai_summary_sem.acquire(blocking=False)
 
-    apply_side_effect: callable(fn, args=, kwds=) → 自訂 pool.apply 行為。
-                       預設行為 = 直接呼叫 fn(*args)，但 fn 會被 mock 成 summarize_return。
-    回傳：(captured_pool_apply_call_args, _ai_tasks 內該 task_id 的內容)
-    """
+
+def _read_task(task_id):
+    db.session.expire_all()
+    return db.session.get(AiTask, task_id)
+
+
+def _call_run_local_summary(task_id, app, summarize_return="FAKE_SUMMARY", apply_side_effect=None):
+    """Helper：mock summarize_local + gevent.get_hub.threadpool.apply，
+    呼叫 _run_local_summary。回傳 (captured_pool_apply_calls, AiTask row)。"""
     captured = {"calls": []}
 
     if apply_side_effect is None:
@@ -97,13 +107,13 @@ def _call_run_local_summary(task_id, app, summarize_return="FAKE_SUMMARY", apply
             "「A店」", "今天", "今天",
         )
 
-    return captured["calls"], notes_routes._ai_tasks.get(task_id)
+    return captured["calls"], _read_task(task_id)
 
 
-def test_run_local_summary_dispatches_summarize_via_threadpool(app, db_session, _seeded_notes):
+def test_run_local_summary_dispatches_summarize_via_threadpool(app, db_session, _admin, _seeded_notes):
     """根因守則：summarize_local 必須走 threadpool.apply，否則會 block gevent reactor。"""
     task_id = "tp-" + uuid.uuid4().hex[:8]
-    notes_routes._ai_tasks.clear()
+    _seed_processing(_admin.id, task_id)
 
     calls, task = _call_run_local_summary(task_id, app, summarize_return="ok")
 
@@ -112,13 +122,15 @@ def test_run_local_summary_dispatches_summarize_via_threadpool(app, db_session, 
     assert fn.__name__ == "summarize_local", \
         "派到 threadpool 的應該是 summarize_local；目前是 %r" % (fn,)
 
-    assert task == {"status": "done", "result": "ok"}
+    assert task is not None
+    assert task.status == "done"
+    assert json.loads(task.result_json) == "ok"
 
 
-def test_run_local_summary_stores_error_status_on_exception(app, db_session, _seeded_notes):
-    """exception path：error 寫進 _ai_tasks，不能讓 task 卡在 processing。"""
+def test_run_local_summary_stores_error_status_on_exception(app, db_session, _admin, _seeded_notes):
+    """exception path：error 寫進 AiTask，不能讓 task 卡在 processing。"""
     task_id = "err-" + uuid.uuid4().hex[:8]
-    notes_routes._ai_tasks.clear()
+    _seed_processing(_admin.id, task_id)
 
     def boom(fn, args=(), kwds=None):
         raise RuntimeError("simulated CPU work failure")
@@ -126,11 +138,11 @@ def test_run_local_summary_stores_error_status_on_exception(app, db_session, _se
     _, task = _call_run_local_summary(task_id, app, apply_side_effect=boom)
 
     assert task is not None
-    assert task["status"] == "error"
-    assert "simulated CPU work failure" in task["message"]
+    assert task.status == "error"
+    assert "simulated CPU work failure" in (task.error_msg or "")
 
 
-def test_run_local_summary_eager_loads_relationships(app, db_session, _seeded_notes):
+def test_run_local_summary_eager_loads_relationships(app, db_session, _admin, _seeded_notes):
     """thread 內訪問 detached SA 物件 → relationships 必須事先 joinedload。"""
     from sqlalchemy import inspect as sa_inspect
 
@@ -144,13 +156,13 @@ def test_run_local_summary_eager_loads_relationships(app, db_session, _seeded_no
         return "ok"
 
     task_id = "el-" + uuid.uuid4().hex[:8]
-    notes_routes._ai_tasks.clear()
+    _seed_processing(_admin.id, task_id)
 
     _, task = _call_run_local_summary(
         task_id, app, summarize_return="ok", apply_side_effect=check_relationships
     )
 
-    assert task["status"] == "done"
+    assert task.status == "done"
     assert inspected["unloaded_per_note"], "至少要查到一筆 note"
     for unloaded in inspected["unloaded_per_note"]:
         assert "author" not in unloaded, \

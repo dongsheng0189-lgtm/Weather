@@ -74,6 +74,9 @@ def test_third_concurrent_summary_returns_429(app, client, db_session, admin_use
     finally:
         for _ in range(taken):
             notes_routes._ai_summary_sem.release()
+        # Cleanup: 別讓 seed note 污染後續 test_notes_misc 等的 store=A 資料分頁
+        db_session.delete(n)
+        db_session.commit()
 
 
 def test_semaphore_released_after_done(app, db_session, admin_user):
