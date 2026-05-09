@@ -6,6 +6,7 @@ on:
       - main
       - feat/ghcr-deploy
       - fix/face-hub-block
+      - worktree-fix-ai-task-db-state
     paths:
       - 'app_unified/**'
       - '.github/workflows/docker.yml'
