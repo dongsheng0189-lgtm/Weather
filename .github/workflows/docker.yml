@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/ghcr-deploy
+      - fix/face-hub-block
     paths:
       - 'app_unified/**'
       - '.github/workflows/docker.yml'
