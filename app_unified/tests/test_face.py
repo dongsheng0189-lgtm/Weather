@@ -70,3 +70,24 @@ def test_face_encoding_uses_numpy_not_pickle(app, db_session, test_user):
 def test_face_enroll_requires_login(client):
     res = client.post('/face/enroll', json={'face_image': FAKE_JPEG_B64})
     assert res.status_code in (302, 401)
+
+
+def test_face_executor_uses_gevent_threadpool():
+    """Face verify CPU work must run on real OS threads, not greenlets.
+
+    Under gevent monkey patching (production gunicorn worker), stdlib
+    threading.Thread becomes a greenlet on the same hub. dlib native code
+    in face_recognition does not yield to the hub, so concurrent verifies
+    block all other requests for ~10 minutes until gunicorn timeout SIGKILLs
+    the worker (incident on 2026-05-09 20:00).
+
+    gevent.threadpool.ThreadPool always uses real OS threads regardless of
+    monkey patching, so dlib runs off-hub and Flask stays responsive.
+    """
+    from gevent.threadpool import ThreadPool
+    from auth import routes as auth_routes
+    assert isinstance(auth_routes._face_executor, ThreadPool), (
+        f"_face_executor must be gevent.threadpool.ThreadPool to keep gevent "
+        f"hub responsive under face verify load. Got: "
+        f"{type(auth_routes._face_executor).__name__}"
+    )

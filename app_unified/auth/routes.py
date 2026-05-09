@@ -16,7 +16,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 from flask import Blueprint, request, jsonify, session, redirect, url_for, render_template, flash, current_app, abort
 from flask_login import login_user, logout_user, login_required, current_user
-from concurrent.futures import ThreadPoolExecutor
+from gevent.threadpool import ThreadPool
 from extensions import db, limiter
 from models import User, Store
 
@@ -29,13 +29,18 @@ except BaseException as _e:
     _log.getLogger(__name__).warning("face_recognition import failed: %s", _e)
     FACE_RECOGNITION_AVAILABLE = False
 
-_face_executor = ThreadPoolExecutor(max_workers=3)
+# gevent.threadpool.ThreadPool runs work on real OS threads even when gevent
+# monkey-patches stdlib threading. dlib in face_recognition does not yield to
+# the gevent hub; if dispatched onto greenlets (via stdlib ThreadPoolExecutor)
+# 3 concurrent verifies block the hub for the full duration of the dlib calls
+# → all other Flask requests stall (incident 2026-05-09 20:00, 10+ min outage).
+_face_executor = ThreadPool(maxsize=3)
 
 
 def _do_face_compare(known_encoding, img_data_bytes):
     """Run in thread — CPU-intensive face_recognition calls."""
     img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
-    locations = face_recognition.face_locations(img, number_of_times_to_upsample=2)
+    locations = face_recognition.face_locations(img, number_of_times_to_upsample=1)
     encodings = face_recognition.face_encodings(img, locations)
     if not encodings:
         return False, 0.0
@@ -48,7 +53,7 @@ def _do_face_compare(known_encoding, img_data_bytes):
 def _do_detect_any_face(img_data_bytes):
     """Run in thread — check if any face exists in image."""
     img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
-    return len(face_recognition.face_locations(img, number_of_times_to_upsample=2)) > 0
+    return len(face_recognition.face_locations(img, number_of_times_to_upsample=1)) > 0
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -143,8 +148,8 @@ def verify():
     # Step 5: 人臉不符 → 區分「圖中無人臉」vs「有人臉但不符」
     try:
         img_data = base64.b64decode(face_image.split(",")[-1])
-        future = _face_executor.submit(_do_detect_any_face, img_data)
-        any_face_found = future.result(timeout=15)
+        async_result = _face_executor.spawn(_do_detect_any_face, img_data)
+        any_face_found = async_result.get(timeout=15)
     except Exception:
         any_face_found = False
 
@@ -215,8 +220,8 @@ def _verify_face(user: User, image_b64: str):
         if known is None:
             return False, 0.0
         logger.warning("_verify_face: submitting to thread pool for user=%s", user.username)
-        future = _face_executor.submit(_do_face_compare, known, img_data)
-        match, confidence = future.result(timeout=15)
+        async_result = _face_executor.spawn(_do_face_compare, known, img_data)
+        match, confidence = async_result.get(timeout=15)
         logger.warning("_verify_face: user=%s match=%s confidence=%.3f", user.username, match, confidence)
         return match, confidence
     except Exception as e:
