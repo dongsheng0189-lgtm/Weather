@@ -1,10 +1,14 @@
+import json
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+
+import gevent
+from gevent.lock import BoundedSemaphore
 from flask import Blueprint, request, jsonify, render_template, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from models import Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE, SHIFT_CHOICES
+from models import AiTask, Note, Store, NoteLog, ChecklistItem, STATUS_CHOICES, CATEGORY_CHOICES, CATEGORY_LABELS, CATEGORY_CREATABLE, SHIFT_CHOICES
 from admin.routes import call_llm
 from tw_time import tw_iso, tw_str
 
@@ -149,8 +153,75 @@ def _get_business_day_label():
         return (now_tw - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
-# 異步 AI 任務存儲（in-memory）
-_ai_tasks = {}
+# Per-worker concurrency cap for AI summary tasks. workers=2 in gunicorn.conf.py
+# → up to 4 concurrent across the pod; above that we 429 the user. Each task
+# also has a hard timeout (below gunicorn's 60s) so it can't SIGKILL the worker.
+_ai_summary_sem = BoundedSemaphore(2)
+
+# How long after done/error before the row may be GC'd. Polling within this
+# window keeps returning the result; after it expires, GET returns 404.
+_AI_TASK_TTL_SEC = 30
+
+# A processing task whose updated_at is older than this is considered stuck
+# (worker SIGKILL'd, pod restarted, etc.) — sweep flips it to error.
+_AI_TASK_STUCK_SEC = 60
+
+# Hard timeout inside the spawned task — must stay below gunicorn timeout (60s)
+# so we convert it to an error status instead of letting gunicorn SIGKILL.
+_AI_TASK_HARD_TIMEOUT_SEC = 45
+
+
+def _create_ai_task(kind, user_id):
+    task_id = uuid.uuid4().hex[:12]
+    db.session.add(AiTask(id=task_id, kind=kind, user_id=user_id, status="processing"))
+    db.session.commit()
+    return task_id
+
+
+def _set_ai_task_done(task_id, result):
+    now = datetime.utcnow()
+    row = db.session.get(AiTask, task_id)
+    if row is None:
+        return
+    row.status = "done"
+    row.result_json = json.dumps(result, ensure_ascii=False)
+    row.error_msg = None
+    row.updated_at = now
+    row.expires_at = now + timedelta(seconds=_AI_TASK_TTL_SEC)
+    db.session.commit()
+
+
+def _set_ai_task_error(task_id, message):
+    now = datetime.utcnow()
+    row = db.session.get(AiTask, task_id)
+    if row is None:
+        return
+    row.status = "error"
+    row.error_msg = message
+    row.updated_at = now
+    row.expires_at = now + timedelta(seconds=_AI_TASK_TTL_SEC)
+    db.session.commit()
+
+
+def _sweep_ai_tasks():
+    now = datetime.utcnow()
+    AiTask.query.filter(
+        AiTask.status == "processing",
+        AiTask.updated_at < now - timedelta(seconds=_AI_TASK_STUCK_SEC),
+    ).update(
+        {
+            AiTask.status: "error",
+            AiTask.error_msg: "任務逾時",
+            AiTask.updated_at: now,
+            AiTask.expires_at: now + timedelta(seconds=_AI_TASK_TTL_SEC),
+        },
+        synchronize_session=False,
+    )
+    AiTask.query.filter(
+        AiTask.expires_at.isnot(None),
+        AiTask.expires_at < now,
+    ).delete(synchronize_session=False)
+    db.session.commit()
 
 
 def _get_stores():
@@ -677,28 +748,35 @@ def _run_split_summary(task_id, app, notes, since, until, store_label, range_lab
                 parts.append("# 確認表單彙整\n\n" + call_llm(prompt, max_tokens=65536))
 
             result = "\n\n".join(parts) + "\n\n--- 摘要整理結束 ---"
-            _ai_tasks[task_id] = {"status": "done", "result": result}
+            _set_ai_task_done(task_id, result)
         except Exception as e:
-            _ai_tasks[task_id] = {"status": "error", "message": str(e)}
+            _set_ai_task_error(task_id, str(e))
+        finally:
+            _ai_summary_sem.release()
 
 
 def _run_ai_task(task_id, app, prompt, max_tokens, note_id=None, field=None):
     """在 gevent greenlet 中執行 LLM 呼叫"""
     with app.app_context():
         try:
-            result = call_llm(prompt, max_tokens=max_tokens)
-            if note_id and field:
-                note = Note.query.get(note_id)
-                if note:
-                    setattr(note, field, result)
-                    note.updated_at = datetime.utcnow()
-                    db.session.commit()
-            _ai_tasks[task_id] = {"status": "done", "result": result}
-        except Exception as e:
-            _ai_tasks[task_id] = {"status": "error", "message": str(e)}
-
-
-_AI_TASK_GRACE_SEC = 30
+            try:
+                result = gevent.with_timeout(
+                    _AI_TASK_HARD_TIMEOUT_SEC,
+                    call_llm, prompt, max_tokens=max_tokens,
+                )
+                if note_id and field:
+                    note = Note.query.get(note_id)
+                    if note:
+                        setattr(note, field, result)
+                        note.updated_at = datetime.utcnow()
+                        db.session.commit()
+                _set_ai_task_done(task_id, result)
+            except gevent.Timeout:
+                _set_ai_task_error(task_id, "任務逾時，請稍後再試")
+            except Exception as e:
+                _set_ai_task_error(task_id, str(e))
+        finally:
+            _ai_summary_sem.release()
 
 
 @notes_bp.route("/ai/task/<task_id>", methods=["GET"])
@@ -708,24 +786,15 @@ def get_ai_task(task_id):
     if not current_user.is_admin():
         return jsonify({"status": "error", "message": "僅限管理員"}), 403
 
-    # Lazy GC：把已過 grace window 的完成 task 掃掉，避免無限增長
-    now = time.time()
-    expired = [tid for tid, t in _ai_tasks.items() if t.get("delete_at", float("inf")) < now]
-    for tid in expired:
-        _ai_tasks.pop(tid, None)
+    _sweep_ai_tasks()
 
-    task = _ai_tasks.get(task_id)
-    if not task:
+    row = db.session.get(AiTask, task_id)
+    if row is None:
         return jsonify({"status": "error", "message": "任務不存在"}), 404
-
-    # 第一次讀到 done/error 時設定刪除時間，讓重疊 polling 在 grace 內仍取得相同結果
-    if task["status"] in ("done", "error") and "delete_at" not in task:
-        task["delete_at"] = now + _AI_TASK_GRACE_SEC
-
-    if task["status"] == "done":
-        return jsonify({"status": "done", "result": task["result"]})
-    if task["status"] == "error":
-        return jsonify({"status": "error", "message": task["message"]})
+    if row.status == "done":
+        return jsonify({"status": "done", "result": json.loads(row.result_json)})
+    if row.status == "error":
+        return jsonify({"status": "error", "message": row.error_msg or ""})
     return jsonify({"status": "processing"})
 
 
@@ -1108,9 +1177,9 @@ def summarize(note_id):
         + _build_output_structure_prompt(has_reg, has_cl)
         + f"\n# 待整理資料（{note.store or '未分店'}店，共 {count} 筆）\n\n{data_block}"
     )
-    task_id = uuid.uuid4().hex[:12]
-    _ai_tasks[task_id] = {"status": "processing"}
-    import gevent
+    if not _ai_summary_sem.acquire(blocking=False):
+        return jsonify({"status": "busy", "message": "AI 摘要忙線中，請稍後再試"}), 429
+    task_id = _create_ai_task("notes", current_user.id)
     gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
                  prompt, 65536, note_id, "ai_summary")
     return jsonify({"status": "accepted", "task_id": task_id})
@@ -1132,9 +1201,9 @@ def outline(note_id):
         + ("若為確認表單，請分「已完成」「未完成」兩段整理。\n" if is_cl else "\n")
         + f"\n# 待整理筆記\n\n{body}"
     )
-    task_id = uuid.uuid4().hex[:12]
-    _ai_tasks[task_id] = {"status": "processing"}
-    import gevent
+    if not _ai_summary_sem.acquire(blocking=False):
+        return jsonify({"status": "busy", "message": "AI 摘要忙線中，請稍後再試"}), 429
+    task_id = _create_ai_task("notes", current_user.id)
     gevent.spawn(_run_ai_task, task_id, current_app._get_current_object(),
                  prompt, 65536, note_id, "ai_outline")
     return jsonify({"status": "accepted", "task_id": task_id})
@@ -1189,45 +1258,50 @@ def notes_ai_summary():
     # 既有 Gemini 路徑（_run_ai_task / _run_split_summary / MANAGER_PROMPT）保留供 git revert
     import logging as _logging_mod
     _logging_mod.getLogger("ai_summary").warning("[ai_summary] === using LOCAL python pipeline (NOT gemini) ===")
-    task_id = uuid.uuid4().hex[:12]
-    _ai_tasks[task_id] = {"status": "processing"}
-    import gevent
+    if not _ai_summary_sem.acquire(blocking=False):
+        return jsonify({"status": "busy", "message": "AI 摘要忙線中，請稍後再試"}), 429
+    task_id = _create_ai_task("notes", current_user.id)
     gevent.spawn(_run_local_summary, task_id, current_app._get_current_object(),
                  store, start_utc, end_utc, store_label, range_label, inrange_label)
     return jsonify({"status": "accepted", "task_id": task_id, "business_day_date": business_day_date})
 
 
 def _run_local_summary(task_id, app, store, since, until, store_label, range_label, inrange_label):
-    """純 Python 摘要 task（取代 Gemini）。與 _run_ai_task 同 task_id 機制相容。
-
-    CPU-bound 部份（model.encode / DBSCAN.fit）走 gevent.threadpool 在 real OS thread 跑，
-    避免阻塞 gevent reactor。否則 reactor 卡死時 /healthz 回不了 → Zeabur readiness probe
-    超時 → 殺 pod 重啟 → module-level _ai_tasks dict 跟著清空 → 前端輪詢拿到「任務不存在」。
+    """純 Python 摘要 task。CPU-bound 部份走 gevent.threadpool 在 real OS thread 跑，
+    避免阻塞 gevent reactor (5/7 worker recycle root cause)；外層 with_timeout
+    把整段限時 _AI_TASK_HARD_TIMEOUT_SEC，避免拖過 gunicorn timeout=60s 觸發 SIGKILL。
+    Task state 走 DB (AiTask) 才能跨 worker (5/9 改 workers=2 後的 cross-worker bug)。
     """
     with app.app_context():
         try:
-            from sqlalchemy.orm import joinedload
-            # joinedload 預先載入 author + checklist_items，避免 thread 內 lazy load
-            # 觸發跨 session 訪問（thread 沒有 Flask app_context / SA session）。
-            notes = (Note.query
-                     .options(joinedload(Note.author), joinedload(Note.checklist_items))
-                     .filter(Note.is_ai_summary.is_(False))
-                     .filter_by(store=store)
-                     .order_by(Note.updated_at.desc())
-                     .all())
-            from notes.ai_local import summarize_local
-            import gevent
-            # threadpool.apply 把 fn 派到 real OS thread；目前 greenlet 等結果，
-            # 但會 yield hub 給其他 greenlet（含 /healthz、其他 request）。
-            result = gevent.get_hub().threadpool.apply(
-                summarize_local,
-                args=(notes, since, until, store_label, range_label, inrange_label),
-            )
-            _ai_tasks[task_id] = {"status": "done", "result": result}
-        except Exception as e:
-            import logging as _logging_mod
-            _logging_mod.getLogger("ai_summary").exception("[ai_summary] local pipeline failed")
-            _ai_tasks[task_id] = {"status": "error", "message": f"本地摘要失敗：{e}"}
+            try:
+                from sqlalchemy.orm import joinedload
+                # joinedload 預先載入 author + checklist_items，避免 thread 內 lazy load
+                # 觸發跨 session 訪問（thread 沒有 Flask app_context / SA session）。
+                notes = (Note.query
+                         .options(joinedload(Note.author), joinedload(Note.checklist_items))
+                         .filter(Note.is_ai_summary.is_(False))
+                         .filter_by(store=store)
+                         .order_by(Note.updated_at.desc())
+                         .all())
+                from notes.ai_local import summarize_local
+                # threadpool.apply 派到 real OS thread；當前 greenlet 等結果但會
+                # yield hub 給其他 greenlet（含 /healthz）。with_timeout 包外層。
+                result = gevent.with_timeout(
+                    _AI_TASK_HARD_TIMEOUT_SEC,
+                    gevent.get_hub().threadpool.apply,
+                    summarize_local,
+                    args=(notes, since, until, store_label, range_label, inrange_label),
+                )
+                _set_ai_task_done(task_id, result)
+            except gevent.Timeout:
+                _set_ai_task_error(task_id, "摘要逾時，請稍後再試")
+            except Exception as e:
+                import logging as _logging_mod
+                _logging_mod.getLogger("ai_summary").exception("[ai_summary] local pipeline failed")
+                _set_ai_task_error(task_id, f"本地摘要失敗：{e}")
+        finally:
+            _ai_summary_sem.release()
 
 
 # ── Checklist Item CRUD ────────────────────────────────
