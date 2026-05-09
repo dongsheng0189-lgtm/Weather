@@ -387,3 +387,30 @@ class AnnouncementAttachment(db.Model):
     __table_args__ = (
         db.Index("ix_announcement_attachments_announcement_id", "announcement_id"),
     )
+
+
+class AiTask(db.Model):
+    """Background AI summary task state, persisted in DB so polling survives
+    cross-worker routing (gunicorn workers=2) and pod restarts.
+
+    See docs/superpowers/plans/2026-05-10-ai-task-db-state.md.
+    """
+    __tablename__ = "ai_tasks"
+
+    id = db.Column(db.String(32), primary_key=True)
+    kind = db.Column(db.String(20), nullable=False)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    status = db.Column(db.String(16), nullable=False, default="processing")
+    result_json = db.Column(db.Text, nullable=True)
+    error_msg = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    expires_at = db.Column(db.DateTime, nullable=True, index=True)
+
+    __table_args__ = (
+        db.Index("ix_ai_tasks_status_updated_at", "status", "updated_at"),
+    )
