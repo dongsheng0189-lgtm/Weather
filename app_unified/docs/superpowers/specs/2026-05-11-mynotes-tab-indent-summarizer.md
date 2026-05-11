@@ -70,12 +70,12 @@ Unchanged from today (Format C):
    → 8月發包
 
 👥 人員
-### 調整
-1. 阿明
-   → 調班
 ### 離職
 1. 小華
    → 離職、8月底交接
+### 調整
+1. 阿明
+   → 調班
 ```
 
 Personnel sub-categorization (離職 / 資遣 / 調整 / 其他) stays — applied per
