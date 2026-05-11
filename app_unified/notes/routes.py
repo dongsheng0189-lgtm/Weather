@@ -281,6 +281,8 @@ def index():
     if keyword:
         active_filter = 'keyword'
         keyword_mode = True
+        # AI 摘要的內容是其他 note 的彙整，搜尋會跟原 note 重複出現 → 排除掉
+        query = query.filter(Note.is_ai_summary.isnot(True))
     else:
         # AND 組合：category + status + range
         active_filter = 'combined'
@@ -402,6 +404,8 @@ def list_notes():
     keyword_mode = False
     if keyword:
         keyword_mode = True   # title/content 加密 → Python 端 filter
+        # AI 摘要排除（跟 index() 一致）— 內容是其他 note 的彙整，搜尋會重複
+        query = query.filter(Note.is_ai_summary.isnot(True))
     elif category_filter and category_filter in CATEGORY_CHOICES:
         query = query.filter_by(category=category_filter)
     elif shift_filter and shift_filter in SHIFT_CHOICES:

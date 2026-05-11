@@ -206,6 +206,64 @@ def test_index_without_keyword_does_not_inject_mark_tags(client, db_session):
         db_session.commit()
 
 
+def test_keyword_search_excludes_ai_summary_notes(client, db_session):
+    """AI 摘要筆記的 content 是其他 note 的彙整，搜尋會跟原 note 重複出現。
+    關鍵字搜尋（index + JSON API）必須過濾掉 is_ai_summary=True 的 row。"""
+    import time
+    import uuid
+    from models import User, Store, Note
+
+    suffix = uuid.uuid4().hex[:6]
+    store = Store(name=f"S-{suffix}", login_enabled=True)
+    db_session.add(store)
+    db_session.commit()
+
+    sa = User(username=f"sa-{suffix}", role="super_admin")
+    sa.set_password("0000")
+    db_session.add(sa)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(sa.id)
+        sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
+
+    # Unique markers — avoid collision with static UI labels like "🤖 AI 摘要"
+    # that always render in the page chrome regardless of search state.
+    regular_marker = f"AISUMTEST_REGULAR_{suffix}"
+    ai_marker = f"AISUMTEST_AISUM_{suffix}"
+    try:
+        client.post("/notes/api", json={
+            "title": regular_marker,
+            "content": "店務 代理商 K單機",
+            "store": store.name,
+        })
+        client.post("/notes/api", json={
+            "title": ai_marker,
+            "content": "代理商：K單機... S監視...",
+            "store": store.name,
+            "is_ai_summary": True,
+        })
+
+        r = client.get("/notes/?q=" + "代理商")
+        html = r.get_data(as_text=True)
+        assert regular_marker in html, "regular note must appear in keyword results"
+        assert ai_marker not in html, "AI summary must NOT appear in keyword results"
+
+        r = client.get("/notes/api?q=" + "代理商")
+        data = r.get_json()
+        assert isinstance(data, list)
+        titles = [n.get("title") for n in data]
+        assert any(regular_marker in (t or "") for t in titles)
+        assert not any(ai_marker in (t or "") for t in titles), \
+            f"AI summary leaked into API keyword results: {titles}"
+    finally:
+        Note.query.filter_by(user_id=sa.id).delete()
+        db_session.delete(sa)
+        db_session.delete(store)
+        db_session.commit()
+
+
 def test_index_with_keyword_propagates_q_into_note_card_link(client, db_session):
     """When viewing /notes/?q=foo, each note's card link MUST include
     `q=foo` so that clicking into a note → 返回 round-trip preserves the
