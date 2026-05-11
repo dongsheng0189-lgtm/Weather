@@ -492,3 +492,143 @@ def test_summarize_meeting_tab_indent_end_to_end():
     # 小華's conclusion text contains "離職" → classified to 離職
     assert "1. 小華" in out
     assert "   → 離職、8月底交接" in out
+
+
+# ── Sub-category + space-indent + multi-line conclusion (2026-05-11 v2) ──────
+
+# User's actual writing style sample (transcribed from screenshot 2026-05-11):
+# - SPACE indent (4 / 9 / 14 spaces), NOT tabs
+# - Outer-most indent (4 spaces here) = sub-category header ending with `:`
+# - Deeper indent = items + 結論 lines under that sub-category
+# - Some items themselves end with `:` (e.g. "點餐系統:") but are NOT
+#   sub-category headers because they're at the inner indent level
+# - 結論: with empty inline + a yet-deeper indented line = multi-line conclusion
+SPACE_INDENT_SAMPLE = """店務:
+    代理商:
+         K單機的勇闖金字塔, 重開機錶底會不見問題,
+         結論:換成新遊戲驗證, 爆爆礦坑
+         點餐系統:
+         結論:J/JJ/Q/S/KDF先裝
+         延伸議題:
+         是否需要收集客人點餐的資訊, 提供更好的服務
+         結論:
+              可以, 但是需要有好的流程, 讓員工點餐時可以直接快速紀錄是誰點
+         S監視系統有漏畫面
+          結論: 代理商先看回放, 確認問題
+
+         Q賓百系統, 是否可以優化, 一鍵全部修改, 而不是每一台去處理
+         結論: 會請山上確認更新修改
+"""
+
+
+def test_split_items_space_indent_with_sub_category():
+    """Space-indent input: 代理商 = sub-category, items under it carry the
+    `[代理商]` encoding prefix."""
+    body = "    代理商:\n         K單機\n         結論:換成新\n"
+    items = _split_items(body)
+    assert items == ["[代理商] K單機\n結論：換成新"]
+
+
+def test_split_items_space_indent_item_ending_with_colon_is_item_not_subcat():
+    """At inner indent level, an item ending with `:` stays an item — only
+    lines at the minimum indent depth can become sub-category headers."""
+    body = "    代理商:\n         點餐系統:\n         結論:J/JJ先裝\n"
+    items = _split_items(body)
+    # "點餐系統:" is at indent 9, sub-cat is at indent 4. So "點餐系統:" stays
+    # as a regular item with the trailing `:` kept; the renderer strips it.
+    assert items == ["[代理商] 點餐系統:\n結論：J/JJ先裝"]
+
+
+def test_split_items_empty_conclusion_takes_deeper_indented_continuation():
+    """`結論:` alone followed by a deeper-indented line uses that line as the
+    conclusion content."""
+    body = "    代理商:\n         是否要做X\n         結論:\n              可以, 但要評估\n"
+    items = _split_items(body)
+    assert items == ["[代理商] 是否要做X\n結論：可以, 但要評估"]
+
+
+def test_split_items_no_sub_category_no_prefix():
+    """When no `xxx:` line at min_indent exists, items have no prefix."""
+    body = "    冷氣維修\n    結論:請廠商\n    外牆修補\n    結論:8月發包\n"
+    items = _split_items(body)
+    assert items == [
+        "冷氣維修\n結論：請廠商",
+        "外牆修補\n結論：8月發包",
+    ]
+
+
+def test_split_items_mixed_tab_and_space_indent_both_accepted():
+    """TAB and space both count as indent — backwards-compatible with the
+    original TAB-only spec."""
+    body = "\t冷氣\n    外牆\n"  # one TAB-indented + one space-indented
+    items = _split_items(body)
+    # Both at indent depth 1 (TAB) and 4 (space) respectively, neither at
+    # min_indent only — min_indent is 1, only "冷氣" is at min_indent. But
+    # "冷氣" doesn't end with `:`, so it's an item, not sub-cat.
+    # No sub-cat present → no prefix.
+    assert items == ["冷氣", "外牆"]
+
+
+def test_summarize_meeting_user_sample_renders_sub_categories():
+    """Full user-sample integration: sub-category 代理商 emits `### 代理商`,
+    items numbered under it; sub-cat items ending with `:` keep working."""
+    out = summarize_meeting(title="2026-05-11 會議", content=SPACE_INDENT_SAMPLE)
+    # Section heading
+    assert "🏪 店務" in out
+    # Sub-category heading
+    assert "### 代理商" in out
+    # First item under 代理商
+    assert "1. K單機的勇闖金字塔, 重開機錶底會不見問題" in out
+    assert "   → 換成新遊戲驗證, 爆爆礦坑" in out
+    # "點餐系統:" is an item — `:` stripped by _ISSUE_TRAILING_TRIM
+    assert "點餐系統" in out
+    assert "   → J/JJ/Q/S/KDF先裝" in out
+    # 多行結論 captured
+    assert "   → 可以, 但是需要有好的流程, 讓員工點餐時可以直接快速紀錄是誰點" in out
+    # S監視系統 and Q賓百系統 also captured under 代理商
+    assert "S監視系統有漏畫面" in out
+    assert "   → 代理商先看回放, 確認問題" in out
+    assert "Q賓百系統" in out
+    assert "   → 會請山上確認更新修改" in out
+
+
+def test_summarize_meeting_personnel_with_sub_category_overrides_buckets():
+    """If 人員 section has user-defined sub-categories, render those instead
+    of the keyword-based 4 buckets."""
+    text = """人員:
+    新人:
+         阿明
+         結論: 試用期通過
+    資深:
+         小華
+         結論: 加薪 5%
+"""
+    out = summarize_meeting(title="x", content=text)
+    assert "👥 人員" in out
+    assert "### 新人" in out
+    assert "### 資深" in out
+    # No 4-bucket headers
+    assert "### 離職" not in out
+    assert "### 調整" not in out
+    assert "1. 阿明" in out
+    assert "   → 試用期通過" in out
+    assert "1. 小華" in out
+    assert "   → 加薪 5%" in out
+
+
+def test_summarize_meeting_personnel_without_sub_category_still_buckets():
+    """Backwards-compat: 人員 with no sub-category still uses 4-bucket
+    keyword classification (existing behavior preserved)."""
+    text = """人員:
+    阿明
+    結論: 調班
+    小華
+    結論: 離職
+"""
+    out = summarize_meeting(title="x", content=text)
+    assert "👥 人員" in out
+    assert "### 離職" in out
+    assert "### 調整" in out
+    li = out.index("### 離職")
+    tj = out.index("### 調整")
+    assert li < tj, "離職 must render before 調整 per PERSONNEL_ORDER"
