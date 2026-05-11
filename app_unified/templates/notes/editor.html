@@ -68,14 +68,22 @@
 <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
   <a href="{{ url_for('notes.index', q=request.args.get('q')) }}" class="btn btn-secondary" id="btn-back">← 返回</a>
   <span class="save-status" id="save-status"></span>
-  {# 關鍵字命中跳轉 widget — 只在 URL 帶 q= 且有 match 時 display:flex by JS #}
-  <span id="search-hit-widget"
-        style="display:none;align-items:center;gap:.4rem;padding:.3rem .65rem;background:#fff8e1;border:1px solid #ffd54f;border-radius:14px;font-size:.85rem;color:#5d4037;">
-    <span>🔍 <span id="search-hit-counter">0/0</span> 命中</span>
-    <button type="button" id="search-hit-next"
-            style="background:#ffb300;border:none;color:#fff;border-radius:50%;width:24px;height:24px;font-size:.8rem;cursor:pointer;line-height:1;"
-            title="下一個命中">▶</button>
-  </span>
+</div>
+{# 關鍵字命中跳轉 widget (checklist only) — fixed position 右下角浮動、長駐畫面、
+   scroll 看內容時也能繼續按下一個。Regular note 不顯示（textarea 選取就夠了）。
+   只在 SEARCH_Q + EDITOR_TYPE==='checklist' + hits > 0 時由 JS 設為 display:flex。 #}
+<div id="search-hit-widget"
+     style="display:none;position:fixed;bottom:20px;right:20px;z-index:1000;
+            align-items:center;gap:.5rem;padding:.6rem .9rem;
+            background:#fff8e1;border:2px solid #ffb300;border-radius:24px;
+            font-size:.95rem;color:#5d4037;font-weight:600;
+            box-shadow:0 4px 12px rgba(0,0,0,.18);">
+  <span>🔍 <span id="search-hit-counter">0/0</span> 命中</span>
+  <button type="button" id="search-hit-next"
+          style="background:#ffb300;border:none;color:#fff;border-radius:50%;
+                 width:32px;height:32px;font-size:1rem;cursor:pointer;line-height:1;
+                 display:flex;align-items:center;justify-content:center;"
+          title="下一個命中">▶</button>
 </div>
 <div id="lock-banner" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#856404;display:{% if is_readonly %}flex{% else %}none{% endif %};align-items:center;gap:.75rem;flex-wrap:wrap;">
   <span id="lock-banner-text">⚠️ 目前由 <strong id="lock-banner-name">{{ locker_name or '' }}</strong> 編輯中，無法編輯</span>
@@ -240,11 +248,10 @@ function buildSearchHits() {
   if (!SEARCH_Q) return;
   var ql = SEARCH_Q.toLowerCase();
   if (EDITOR_TYPE === 'checklist') {
-    // 在每個 checklist row 內的 text 區塊找命中、用 <mark> 包覆
+    // 在每個 checklist row 的 .item-text 內找命中、用 <mark> 包覆
     var re = new RegExp(_escRegex(SEARCH_Q), 'gi');
     document.querySelectorAll('#checklist-items > div[data-item-id]').forEach(function(row) {
-      // row 結構：[checkbox][content > [text, attachments, meta]]
-      var textDiv = row.querySelector('div[style*="white-space:pre-wrap"]');
+      var textDiv = row.querySelector('.item-text');
       if (!textDiv) return;
       var raw = textDiv.textContent;
       if (raw.toLowerCase().indexOf(ql) === -1) return;
@@ -265,13 +272,18 @@ function buildSearchHits() {
       pos = idx + ql.length;
     }
   }
-  // 顯示 widget + 跳到第一個
+  // Widget 只在 checklist 顯示（regular note 用 textarea 選取就夠了），
+  // 而且 hits > 0 才出現。
   var widget = document.getElementById('search-hit-widget');
-  if (_searchHits.length === 0) {
+  if (_searchHits.length === 0 || EDITOR_TYPE !== 'checklist') {
     widget.style.display = 'none';
+    if (EDITOR_TYPE !== 'checklist' && _searchHits.length > 0) {
+      // regular note：仍 jump 到第一個命中（用 textarea selection）
+      jumpToHit(0);
+    }
     return;
   }
-  widget.style.display = 'inline-flex';
+  widget.style.display = 'flex';
   jumpToHit(0);
 }
 function jumpToHit(idx) {
@@ -1088,6 +1100,7 @@ function renderChecklistItem(item) {
   content.style.cssText = 'flex:1;min-width:0;';
 
   var text = document.createElement('div');
+  text.className = 'item-text';
   text.style.cssText = 'font-size:.95rem;white-space:pre-wrap;word-break:break-word;' + (item.is_checked ? 'text-decoration:line-through;color:#888;' : '');
   text.textContent = item.text || '（無內容）';
   content.appendChild(text);
