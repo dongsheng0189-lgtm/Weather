@@ -78,6 +78,62 @@ def test_user_does_not_see_other_store_announcement_in_index(client, db):
     assert "C_STORE_SECRET" not in html
 
 
+def test_announcement_shows_edited_chip_after_edit(client, db):
+    """Newly-created announcement → no 已編輯 chip; after PUT edit → chip shows
+    AND footer time advances to the new updated_at."""
+    from datetime import datetime, timedelta
+    from models import Announcement
+
+    sa = _make_user(db, "super_admin", username="sa_idx_edited")
+    _login(client, sa)
+    r = client.post(
+        "/notes/announcement/api",
+        json={"title": "EDITED_CHIP_TEST", "content": "before", "store": None},
+    )
+    assert r.status_code in (200, 201)
+    ann_id = r.get_json()["id"]
+
+    # Fresh-created announcement: updated_at == created_at → no 已編輯 chip
+    r = client.get("/notes/")
+    html = r.get_data(as_text=True)
+    assert "EDITED_CHIP_TEST" in html
+    # Locate the card section for this announcement and assert no edited chip
+    import re
+    card_match = re.search(
+        r'data-ann-id="' + str(ann_id) + r'".*?</article>',
+        html,
+        re.DOTALL,
+    )
+    assert card_match, "announcement card should render"
+    assert "已編輯" not in card_match.group(0), \
+        "fresh-created announcement must not show 已編輯 chip"
+
+    # Edit the announcement — PUT bumps updated_at by route logic. To avoid
+    # racing on identical timestamps, we forcibly advance updated_at by 1 min.
+    ann = db.session.get(Announcement, ann_id)
+    ann.updated_at = ann.created_at + timedelta(minutes=1)
+    ann.content = "after"
+    db.session.commit()
+
+    r = client.get("/notes/")
+    html = r.get_data(as_text=True)
+    card_match = re.search(
+        r'data-ann-id="' + str(ann_id) + r'".*?</article>',
+        html,
+        re.DOTALL,
+    )
+    assert card_match, "edited announcement card should still render"
+    assert "已編輯" in card_match.group(0), \
+        "after updated_at advances past created_at, 已編輯 chip must appear"
+    # And the time shown should match the bumped updated_at (HH:MM precision).
+    # tw_str converts UTC → Asia/Taipei (UTC+8), so compute the expected
+    # display string the same way the template does.
+    from tw_time import tw_str
+    bumped_display = tw_str(ann.updated_at, "%Y-%m-%d %H:%M")
+    assert bumped_display in card_match.group(0), \
+        f"footer time must reflect the bumped updated_at (expected {bumped_display})"
+
+
 def test_admin_sees_edit_button_for_own_store(client, db):
     sa = _make_user(db, "super_admin", username="sa_idx_edit_seed")
     adm_b = _make_user(db, "admin", store="B店", username="adm_idx_edit")

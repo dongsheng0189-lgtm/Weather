@@ -323,7 +323,10 @@ def index():
                             if a.store == current_user.store}
     else:
         editable_ann_ids = set()
-    ann_times = {a.id: tw_str(a.created_at, "%Y-%m-%d %H:%M") for a in announcements}
+    # 公告卡片 footer 顯示「最後動作時間」= updated_at（編輯/附件變更會 bump）。
+    # 同時把「曾被編輯過」的公告 id 收進 ann_edited_ids，給 template 顯示「已編輯」chip。
+    ann_times = {a.id: tw_str(a.updated_at, "%Y-%m-%d %H:%M") for a in announcements}
+    ann_edited_ids = {a.id for a in announcements if a.updated_at != a.created_at}
 
     return render_template("notes/index.html", notes=pagination.items, pagination=pagination,
                            stores=stores,
@@ -343,7 +346,8 @@ def index():
                            ai_yesterday_label=yesterday_label,
                            announcements=announcements,
                            editable_ann_ids=editable_ann_ids,
-                           ann_times=ann_times)
+                           ann_times=ann_times,
+                           ann_edited_ids=ann_edited_ids)
 
 
 @notes_bp.route("/new", methods=["GET"])

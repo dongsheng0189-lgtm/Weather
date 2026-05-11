@@ -13,6 +13,9 @@
     <footer class="ann-footer">
       <span class="ann-author">{{ a.display_author }}</span>
       <time class="ann-time">{{ ann_times[a.id] }}</time>
+      {% if a.id in ann_edited_ids %}
+      <span class="ann-edited-chip">已編輯</span>
+      {% endif %}
       {% if a.id in editable_ann_ids %}
       <a class="btn btn-secondary btn-sm"
          href="{{ url_for('notes.announcement_edit_page', announcement_id=a.id) }}">編輯</a>

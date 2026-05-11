@@ -135,12 +135,17 @@ def announcement_create():
     if not _can_target_store(store):
         return jsonify({"status": "error", "message": "無此 scope 的權限"}), 403
 
+    # 明確同步 created_at / updated_at，否則 column default=datetime.utcnow 各自
+    # evaluate 會差幾個 microsecond，害 index 卡片誤把剛建立的公告當「已編輯」。
+    now = datetime.utcnow()
     a = Announcement(
         user_id=current_user.id,
         author_name=current_user.username,  # snapshot
         title=title,
         content=content,
         store=store,
+        created_at=now,
+        updated_at=now,
     )
     db.session.add(a)
     db.session.commit()
