@@ -10,6 +10,19 @@ from mynotes.ai_local import (
 )
 
 
+def _section_names(result):
+    """Helper: 取出 _split_sections 回傳 list[(name, body)] 裡的 name set。"""
+    return {name for name, _ in result}
+
+
+def _body_for(result, name):
+    """Helper: 取第一個 name 對應的 body（test 只要 single-occurrence 情境用）。"""
+    for n, body in result:
+        if n == name:
+            return body
+    return ""
+
+
 def test_split_sections_both_present():
     text = """
 店務:
@@ -20,10 +33,10 @@ def test_split_sections_both_present():
 1. 小李離職
 """.strip()
     result = _split_sections(text)
-    assert set(result.keys()) == {"店務", "人員"}
-    assert "外牆修補" in result["店務"]
-    assert "客訴" in result["店務"]
-    assert "小李離職" in result["人員"]
+    assert _section_names(result) == {"店務", "人員"}
+    assert "外牆修補" in _body_for(result, "店務")
+    assert "客訴" in _body_for(result, "店務")
+    assert "小李離職" in _body_for(result, "人員")
 
 
 def test_split_sections_only_one():
@@ -32,14 +45,15 @@ def test_split_sections_only_one():
 1. 外牆修補
 """.strip()
     result = _split_sections(text)
-    assert "店務" in result
-    assert "人員" not in result
+    names = _section_names(result)
+    assert "店務" in names
+    assert "人員" not in names
 
 
 def test_split_sections_neither():
     text = "今天會議聊了很多事情。沒有結構化的標頭。"
     result = _split_sections(text)
-    assert result == {}
+    assert result == []
 
 
 def test_split_sections_full_width_colon():
@@ -48,7 +62,7 @@ def test_split_sections_full_width_colon():
 1. 外牆修補
 """.strip()
     result = _split_sections(text)
-    assert "店務" in result
+    assert "店務" in _section_names(result)
 
 
 def test_split_sections_brackets():
@@ -60,8 +74,7 @@ def test_split_sections_brackets():
 1. 小李離職
 """.strip()
     result = _split_sections(text)
-    assert "店務" in result
-    assert "人員" in result
+    assert _section_names(result) == {"店務", "人員"}
 
 
 def test_split_sections_bare_word():
@@ -70,7 +83,7 @@ def test_split_sections_bare_word():
 1. 外牆修補
 """.strip()
     result = _split_sections(text)
-    assert "店務" in result
+    assert "店務" in _section_names(result)
 
 
 def test_split_sections_preamble_dropped():
@@ -83,12 +96,14 @@ def test_split_sections_preamble_dropped():
 1. 外牆修補
 """.strip()
     result = _split_sections(text)
-    assert "日期" not in result.get("店務", "")
-    assert "出席" not in result.get("店務", "")
+    body = _body_for(result, "店務")
+    assert "日期" not in body
+    assert "出席" not in body
 
 
-def test_split_sections_duplicate_header_last_wins():
-    """重複 section header → 後出現的覆蓋前面（記錄當前 contract，避免 regression）。"""
+def test_split_sections_duplicate_header_preserves_order_and_both():
+    """重複 section header 都列出來、按出現順序（v3 contract，舊版是 last-wins，
+    害 user 把 `店務:` / `人員:` 分散寫在筆記不同段時資料丟一半）。"""
     text = """
 店務:
 1. 第一段店務
@@ -97,9 +112,11 @@ def test_split_sections_duplicate_header_last_wins():
 2. 第二段店務
 """.strip()
     result = _split_sections(text)
-    assert "店務" in result
-    assert "第二段店務" in result["店務"]
-    assert "第一段店務" not in result["店務"]
+    # 兩筆 entry、都是 "店務"、order 保留
+    assert [name for name, _ in result] == ["店務", "店務"]
+    bodies = [body for _, body in result]
+    assert "第一段店務" in bodies[0]
+    assert "第二段店務" in bodies[1]
 
 
 def test_split_items_arabic_dot():
@@ -632,3 +649,81 @@ def test_summarize_meeting_personnel_without_sub_category_still_buckets():
     li = out.index("### 離職")
     tj = out.index("### 調整")
     assert li < tj, "離職 must render before 調整 per PERSONNEL_ORDER"
+
+
+# ── Duplicate section headers merge (2026-05-11 v3) ──────────────────────────
+
+
+def test_summarize_meeting_duplicate_storeops_sections_merge_in_order():
+    """User habit: write 店務 / 人員 in multiple chunks scattered through the
+    note. Each chunk's items should accumulate; sub_cat scope is local to each
+    chunk so the second 店務's sub_cat doesn't inherit the first's."""
+    text = """店務:
+    代理商:
+         K單機
+         結論:換成新
+
+人員:
+    阿明
+    結論:調班
+
+店務:
+    宣傳:
+         週末活動
+         結論:加倍折扣
+
+人員:
+    小華
+    結論:離職
+"""
+    out = summarize_meeting(title="x", content=text)
+
+    # Both 店務 sections' sub-cats appear; document order respected
+    assert "### 代理商" in out
+    assert "### 宣傳" in out
+    assert out.index("### 代理商") < out.index("### 宣傳"), (
+        "first 店務 block's sub-cat must render before second 店務 block's"
+    )
+
+    # Items from both 店務 blocks present
+    assert "1. K單機" in out
+    assert "   → 換成新" in out
+    assert "1. 週末活動"  # under 宣傳 (counter resets per sub-cat) - check it appears
+    assert "   → 加倍折扣" in out
+
+    # Both 人員 blocks merged. 阿明's conclusion=調班 → 調整 bucket;
+    # 小華's conclusion=離職 → 離職 bucket. Both buckets emit headings.
+    assert "👥 人員" in out
+    assert "### 離職" in out
+    assert "### 調整" in out
+    assert "1. 阿明" in out
+    assert "   → 調班" in out
+    assert "1. 小華" in out
+    assert "   → 離職" in out
+
+
+def test_summarize_meeting_duplicate_sections_sub_cat_scope_does_not_leak():
+    """Sub-category from one 店務 block must NOT bleed into the next 店務
+    block's items (each body parsed independently)."""
+    text = """店務:
+    代理商:
+         K單機
+         結論:換成新
+
+店務:
+    yyy without sub-cat
+    結論:no sub-cat for me
+"""
+    out = summarize_meeting(title="x", content=text)
+    # First block: K單機 under 代理商
+    assert "### 代理商" in out
+    assert "1. K單機" in out
+
+    # Second block: yyy should NOT carry "[代理商]" encoding — it's its own
+    # block with no sub_cat. Renderer sees: ... 代理商 items ..., then yyy with
+    # current_sub=None. current_sub changes from "代理商" → None, no new
+    # heading, counter resets.
+    assert "yyy without sub-cat" in out
+    assert "   → no sub-cat for me" in out
+    # No spurious "代理商" tag inside yyy item text
+    assert "[代理商] yyy" not in out

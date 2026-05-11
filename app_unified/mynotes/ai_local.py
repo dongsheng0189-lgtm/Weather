@@ -58,25 +58,33 @@ PERSONNEL_KEYWORDS: dict[str, list[str]] = {
 PERSONNEL_ORDER: list[str] = ["離職", "資遣", "調整", "其他"]
 
 
-def _split_sections(text: str) -> dict[str, str]:
-    """切「店務」「人員」section。
+def _split_sections(text: str) -> list[tuple[str, str]]:
+    """切「店務」「人員」section，保留出現順序與重複。
 
-    回傳 {section_name: section_body_text}。
-    沒偵測到的 section 不在 dict 裡（不是空字串）。
-    Header 之前的內容（preamble）不放進任何 section。
+    回傳 `[(section_name, body), ...]`，**同名 section 多次出現會列在 list
+    裡（不合併也不覆蓋）**；caller 自行決定合併策略。`summarize_meeting`
+    把同名 section 的 items 串接起來，這樣每個 body 的 sub_cat scope 是本地
+    的（第二個 `店務:` 的 items 不會繼承第一個 `店務:` 的 sub_cat 名稱）。
 
     body 用 `lstrip("\n\r").rstrip()` 而不是 `.strip()`：前者保留首行的
     leading whitespace（給 _split_items indent-mode 用），後者會把第一個
     縮排 item 的 TAB/space 吃掉、害 walker 把它當 preamble 略過。
+
+    沒偵測到的 section 不在 list 裡（不是空字串）。Header 之前的內容
+    （preamble）不放進任何 section。
+
+    Contract change 2026-05-11 v3：以前回 dict，重複 header「後者覆蓋前者」
+    害 user 把 `店務:` / `人員:` 分散寫在筆記不同段時資料丟一半。改成 list
+    後 caller 看順序處理、不會丟資料。
     """
     matches = list(SECTION_HEADER_RE.finditer(text))
-    result: dict[str, str] = {}
+    result: list[tuple[str, str]] = []
     for i, m in enumerate(matches):
         name = m.group(1)
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         body = text[start:end].lstrip("\n\r").rstrip()
-        result[name] = body
+        result.append((name, body))
     return result
 
 
@@ -347,7 +355,7 @@ def summarize_meeting(title: str, content: str) -> str:  # noqa: ARG001
     if not text:
         return "# 會議摘要\n\n（無內文）\n"
 
-    sections = _split_sections(text)
+    sections = _split_sections(text)  # list[(name, body)] — ordered, allows duplicates
     if not sections:
         return (
             "# 會議摘要\n\n"
@@ -356,16 +364,26 @@ def summarize_meeting(title: str, content: str) -> str:  # noqa: ARG001
 
     lines: list[str] = ["# 會議摘要", ""]
 
-    if "店務" in sections:
-        items = _split_items(sections["店務"])
-        if items:
-            lines.extend(_render_storeops(items))
+    # Merge across repeated section headers — user habit is to write
+    # 店務 / 人員 in multiple chunks scattered in the note. We parse each
+    # body block independently (so sub_cat scope is local), then concat
+    # the resulting items in document order. Rendering sees them as one
+    # contiguous stream per section name.
+    storeops_items: list[str] = []
+    personnel_items: list[str] = []
+    for name, body in sections:
+        items = _split_items(body)
+        if name == "店務":
+            storeops_items.extend(items)
+        elif name == "人員":
+            personnel_items.extend(items)
 
-    if "人員" in sections:
-        items = _split_items(sections["人員"])
-        if items:
-            block = _render_personnel(items)
-            if block:
-                lines.extend(block)
+    if storeops_items:
+        lines.extend(_render_storeops(storeops_items))
+
+    if personnel_items:
+        block = _render_personnel(personnel_items)
+        if block:
+            lines.extend(block)
 
     return "\n".join(lines).rstrip() + "\n"
