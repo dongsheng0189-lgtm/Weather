@@ -126,6 +126,86 @@ def test_api_response_format(logged_in_client):
 # ── Keyword search preserves context across editor navigation (2026-05-11) ───
 
 
+def test_index_with_keyword_highlights_matches_in_title_and_content(client, db_session):
+    """When /notes/?q=foo is requested, every occurrence of `foo` in the
+    rendered note title / content must be wrapped in <mark> tags so the
+    UI visually highlights the match (case-insensitive)."""
+    import time
+    import uuid
+    from models import User, Store, Note
+
+    suffix = uuid.uuid4().hex[:6]
+    store = Store(name=f"S-{suffix}", login_enabled=True)
+    db_session.add(store)
+    db_session.commit()
+
+    sa = User(username=f"sa-{suffix}", role="super_admin")
+    sa.set_password("0000")
+    db_session.add(sa)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(sa.id)
+        sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
+
+    try:
+        client.post("/notes/api", json={
+            "title": "找到FOO關鍵字的測試標題",
+            "content": "內文也有 foo 出現兩次：foo bar baz",
+            "store": store.name,
+        })
+        r = client.get("/notes/?q=foo")
+        html = r.get_data(as_text=True)
+        # Title's FOO (uppercase) wrapped — case-insensitive match
+        assert "<mark" in html, "expected <mark> tag to appear when keyword present"
+        # The keyword text inside should be the original-cased match (FOO / foo)
+        assert ("<mark" in html) and (">FOO<" in html or ">foo<" in html), \
+            "keyword text (any case) should appear inside <mark>"
+    finally:
+        Note.query.filter_by(user_id=sa.id).delete()
+        db_session.delete(sa)
+        db_session.delete(store)
+        db_session.commit()
+
+
+def test_index_without_keyword_does_not_inject_mark_tags(client, db_session):
+    """When no keyword, output should have no <mark> tags from highlighting."""
+    import time
+    import uuid
+    from models import User, Store, Note
+
+    suffix = uuid.uuid4().hex[:6]
+    store = Store(name=f"S-{suffix}", login_enabled=True)
+    db_session.add(store)
+    db_session.commit()
+
+    sa = User(username=f"sa-{suffix}", role="super_admin")
+    sa.set_password("0000")
+    db_session.add(sa)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(sa.id)
+        sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
+
+    try:
+        client.post("/notes/api", json={
+            "title": "一般筆記標題",
+            "content": "普通內文",
+            "store": store.name,
+        })
+        r = client.get("/notes/")
+        html = r.get_data(as_text=True)
+        assert "<mark" not in html, "no <mark> should be injected without keyword"
+    finally:
+        Note.query.filter_by(user_id=sa.id).delete()
+        db_session.delete(sa)
+        db_session.delete(store)
+        db_session.commit()
+
+
 def test_index_with_keyword_propagates_q_into_note_card_link(client, db_session):
     """When viewing /notes/?q=foo, each note's card link MUST include
     `q=foo` so that clicking into a note → 返回 round-trip preserves the

@@ -207,13 +207,13 @@
 <div class="notes-grid">
   {% for note in notes %}
   <div class="note-card" onclick="location.href='{{ url_for('notes.edit_note', note_id=note.id, sort=current_sort, q=current_keyword) }}'" {% if note.note_type == 'checklist' %}style="border-left-color:#27ae60;"{% endif %}>
-    <h3>{% if note.note_type == 'checklist' %}☑ {% else %}📝 {% endif %}{{ note.title or '（未命名）' }}</h3>
+    <h3>{% if note.note_type == 'checklist' %}☑ {% else %}📝 {% endif %}{{ (note.title or '（未命名）') | highlight(current_keyword) }}</h3>
     {% if note.note_type == 'checklist' %}
     {% set total_items = note.checklist_items|length %}
     {% set done_items = note.checklist_items|selectattr('is_checked')|list|length %}
     <p style="color:#555;">確認表單 · {{ done_items }}/{{ total_items }} 已完成</p>
     {% else %}
-    <p>{{ note.content }}</p>
+    <p>{{ note.content | highlight(current_keyword) }}</p>
     {% endif %}
     <div class="meta">
       <span>{{ note.updated_at | fmt_date }}</span>

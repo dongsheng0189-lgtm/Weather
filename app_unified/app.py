@@ -74,6 +74,32 @@ def create_app():
             return value[:16]
         return to_tw(value).strftime(fmt)
 
+    @app.template_filter("highlight")
+    def highlight_keyword(text, keyword):
+        """把 keyword 在 text 裡的所有出現包成 <mark> 標籤（case-insensitive）。
+
+        XSS-safe：先 escape text + escape keyword，再用 escape 後的 keyword 去
+        match escape 後的 text。Substitution 只插 <mark>...</mark>，內容是
+        match 來的 escape 後字串，無 user-controlled raw HTML 注入路徑。
+        回 Markup so Jinja 不再 escape 一次（pattern 不會 match 到 <mark> 本身、
+        所以也不會被巢狀包覆）。
+        """
+        if not keyword or text is None or text == "":
+            # No keyword or empty text — pass through (Jinja auto-escapes)
+            return text
+        import re as _re
+        from markupsafe import Markup, escape as _escape
+        escaped_text = str(_escape(text))
+        escaped_keyword = str(_escape(keyword))
+        if not escaped_keyword:
+            return text
+        pattern = _re.compile(_re.escape(escaped_keyword), _re.IGNORECASE)
+        highlighted = pattern.sub(
+            lambda m: f'<mark class="kw-hl">{m.group(0)}</mark>',
+            escaped_text,
+        )
+        return Markup(highlighted)
+
     @app.context_processor
     def inject_features():
         from features import user_visible_features, user_has_feature

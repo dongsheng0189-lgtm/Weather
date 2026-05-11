@@ -192,8 +192,10 @@ def test_filter_keyword_exclusive(app, client, db_session):
     _mk_note(db_session, u, category="customer", title="hello_universe_B", content="y")
     r = client.get("/notes/?q=hello&category=employee")
     html = r.get_data(as_text=True)
-    assert "hello_world_A" in html
-    assert "hello_universe_B" in html
+    # Keyword highlighting wraps "hello" in <mark>, so the literal substring
+    # "hello_world_A" is broken across tags. Assert the unique suffix appears.
+    assert "_world_A" in html
+    assert "_universe_B" in html
 
 
 def test_filter_category_and_status_combined(app, client, db_session):
