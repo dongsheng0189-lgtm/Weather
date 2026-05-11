@@ -66,7 +66,7 @@
 {% endblock %}
 {% block content %}
 <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
-  <a href="{{ url_for('notes.index') }}" class="btn btn-secondary" id="btn-back">← 返回</a>
+  <a href="{{ url_for('notes.index', q=request.args.get('q')) }}" class="btn btn-secondary" id="btn-back">← 返回</a>
   <span class="save-status" id="save-status"></span>
 </div>
 <div id="lock-banner" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#856404;display:{% if is_readonly %}flex{% else %}none{% endif %};align-items:center;gap:.75rem;flex-wrap:wrap;">
@@ -207,6 +207,12 @@ window.CURRENT_USER_ID = {{ current_user.id|tojson }};
 var _lockOwnedByMe = IS_READONLY ? false : null;
 // 從 URL 拿 sort 參數，跟外層 notes list 共用（created vs updated）
 var CURRENT_SORT = (new URLSearchParams(window.location.search).get('sort')) || 'updated';
+// 從 URL 拿 q 參數（關鍵字搜尋上下文），存／刪／取消後 redirect 回 /notes/ 時帶回去，
+// 讓使用者按返回／按儲存後不會掉出搜尋結果頁
+var SEARCH_Q = new URLSearchParams(window.location.search).get('q') || '';
+var NOTES_INDEX_URL = SEARCH_Q
+  ? '/notes/?q=' + encodeURIComponent(SEARCH_Q)
+  : '/notes/';
 
 // Readonly 模式：禁用所有輸入和按鈕（除了返回和強制釋放）
 function applyReadonly() {
@@ -503,13 +509,13 @@ function doSave() {
       if (pendingFiles.length > 0) {
         statusEl.textContent = '上傳附件中…';
         uploadPendingFiles().then(function() {
-          window.location.href = '/notes/';
+          window.location.href = NOTES_INDEX_URL;
         }).catch(function(err) {
           statusEl.textContent = '附件上傳失敗：' + err.message;
           saveBtn.disabled = false;
         });
       } else {
-        window.location.href = '/notes/';
+        window.location.href = NOTES_INDEX_URL;
       }
     }
     else { statusEl.textContent = '儲存失敗：' + (data.message || '未知錯誤'); saveBtn.disabled = false; }
@@ -581,7 +587,7 @@ function doDelete() {
       if (!msg || msg.op !== 'dn') return;  // 不是 delete 回應
       window._ws.off('r', _onResp);
       if (msg.status === 'ok') {
-        window.location.href = '/notes/';
+        window.location.href = NOTES_INDEX_URL;
       } else if (msg.status === 'error' && /編輯中/.test(msg.message || '')) {
         var m = (msg.message || '').match(/由\s*(.+?)\s*編輯/);
         _enterReadonlyDueTo409(m ? m[1] : null);
@@ -598,7 +604,7 @@ function doDelete() {
       })
       .then(function(pair) {
         if (!handleMutationResponse(pair[0], pair[1])) return;
-        window.location.href = '/notes/';
+        window.location.href = NOTES_INDEX_URL;
       });
   }
 }

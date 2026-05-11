@@ -147,7 +147,7 @@
   <input type="text" name="q" value="{{ current_keyword or '' }}" placeholder="搜尋標題/內容…" style="flex:1;max-width:300px;padding:.4rem .6rem;border:1px solid #ddd;border-radius:6px;font-size:.9rem;min-height:36px;">
   <button type="submit" class="btn btn-primary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">搜尋</button>
   {% if active_filter == 'keyword' %}
-  <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">清除</a>
+  <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">取消</a>
   {% endif %}
 </form>
 {% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('machine','機台'),('misc','雜項')] %}
@@ -206,7 +206,7 @@
 {% if notes %}
 <div class="notes-grid">
   {% for note in notes %}
-  <div class="note-card" onclick="location.href='{{ url_for('notes.edit_note', note_id=note.id, sort=current_sort) }}'" {% if note.note_type == 'checklist' %}style="border-left-color:#27ae60;"{% endif %}>
+  <div class="note-card" onclick="location.href='{{ url_for('notes.edit_note', note_id=note.id, sort=current_sort, q=current_keyword) }}'" {% if note.note_type == 'checklist' %}style="border-left-color:#27ae60;"{% endif %}>
     <h3>{% if note.note_type == 'checklist' %}☑ {% else %}📝 {% endif %}{{ note.title or '（未命名）' }}</h3>
     {% if note.note_type == 'checklist' %}
     {% set total_items = note.checklist_items|length %}

@@ -121,3 +121,54 @@ def test_api_response_format(logged_in_client):
     """Contract C: API responses use {status: ok/error}."""
     res = logged_in_client.post('/notes/api', json={'title': 'T', 'content': ''})
     assert res.get_json()['status'] == 'ok'
+
+
+# ── Keyword search preserves context across editor navigation (2026-05-11) ───
+
+
+def test_index_with_keyword_propagates_q_into_note_card_link(client, db_session):
+    """When viewing /notes/?q=foo, each note's card link MUST include
+    `q=foo` so that clicking into a note → 返回 round-trip preserves the
+    search context (instead of clearing it like the pre-fix behavior)."""
+    import time
+    import uuid
+    from models import User, Store, Note
+
+    suffix = uuid.uuid4().hex[:6]
+    store = Store(name=f"S-{suffix}", login_enabled=True)
+    db_session.add(store)
+    db_session.commit()
+
+    sa = User(username=f"sa-{suffix}", role="super_admin")
+    sa.set_password("0000")
+    db_session.add(sa)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(sa.id)
+        sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
+
+    try:
+        client.post("/notes/api", json={
+            "title": "搜尋關鍵字測試標題",
+            "content": "body",
+            "store": store.name,
+        })
+        # Search by keyword that matches the title
+        r = client.get("/notes/?q=" + "搜尋關鍵字")
+        html = r.get_data(as_text=True)
+        # Card link must propagate q so /notes/<id>?...&q=搜尋關鍵字 keeps context
+        assert "q=" in html, "expected q param in note card link"
+        # The card-onclick attribute references edit URL; assert the keyword
+        # round-trips via URL encoding.
+        import urllib.parse
+        encoded = urllib.parse.quote("搜尋關鍵字")
+        assert (
+            "q=" + encoded in html or "q=搜尋關鍵字" in html
+        ), "keyword must appear in onclick navigation URL"
+    finally:
+        Note.query.filter_by(user_id=sa.id).delete()
+        db_session.delete(sa)
+        db_session.delete(store)
+        db_session.commit()
