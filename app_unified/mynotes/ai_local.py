@@ -64,6 +64,10 @@ def _split_sections(text: str) -> dict[str, str]:
     回傳 {section_name: section_body_text}。
     沒偵測到的 section 不在 dict 裡（不是空字串）。
     Header 之前的內容（preamble）不放進任何 section。
+
+    body 用 `lstrip("\n\r").rstrip()` 而不是 `.strip()`：前者保留首行的
+    leading TAB（給 _split_items TAB-mode 用），後者會把第一個 TAB
+    縮排 item 的 TAB 吃掉、害 walker 把它當 preamble 略過。
     """
     matches = list(SECTION_HEADER_RE.finditer(text))
     result: dict[str, str] = {}
@@ -71,27 +75,75 @@ def _split_sections(text: str) -> dict[str, str]:
         name = m.group(1)
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[start:end].strip()
+        body = text[start:end].lstrip("\n\r").rstrip()
         result[name] = body
     return result
+
+
+# TAB-mode (2026-05-11): user's actual writing style has no item marker —
+# each TAB-indented line is either an item, or a `結論：` continuation of the
+# previous item. Detected only when ITEM_START_RE finds zero matches (so this
+# is a strict fallback, never competes with numbered/bulleted format).
+_TAB_CONCLUSION_PREFIX_RE = re.compile(r"^結論\s*[:：]\s*(.*)$")
 
 
 def _split_items(section_body: str) -> list[str]:
     """切項目。
 
+    優先用 ITEM_START_RE 抓編號/bullet 項目（原行為）。若一個都沒抓到，
+    退化成 TAB-mode：每個 TAB-縮排行視為 item，遇到同階 `結論：` 前綴的
+    行就 attach 到上一個 item。Item 與 conclusion 用 `\n結論：` 串接，
+    回傳給 `_extract_conclusion` 後續解析（renderer 不需區分模式）。
+
     回傳 list of item texts (含結論詞、不含項目編號 / bullet 字元)。
-    每個項目可跨多行，直到下個 bullet pattern 出現。
     """
     if not section_body or not section_body.strip():
         return []
+
+    # Path 1: numbered/bulleted (existing behavior — unchanged)
     matches = list(ITEM_START_RE.finditer(section_body))
-    if not matches:
-        return []
-    items: list[str] = []
-    for i, m in enumerate(matches):
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(section_body)
-        items.append(section_body[start:end].strip())
+    if matches:
+        items: list[str] = []
+        for i, m in enumerate(matches):
+            start = m.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(section_body)
+            items.append(section_body[start:end].strip())
+        return items
+
+    # Path 2: TAB-indent fallback
+    items = []
+    current_issue: str | None = None
+    current_conclusion: str | None = None
+
+    def flush() -> None:
+        nonlocal current_issue, current_conclusion
+        if current_issue is None:
+            return
+        if current_conclusion is not None:
+            items.append(f"{current_issue}\n結論：{current_conclusion}")
+        else:
+            items.append(current_issue)
+        current_issue = None
+        current_conclusion = None
+
+    for line in section_body.splitlines():
+        if not line.strip():
+            continue  # blank line — not a boundary, just whitespace
+        if not line.startswith("\t"):
+            continue  # non-TAB line inside section — preamble noise, skip
+        content = line.lstrip("\t").strip()
+        m = _TAB_CONCLUSION_PREFIX_RE.match(content)
+        if m:
+            # `結論：xxx` line. Attach to current item if one exists; orphan
+            # otherwise (silently dropped — see spec edge case).
+            if current_issue is not None:
+                current_conclusion = m.group(1).strip()
+        else:
+            # New item — flush the previous (item + optional conclusion) pair.
+            flush()
+            current_issue = content
+
+    flush()  # final pending item
     return items
 
 

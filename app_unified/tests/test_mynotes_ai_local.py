@@ -412,3 +412,83 @@ def test_summarize_meeting_only_storeops_no_personnel():
 def test_summarize_meeting_empty_content():
     result = summarize_meeting(title="x", content="")
     assert "（無內文）" in result
+
+
+# ── TAB-indent mode (2026-05-11) ─────────────────────────────────────────────
+
+TAB_INPUT_BOTH_SECTIONS = """店務：
+\t冷氣維修
+\t結論：請廠商來估
+\t外牆修補
+\t結論：8月發包
+
+人員：
+\t阿明
+\t結論：調班
+\t小華
+\t結論：離職、8月底交接
+"""
+
+
+def test_split_items_tab_indent_with_conclusion():
+    """TAB-mode: item line + same-indent 結論：line pair into one entry."""
+    section_body = "\t冷氣維修\n\t結論:請廠商來估\n\t外牆修補\n\t結論：8月發包\n"
+    items = _split_items(section_body)
+    assert items == [
+        "冷氣維修\n結論：請廠商來估",
+        "外牆修補\n結論：8月發包",
+    ]
+
+
+def test_split_items_tab_indent_item_without_conclusion():
+    """TAB-mode: item alone with no following 結論 line — emit issue only."""
+    section_body = "\t冷氣維修\n\t外牆修補\n\t結論：8月發包\n"
+    items = _split_items(section_body)
+    assert items == [
+        "冷氣維修",
+        "外牆修補\n結論：8月發包",
+    ]
+
+
+def test_split_items_tab_indent_orphan_conclusion_dropped():
+    """TAB-mode: 結論 line with no preceding item is silently dropped."""
+    section_body = "\t結論：orphan\n\t冷氣維修\n\t結論：請廠商來估\n"
+    items = _split_items(section_body)
+    assert items == ["冷氣維修\n結論：請廠商來估"]
+
+
+def test_split_items_tab_indent_blank_lines_ignored():
+    """TAB-mode: blank lines between items are skipped, not item boundaries."""
+    section_body = "\t冷氣維修\n\n\t結論：請廠商來估\n\n\t外牆修補\n"
+    items = _split_items(section_body)
+    assert items == ["冷氣維修\n結論：請廠商來估", "外牆修補"]
+
+
+def test_split_items_tab_indent_non_tab_lines_skipped():
+    """TAB-mode: lines without TAB prefix (e.g. preamble noise) are skipped."""
+    section_body = "preamble noise\n\t冷氣維修\nmore noise\n\t結論：請廠商來估\n"
+    items = _split_items(section_body)
+    assert items == ["冷氣維修\n結論：請廠商來估"]
+
+
+def test_summarize_meeting_tab_indent_end_to_end():
+    """End-to-end: TAB-style input produces the full Format C summary."""
+    out = summarize_meeting(title="2026-05-11 會議", content=TAB_INPUT_BOTH_SECTIONS)
+    assert "🏪 店務" in out
+    assert "1. 冷氣維修" in out
+    assert "   → 請廠商來估" in out
+    assert "2. 外牆修補" in out
+    assert "   → 8月發包" in out
+    assert "👥 人員" in out
+    # PERSONNEL_ORDER = [離職, 資遣, 調整, 其他] — 離職 bucket renders before 調整
+    assert "### 離職" in out
+    assert "### 調整" in out
+    li_idx = out.index("### 離職")
+    tj_idx = out.index("### 調整")
+    assert li_idx < tj_idx, "離職 bucket must render before 調整 per PERSONNEL_ORDER"
+    # 阿明's conclusion text contains "調班" → classified to 調整
+    assert "1. 阿明" in out
+    assert "   → 調班" in out
+    # 小華's conclusion text contains "離職" → classified to 離職
+    assert "1. 小華" in out
+    assert "   → 離職、8月底交接" in out
