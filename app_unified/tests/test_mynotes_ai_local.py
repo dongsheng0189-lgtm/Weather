@@ -604,27 +604,30 @@ def test_split_items_two_items_separated_by_blank_line():
     assert items == ["冷氣", "外牆"]
 
 
-def test_summarize_meeting_user_sample_renders_sub_categories():
-    """Full user-sample integration: sub-category 代理商 emits `### 代理商`,
-    items numbered under it; sub-cat items ending with `:` keep working."""
+def test_summarize_meeting_user_sample_promotes_dailishang_to_top_section():
+    """v6 (2026-05-11): 代理商 promoted to a top-level section header,
+    not a sub-cat under 店務. SPACE_INDENT_SAMPLE has 店務: at line 1,
+    then "    代理商:" at line 2 — that "    代理商:" line now matches
+    SECTION_HEADER_RE (regex allows leading whitespace) and starts a new
+    section. 店務 contributes no items (body before 代理商 is empty);
+    代理商 owns all the items.
+    """
     out = summarize_meeting(title="2026-05-11 會議", content=SPACE_INDENT_SAMPLE)
-    # Section heading
-    assert "🏪 店務" in out
-    # Sub-category heading
-    assert "### 代理商" in out
-    # First item under 代理商
+    # 代理商 is now a top-level section, with its own icon
+    assert "🤝 代理商" in out
+    # 店務 had only the 代理商 header in its body → no items → no heading
+    assert "🏪 店務" not in out
+    # Items previously under "### 代理商" are now numbered directly under 🤝 代理商
     assert "1. K單機的勇闖金字塔, 重開機錶底會不見問題" in out
     assert "   → 換成新遊戲驗證, 爆爆礦坑" in out
-    # "點餐系統:" is an item — `:` stripped by _ISSUE_TRAILING_TRIM
+    # "點餐系統:" still an item (not sub-cat — only min_indent counts)
     assert "點餐系統" in out
     assert "   → J/JJ/Q/S/KDF先裝" in out
-    # 多行結論 captured
+    # multi-line conclusion captured
     assert "   → 可以, 但是需要有好的流程, 讓員工點餐時可以直接快速紀錄是誰點" in out
-    # S監視系統 and Q賓百系統 also captured under 代理商
+    # S監視系統, Q賓百系統 still in output (under 代理商 section now)
     assert "S監視系統有漏畫面" in out
-    assert "   → 代理商先看回放, 確認問題" in out
     assert "Q賓百系統" in out
-    assert "   → 會請山上確認更新修改" in out
 
 
 def test_summarize_meeting_personnel_with_sub_category_overrides_buckets():
@@ -675,20 +678,23 @@ def test_summarize_meeting_personnel_without_sub_category_still_buckets():
 def test_summarize_meeting_duplicate_storeops_sections_merge_in_order():
     """User habit: write 店務 / 人員 in multiple chunks scattered through the
     note. Each chunk's items should accumulate; sub_cat scope is local to each
-    chunk so the second 店務's sub_cat doesn't inherit the first's."""
+    chunk so the second 店務's sub_cat doesn't inherit the first's.
+
+    Uses 宣傳 / 促銷 as sub-cats (not 代理商, which is now its own section).
+    """
     text = """店務:
-    代理商:
-         K單機
-         結論:換成新
+    宣傳:
+         週末活動
+         結論:加倍折扣
 
 人員:
     阿明
     結論:調班
 
 店務:
-    宣傳:
-         週末活動
-         結論:加倍折扣
+    促銷:
+         月底特賣
+         結論:DM印好
 
 人員:
     小華
@@ -697,17 +703,17 @@ def test_summarize_meeting_duplicate_storeops_sections_merge_in_order():
     out = summarize_meeting(title="x", content=text)
 
     # Both 店務 sections' sub-cats appear; document order respected
-    assert "### 代理商" in out
     assert "### 宣傳" in out
-    assert out.index("### 代理商") < out.index("### 宣傳"), (
+    assert "### 促銷" in out
+    assert out.index("### 宣傳") < out.index("### 促銷"), (
         "first 店務 block's sub-cat must render before second 店務 block's"
     )
 
     # Items from both 店務 blocks present
-    assert "1. K單機" in out
-    assert "   → 換成新" in out
-    assert "1. 週末活動"  # under 宣傳 (counter resets per sub-cat) - check it appears
+    assert "1. 週末活動" in out
     assert "   → 加倍折扣" in out
+    assert "1. 月底特賣" in out
+    assert "   → DM印好" in out
 
     # Both 人員 blocks merged. 阿明's conclusion=調班 → 調整 bucket;
     # 小華's conclusion=離職 → 離職 bucket. Both buckets emit headings.
@@ -722,26 +728,29 @@ def test_summarize_meeting_duplicate_storeops_sections_merge_in_order():
 
 def test_summarize_meeting_duplicate_sections_sub_cat_scope_does_not_leak():
     """Sub-category from one 店務 block must NOT bleed into the next 店務
-    block's items (each body parsed independently)."""
+    block's items (each body parsed independently).
+
+    Uses 宣傳 as sub-cat (not 代理商, which is now its own section).
+    """
     text = """店務:
-    代理商:
-         K單機
-         結論:換成新
+    宣傳:
+         週末活動
+         結論:加倍折扣
 
 店務:
     yyy without sub-cat
     結論:no sub-cat for me
 """
     out = summarize_meeting(title="x", content=text)
-    # First block: K單機 under 代理商
-    assert "### 代理商" in out
-    assert "1. K單機" in out
+    # First block: 週末活動 under 宣傳
+    assert "### 宣傳" in out
+    assert "1. 週末活動" in out
 
-    # Second block: yyy should NOT carry "[代理商]" encoding — it's its own
-    # block with no sub_cat. Renderer sees: ... 代理商 items ..., then yyy with
-    # current_sub=None. current_sub changes from "代理商" → None, no new
+    # Second block: yyy should NOT carry "[宣傳]" encoding — it's its own
+    # block with no sub_cat. Renderer sees: ... 宣傳 items ..., then yyy with
+    # current_sub=None. current_sub changes from "宣傳" → None, no new
     # heading, counter resets.
     assert "yyy without sub-cat" in out
     assert "   → no sub-cat for me" in out
-    # No spurious "代理商" tag inside yyy item text
-    assert "[代理商] yyy" not in out
+    # No spurious "宣傳" tag inside yyy item text
+    assert "[宣傳] yyy" not in out

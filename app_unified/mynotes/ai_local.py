@@ -8,10 +8,22 @@ import re
 
 
 # 偵測 section header：可有可無【】或 [] 包覆、可有可無冒號、整行只有 header
+# 大分類順序（display order）：代理商 → 追蹤部份 → 店務 → 人員
+# 追蹤部分（半形「分」）跟 追蹤部份（全形「份」）都接受，內部 normalize 成 追蹤部份
 SECTION_HEADER_RE = re.compile(
-    r"^\s*[【\[]?\s*(店務|人員)\s*[】\]]?\s*[:：]?\s*$",
+    r"^\s*[【\[]?\s*(店務|人員|代理商|追蹤部份|追蹤部分)\s*[】\]]?\s*[:：]?\s*$",
     re.MULTILINE,
 )
+
+# 顯示順序 + icon
+DISPLAY_ORDER = ["代理商", "追蹤部份", "店務", "人員"]
+SECTION_ICONS = {
+    "代理商": "🤝",
+    "追蹤部份": "🔍",
+    "店務": "🏪",
+    "人員": "👥",
+}
+SECTION_NORMALIZE = {"追蹤部分": "追蹤部份"}  # 兩種寫法 normalize 同一個 key
 
 
 # 偵測項目起始：
@@ -227,20 +239,34 @@ def _split_items(section_body: str) -> list[str]:
             continue
 
         # Sub-category header: only indent-kind at min_indent ending with
-        # `:` / `：`. Bullet-kind lines (column 0 numbered) are NEVER sub-cats.
-        # Items at deeper indent ending with `:` (e.g. "點餐系統:" at indent 9
-        # when 代理商 sits at indent 4) stay as regular items under the
-        # current sub_cat.
+        # `:` / `：` AND followed by a strictly deeper-indented line (proof
+        # that real content lives under this header). Without the deeper
+        # follow-up the line is just a topic title that happens to end with
+        # `:` — render it as a regular item (e.g. user writes "點餐系統:"
+        # then `結論:J/JJ` at the same indent, meaning the topic itself
+        # IS the item and the conclusion is its outcome).
         stripped = content.rstrip()
         if (kind == "indent"
             and min_indent is not None
             and indent == min_indent
             and (stripped.endswith(":") or stripped.endswith("："))):
-            flush()
-            sub_name = stripped.rstrip(":：").strip()
-            if sub_name:
-                current_sub = sub_name
-            continue
+            # Peek next non-blank cell; sub-cat only if it's an indent-kind
+            # line at strictly deeper indent.
+            j = i
+            while j < len(cells) and cells[j][0] == "blank":
+                j += 1
+            has_deeper_content = (
+                j < len(cells)
+                and cells[j][0] == "indent"
+                and cells[j][1] > indent
+            )
+            if has_deeper_content:
+                flush()
+                sub_name = stripped.rstrip(":：").strip()
+                if sub_name:
+                    current_sub = sub_name
+                continue
+            # else: fall through to regular item handling below
 
         # Regular item content line.
         #
@@ -324,12 +350,14 @@ def _decode_sub_cat(item: str) -> tuple[str | None, str]:
     return None, item
 
 
-def _render_storeops(items: list[str]) -> list[str]:
-    """渲染店務 section：依 sub-category 分組、每組內部從 1 開始編號。
+def _render_section(icon: str, name: str, items: list[str]) -> list[str]:
+    """渲染通用 section（代理商/追蹤部份/店務）：依 sub-category 分組、
+    每組內部從 1 開始編號。沒 sub-category 的 items 直接平鋪在最上（沒
+    ### heading），編號自成一組。
 
-    沒 sub-category 的 items 直接平鋪在最上（沒 ### heading），編號自成一組。
+    人員 section 走另一條 `_render_personnel`（有 4 桶 keyword 邏輯）。
     """
-    out: list[str] = ["🏪 店務"]
+    out: list[str] = [f"{icon} {name}"]
     current_sub: str | None = None
     counter = 0
     for item in items:
@@ -342,7 +370,7 @@ def _render_storeops(items: list[str]) -> list[str]:
                 out.append(f"### {sub}")
         counter += 1
         issue, conclusion = _extract_conclusion(body)
-        out.append(f"{counter}. {issue}")
+        out.extend(_render_issue_lines(counter, issue))
         if conclusion:
             out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
     out.append("")
@@ -419,26 +447,28 @@ def summarize_meeting(title: str, content: str) -> str:  # noqa: ARG001
 
     lines: list[str] = ["# 會議摘要", ""]
 
-    # Merge across repeated section headers — user habit is to write
-    # 店務 / 人員 in multiple chunks scattered in the note. We parse each
+    # Merge across repeated section headers — user habit is to scatter
+    # 店務 / 人員 / etc. through the note in multiple chunks. Parse each
     # body block independently (so sub_cat scope is local), then concat
-    # the resulting items in document order. Rendering sees them as one
-    # contiguous stream per section name.
-    storeops_items: list[str] = []
-    personnel_items: list[str] = []
-    for name, body in sections:
+    # items per section name. Rendering sees them as one contiguous stream
+    # per section name. Output in DISPLAY_ORDER, skip sections with no items.
+    accumulators: dict[str, list[str]] = {name: [] for name in DISPLAY_ORDER}
+    for raw_name, body in sections:
+        canonical = SECTION_NORMALIZE.get(raw_name, raw_name)
+        if canonical not in accumulators:
+            continue  # defensive — shouldn't happen if regex matches DISPLAY_ORDER
         items = _split_items(body)
-        if name == "店務":
-            storeops_items.extend(items)
-        elif name == "人員":
-            personnel_items.extend(items)
+        accumulators[canonical].extend(items)
 
-    if storeops_items:
-        lines.extend(_render_storeops(storeops_items))
-
-    if personnel_items:
-        block = _render_personnel(personnel_items)
-        if block:
-            lines.extend(block)
+    for sec_name in DISPLAY_ORDER:
+        items = accumulators[sec_name]
+        if not items:
+            continue
+        if sec_name == "人員":
+            block = _render_personnel(items)
+            if block:
+                lines.extend(block)
+        else:
+            lines.extend(_render_section(SECTION_ICONS[sec_name], sec_name, items))
 
     return "\n".join(lines).rstrip() + "\n"
