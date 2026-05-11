@@ -104,63 +104,75 @@ _SUB_CAT_PREFIX_RE = re.compile(r"^\[([^\]]+?)\]\s+(.*)$", re.DOTALL)
 
 
 def _split_items(section_body: str) -> list[str]:
-    """切項目。
+    """切項目 — v4 unified walker。
 
-    優先用 ITEM_START_RE 抓編號/bullet 項目（原行為）。若一個都沒抓到，
-    退化成 indent-mode：
+    舊版有 Path 1（編號 bullet）vs Path 2（indent）兩條互斥路徑。實機踩到
+    user 同篇筆記混寫兩種（大部分 indent + 某段「追蹤部分 + 1./2.」編號
+    list）→ Path 1 一旦匹配就把前面所有 indent 內容當 preamble 丟掉。改成
+    一條 walker 同時吃 bullet 跟 indent，所有 line 都有機會變 item。
 
-    - 任何有 leading whitespace（TAB 或 space 都吃）的非空行才算 in-section。
-    - 一份 section body 內的最小縮排深度 = sub-category level；該層 + 結尾
-      帶 `:`/`：` 的行 = sub-category header，會記在 `current_sub`，之後的
-      items 都掛在這個 sub-category 下。
-    - 更深層的縮排 = 一般 item / 結論。
-    - 結論：行 attach 到上一個 item。`結論：` 後面空字、但下一行縮排更深 →
-      把那行內容當結論。
-    - Item 與 conclusion 用 `\n結論：` 串接，回傳給 `_extract_conclusion` 後續
-      解析；sub-category 透過 `[xxx] issue` 前綴編碼進回傳字串裡，renderer
-      會解碼並輸出成 `### xxx` heading。
+    處理規則：
+    - **Bullet line**（`1.` / `1、` / `(1)` / `●` / `-` 等）→ item，把
+      bullet 前綴拔掉。
+    - **Indent line**（leading TAB or space）→ item / 結論 / sub-category。
+    - **Preamble line**（column 0 非 bullet 文字，e.g. 「追蹤部分」「//」）
+      → 視為 section 內的視覺分隔線：flush 目前 item、reset current_sub
+      讓後續 bullet items 不會繼承前面 indent block 的 sub_cat。
+    - **Blank** → 跳過。
+
+    Sub-category：indent-kind 且 indent == min_indent_among_non_conclusion_lines
+    且 結尾 `:`/`：`。算 min_indent 時排除結論行（結論行的 indent 不代表
+    階層、會把 min_indent 算偏）。
+
+    結論：indent or bullet 都吃 `結論：xxx` 前綴。內文空時 peek 後面同 indent
+    block 內第一個 strictly-deeper indent 行當結論內文。
+
+    Sub-category 透過 `[xxx] issue` 前綴編碼進回傳字串，renderer 解碼成
+    `### xxx` heading。
     """
     if not section_body or not section_body.strip():
         return []
 
-    # Path 1: numbered/bulleted (existing behavior — unchanged)
-    matches = list(ITEM_START_RE.finditer(section_body))
-    if matches:
-        items: list[str] = []
-        for i, m in enumerate(matches):
-            start = m.end()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(section_body)
-            items.append(section_body[start:end].strip())
-        return items
-
-    # Path 2: indent-mode fallback (TAB or space — anything counts as indent)
     raw_lines = section_body.splitlines()
 
-    # Pre-pass: for each raw line, compute (indent_depth, stripped_content) or
-    # None for blanks / non-indented preamble noise.
-    cells: list[tuple[int, str] | None] = []
+    # Pre-pass: classify each line.
+    # Cell shape: (kind, indent_or_0, content_or_empty)
+    # kinds: "blank", "preamble", "bullet", "indent"
+    cells: list[tuple[str, int, str]] = []
     for ln in raw_lines:
         if not ln.strip():
-            cells.append(None)
+            cells.append(("blank", 0, ""))
+            continue
+        # Bullet/number prefix? (matches 1. / 1、 / (1) / ● / - / * etc)
+        m_item = ITEM_START_RE.match(ln)
+        if m_item:
+            cells.append(("bullet", 0, ln[m_item.end():]))
             continue
         lead = len(ln) - len(ln.lstrip())
         if lead == 0:
-            cells.append(None)  # non-indented inside section = preamble, skip
+            # Non-bullet column-0 line inside section — visual break (e.g.
+            # "追蹤部分" header that isn't a `xxx:` sub-cat, or "//" separator).
+            cells.append(("preamble", 0, ln))
             continue
-        cells.append((lead, ln.lstrip()))
+        cells.append(("indent", lead, ln.lstrip()))
 
-    indents = [c[0] for c in cells if c is not None]
-    if not indents:
-        return []
-    min_indent = min(indents)
+    # min_indent: only considering non-conclusion indent-kind lines.
+    # Conclusion lines often sit at oddly-shallow indents (user's "   結論:"
+    # at indent 3 when items are at 4-9) and would distort the sub-cat anchor.
+    indents_for_min = [
+        ind for kind, ind, content in cells
+        if kind == "indent" and not _TAB_CONCLUSION_PREFIX_RE.match(content)
+    ]
+    min_indent = min(indents_for_min) if indents_for_min else None
 
     items: list[str] = []
     current_sub: str | None = None
     current_issue: str | None = None
     current_conclusion: str | None = None
+    just_saw_conclusion: bool = False  # 結論 line is end-of-item marker
 
     def flush() -> None:
-        nonlocal current_issue, current_conclusion
+        nonlocal current_issue, current_conclusion, just_saw_conclusion
         if current_issue is None:
             return
         head = f"[{current_sub}] {current_issue}" if current_sub else current_issue
@@ -170,51 +182,83 @@ def _split_items(section_body: str) -> list[str]:
             items.append(head)
         current_issue = None
         current_conclusion = None
+        just_saw_conclusion = False
 
     i = 0
     while i < len(cells):
-        cell = cells[i]
+        kind, indent, content = cells[i]
         i += 1
-        if cell is None:
-            continue
-        indent, content = cell
 
-        # Conclusion line — works at any indent depth, attaches to last item.
+        if kind == "blank":
+            # User convention: blank line = topic boundary. Flush whatever
+            # we've been accumulating into the current item.
+            flush()
+            continue
+
+        if kind == "preamble":
+            # Visual break — flush current item AND reset sub_cat scope so
+            # following bullet/indent items don't inherit a sub_cat from a
+            # different conceptual block above.
+            flush()
+            current_sub = None
+            continue
+
+        # bullet or indent kinds carry content.
+
+        # Conclusion line?
         m_conc = _TAB_CONCLUSION_PREFIX_RE.match(content)
         if m_conc:
             conclusion_text = m_conc.group(1).strip()
             if not conclusion_text:
-                # `結論：` alone — look ahead for a deeper-indented line and
-                # treat that as the conclusion content. Skip blanks while
-                # searching; stop at first non-blank cell.
+                # `結論：` alone — peek next non-blank cell; if it's
+                # indent-kind AND strictly deeper than the 結論 line, take
+                # its content as the conclusion text and consume that cell.
                 j = i
-                while j < len(cells) and cells[j] is None:
+                while j < len(cells) and cells[j][0] == "blank":
                     j += 1
                 if j < len(cells):
-                    next_cell = cells[j]
-                    if next_cell is not None and next_cell[0] > indent:
-                        conclusion_text = next_cell[1].rstrip()
-                        i = j + 1  # consume the continuation
+                    nk, nind, ncontent = cells[j]
+                    if kind == "indent" and nk == "indent" and nind > indent:
+                        conclusion_text = ncontent.rstrip()
+                        i = j + 1
             if current_issue is not None:
                 current_conclusion = conclusion_text or None
-            # orphan conclusion (no current_issue) — silently dropped
+            just_saw_conclusion = True
             continue
 
-        # Sub-category header: at min_indent AND content ends with `:` / `：`.
-        # Items at deeper indent that happen to end with `:` (e.g. "點餐系統:")
-        # are treated as items, not sub-categories — they're under the
-        # existing sub-category.
+        # Sub-category header: only indent-kind at min_indent ending with
+        # `:` / `：`. Bullet-kind lines (column 0 numbered) are NEVER sub-cats.
+        # Items at deeper indent ending with `:` (e.g. "點餐系統:" at indent 9
+        # when 代理商 sits at indent 4) stay as regular items under the
+        # current sub_cat.
         stripped = content.rstrip()
-        if indent == min_indent and (stripped.endswith(":") or stripped.endswith("：")):
+        if (kind == "indent"
+            and min_indent is not None
+            and indent == min_indent
+            and (stripped.endswith(":") or stripped.endswith("："))):
             flush()
             sub_name = stripped.rstrip(":：").strip()
             if sub_name:
                 current_sub = sub_name
             continue
 
-        # Regular item — start new (flush any pending previous item first).
-        flush()
-        current_issue = stripped
+        # Regular item content line.
+        #
+        # Multi-line rule (user habit 2026-05-11): adjacent indent lines
+        # without a blank/結論 break in between are CONTINUATIONS of the
+        # same item, not separate items. Bullet-prefixed lines (1./2./●)
+        # always flush — bullets are inherently distinct items.
+        if kind == "bullet":
+            flush()
+            current_issue = stripped
+        elif current_issue is None or just_saw_conclusion:
+            # New item: previous one (if any) ended at 結論 or doesn't exist.
+            flush()
+            current_issue = stripped
+        else:
+            # Continuation of the current multi-line item.
+            current_issue = f"{current_issue}\n{stripped}"
+        just_saw_conclusion = False
 
     flush()
     return items
@@ -222,6 +266,17 @@ def _split_items(section_body: str) -> list[str]:
 
 _ISSUE_TRAILING_TRIM = " ：:、，,。\n\r\t"
 _CONCLUSION_PREFIX = "   → "  # 3 空白 + 箭頭 + 空白；用於議題下方一行縮排
+_ISSUE_CONT_PREFIX = "   "  # 3 空白；多行議題的續行對齊「1. 」之後的字位
+
+
+def _render_issue_lines(counter: int, issue: str) -> list[str]:
+    """把可能含 `\n` 的 issue 字串拆成 `1. 第一行` + `   續行`。"""
+    parts = issue.split("\n")
+    out = [f"{counter}. {parts[0]}"]
+    for cont in parts[1:]:
+        if cont.strip():
+            out.append(f"{_ISSUE_CONT_PREFIX}{cont}")
+    return out
 
 
 def _extract_conclusion(item_text: str) -> tuple[str, str | None]:
@@ -315,7 +370,7 @@ def _render_personnel(items: list[str]) -> list[str]:
                     out.append(f"### {sub}")
             counter += 1
             issue, conclusion = _extract_conclusion(body)
-            out.append(f"{counter}. {issue}")
+            out.extend(_render_issue_lines(counter, issue))
             if conclusion:
                 out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
         out.append("")
@@ -333,7 +388,7 @@ def _render_personnel(items: list[str]) -> list[str]:
         out.append(f"### {cat}")
         for idx, item in enumerate(buckets[cat], start=1):
             issue, conclusion = _extract_conclusion(item)
-            out.append(f"{idx}. {issue}")
+            out.extend(_render_issue_lines(idx, issue))
             if conclusion:
                 out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
         out.append("")

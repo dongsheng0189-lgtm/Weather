@@ -458,8 +458,13 @@ def test_split_items_tab_indent_with_conclusion():
 
 
 def test_split_items_tab_indent_item_without_conclusion():
-    """TAB-mode: item alone with no following 結論 line — emit issue only."""
-    section_body = "\t冷氣維修\n\t外牆修補\n\t結論：8月發包\n"
+    """Item alone with no following 結論 line — emit issue only.
+
+    Two adjacent lines need a blank line OR a 結論 between them to be
+    treated as separate items (user habit 2026-05-11 "空一行 = 不同議題").
+    Without the blank, they merge into one multi-line item.
+    """
+    section_body = "\t冷氣維修\n\n\t外牆修補\n\t結論：8月發包\n"
     items = _split_items(section_body)
     assert items == [
         "冷氣維修",
@@ -474,18 +479,26 @@ def test_split_items_tab_indent_orphan_conclusion_dropped():
     assert items == ["冷氣維修\n結論：請廠商來估"]
 
 
-def test_split_items_tab_indent_blank_lines_ignored():
-    """TAB-mode: blank lines between items are skipped, not item boundaries."""
-    section_body = "\t冷氣維修\n\n\t結論：請廠商來估\n\n\t外牆修補\n"
+def test_split_items_tab_indent_blank_line_inside_item_with_pending_conclusion():
+    """Blank line flushes any pending item. After a 結論 already attached,
+    a blank-flush is no-op for the conclusion (it's already bound)."""
+    section_body = "\t冷氣維修\n\t結論：請廠商來估\n\n\t外牆修補\n"
     items = _split_items(section_body)
     assert items == ["冷氣維修\n結論：請廠商來估", "外牆修補"]
 
 
-def test_split_items_tab_indent_non_tab_lines_skipped():
-    """TAB-mode: lines without TAB prefix (e.g. preamble noise) are skipped."""
+def test_split_items_preamble_lines_reset_sub_cat_and_flush():
+    """v5: column-0 non-bullet lines inside section are visual breaks. They
+    flush the current item AND reset current_sub. Item after a preamble
+    starts fresh with no sub_cat encoding.
+
+    `more noise` between 冷氣維修 and 結論 acts as a preamble break, so 冷氣
+    flushes WITHOUT its expected 結論 (the 結論 line that follows attaches
+    to nothing → orphan → dropped silently).
+    """
     section_body = "preamble noise\n\t冷氣維修\nmore noise\n\t結論：請廠商來估\n"
     items = _split_items(section_body)
-    assert items == ["冷氣維修\n結論：請廠商來估"]
+    assert items == ["冷氣維修"]
 
 
 def test_summarize_meeting_tab_indent_end_to_end():
@@ -575,14 +588,19 @@ def test_split_items_no_sub_category_no_prefix():
 
 
 def test_split_items_mixed_tab_and_space_indent_both_accepted():
-    """TAB and space both count as indent — backwards-compatible with the
-    original TAB-only spec."""
-    body = "\t冷氣\n    外牆\n"  # one TAB-indented + one space-indented
+    """TAB and space both count as indent. v5 rule: adjacent indented lines
+    with no blank/結論 between them = one multi-line item. The original
+    TAB-only spec test expected 2 items, but per user habit
+    2026-05-11 ("空一行 = 不同議題"), they merge unless blank-separated."""
+    body = "\t冷氣\n    外牆\n"  # one TAB-indented + one space-indented, no blank
     items = _split_items(body)
-    # Both at indent depth 1 (TAB) and 4 (space) respectively, neither at
-    # min_indent only — min_indent is 1, only "冷氣" is at min_indent. But
-    # "冷氣" doesn't end with `:`, so it's an item, not sub-cat.
-    # No sub-cat present → no prefix.
+    assert items == ["冷氣\n外牆"]
+
+
+def test_split_items_two_items_separated_by_blank_line():
+    """Explicit blank separates 2 items even when both are indented."""
+    body = "\t冷氣\n\n    外牆\n"
+    items = _split_items(body)
     assert items == ["冷氣", "外牆"]
 
 
