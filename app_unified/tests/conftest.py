@@ -141,26 +141,36 @@ def admin_user(app, db_session):
         db_session.rollback()
 
 
+def _login_via_session(client, user):
+    """Bypass auth routes by setting Flask-Login session keys directly.
+
+    Background: 4/15 commit 9a6b3ef reverted /auth/login back to a 302-stub;
+    the real flow runs through /auth/verify (face modal + PIN). Pre-revert
+    fixtures POSTed to /auth/login expecting JSON 200 — that path is gone.
+    These fixtures bypass the route entirely so tests of *protected* endpoints
+    (notes/face/admin) don't depend on auth-route plumbing.
+
+    Sets _last_request_at so _enforce_session_idle doesn't kick the user out
+    on the next request (the real route does the same).
+    """
+    import time
+    with client.session_transaction() as sess:
+        sess['_user_id'] = str(user.id)
+        sess['_fresh'] = True
+        sess['_last_request_at'] = int(time.time())
+
+
 @pytest.fixture
 def logged_in_client(client, test_user):
-    """Client with test_user logged in (has face encoding, must provide face_image)."""
-    fake_b64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
-    res = client.post('/auth/login', json={
-        'username': test_user.username, 'pin': '1234', 'face_image': fake_b64
-    })
-    assert res.status_code == 200, f"Login failed: {res.status_code} {res.get_data(as_text=True)}"
-    assert res.get_json()['status'] == 'ok', f"Login not ok: {res.get_json()}"
+    """Client with test_user logged in via Flask-Login session bypass."""
+    _login_via_session(client, test_user)
     return client
 
 
 @pytest.fixture
 def logged_in_admin_client(client, admin_user):
-    """Client with admin_user logged in (admin has no face → need_face_enroll status)."""
-    res = client.post('/auth/login', json={'username': admin_user.username, 'pin': '0000'})
-    assert res.status_code == 200, f"Admin login failed: {res.get_data(as_text=True)}"
-    data = res.get_json()
-    # Admin has no face encoding → server still logs them in and returns need_face_enroll
-    assert data['status'] in ('ok', 'need_face_enroll'), f"Unexpected: {data}"
+    """Client with admin_user logged in via Flask-Login session bypass."""
+    _login_via_session(client, admin_user)
     return client
 
 

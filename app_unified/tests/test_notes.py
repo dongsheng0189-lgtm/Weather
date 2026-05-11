@@ -65,13 +65,49 @@ def test_list_notes(logged_in_client):
     assert isinstance(data, list)
 
 
-def test_store_filter(logged_in_client):
-    logged_in_client.post('/notes/api', json={'title': 'Store B', 'content': '', 'store': 'B'})
-    logged_in_client.post('/notes/api', json={'title': 'Store C', 'content': '', 'store': 'C'})
+def test_store_filter(client, db_session):
+    """Cross-store filter is super_admin only (admin/user are locked to own store).
 
-    res = logged_in_client.get('/notes/api?store=B')
-    notes = res.get_json()
-    assert all(n['store'] == 'B' for n in notes)
+    Original test used logged_in_client (role=user) but server coerces store to
+    current_user.store for non-super_admins (notes/routes.py:437-442). To test
+    real cross-store filter behavior, log in as super_admin with valid Store
+    records in DB.
+    """
+    import time
+    import uuid
+    from models import User, Store
+    # Create two real stores so the route's `store in stores` check passes
+    suffix = uuid.uuid4().hex[:6]
+    sb = Store(name=f'B-{suffix}', login_enabled=True)
+    sc = Store(name=f'C-{suffix}', login_enabled=True)
+    db_session.add_all([sb, sc])
+    db_session.commit()
+
+    sa = User(username=f'sa-{suffix}', role='super_admin')
+    sa.set_password('0000')
+    db_session.add(sa)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess['_user_id'] = str(sa.id)
+        sess['_fresh'] = True
+        sess['_last_request_at'] = int(time.time())
+
+    try:
+        client.post('/notes/api', json={'title': 'Store B', 'content': '', 'store': sb.name})
+        client.post('/notes/api', json={'title': 'Store C', 'content': '', 'store': sc.name})
+
+        res = client.get(f'/notes/api?store={sb.name}')
+        notes = res.get_json()
+        assert notes, 'expected at least one note from store B'
+        assert all(n['store'] == sb.name for n in notes)
+    finally:
+        from models import Note
+        Note.query.filter_by(user_id=sa.id).delete()
+        db_session.delete(sa)
+        db_session.delete(sb)
+        db_session.delete(sc)
+        db_session.commit()
 
 
 def test_summarize_requires_admin(logged_in_client):

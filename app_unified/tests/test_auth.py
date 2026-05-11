@@ -34,43 +34,18 @@ def test_register_missing_fields(logged_in_admin_client):
     assert res.status_code == 400
 
 
-def test_login_success(client, test_user):
-    """test_user has face enrolled → must provide face_image."""
-    fake_b64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
-    res = client.post('/auth/login', json={
-        'username': test_user.username, 'pin': '1234', 'face_image': fake_b64
-    })
-    assert res.status_code == 200
-    data = res.get_json()
-    assert data['status'] == 'ok'
-    assert 'redirect' in data
+def test_login_page_get_redirects_to_weather(client):
+    """4/15 revert: /auth/login is now a stub 302 redirect to weather.
 
-
-def test_login_face_required(client, test_user):
-    """test_user has face enrolled → omitting face_image returns face_required."""
-    res = client.post('/auth/login', json={'username': test_user.username, 'pin': '1234'})
-    assert res.status_code == 200
-    assert res.get_json()['status'] == 'face_required'
-
-
-def test_login_no_face_redirects_to_enroll(client, admin_user):
-    """admin_user has no face → server logs in and returns need_face_enroll."""
-    res = client.post('/auth/login', json={'username': admin_user.username, 'pin': '0000'})
-    assert res.status_code == 200
-    data = res.get_json()
-    assert data['status'] == 'need_face_enroll'
-    assert 'redirect' in data
-
-
-def test_login_wrong_pin(client, test_user):
-    res = client.post('/auth/login', json={'username': test_user.username, 'pin': '9999'})
-    assert res.status_code == 401
-    assert res.get_json()['status'] == 'wrong_password'
-
-
-def test_login_page_get(client):
-    res = client.get('/auth/login')
-    assert res.status_code == 200
+    The real login flow is /auth/verify (face modal + PIN, no username field).
+    Pre-revert behavior (200 + login form) is gone. Tests for the old POST
+    behavior (face_required / need_face_enroll / wrong_pin / etc.) were
+    deleted because that logic moved to /auth/verify, which has its own
+    coverage in test_verify_* below.
+    """
+    res = client.get('/auth/login', follow_redirects=False)
+    assert res.status_code == 302
+    assert '/weather' in res.headers['Location']
 
 
 def test_verify_success(client, test_user):
@@ -106,10 +81,27 @@ def test_logout(logged_in_client):
 
 # ── Admin create user endpoint ────────────────────────────────────────────────
 
-def test_admin_create_user_success(logged_in_admin_client):
+@pytest.fixture
+def store_a(db_session):
+    """A valid Store record — needed because /admin/users/create requires
+    role=user/admin to pick a store from existing Store rows."""
+    from models import Store
+    s = Store(name='store_a', login_enabled=True)
+    db_session.add(s)
+    db_session.commit()
+    yield s
+    try:
+        db_session.delete(s)
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+
+
+def test_admin_create_user_success(logged_in_admin_client, store_a):
     fake_b64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
     res = logged_in_admin_client.post('/admin/users/create', json={
-        'username': 'employee01', 'pin': '2468', 'face_image': fake_b64
+        'username': 'employee01', 'pin': '2468', 'face_image': fake_b64,
+        'store': store_a.name,
     })
     assert res.status_code == 200
     data = res.get_json()
@@ -123,9 +115,13 @@ def test_admin_create_user_missing_fields(logged_in_admin_client):
     assert res.status_code == 400
 
 
-def test_admin_create_user_duplicate(logged_in_admin_client):
-    logged_in_admin_client.post('/admin/users/create', json={'username': 'emp_dup', 'pin': '1111'})
-    res = logged_in_admin_client.post('/admin/users/create', json={'username': 'emp_dup', 'pin': '2222'})
+def test_admin_create_user_duplicate(logged_in_admin_client, store_a):
+    logged_in_admin_client.post('/admin/users/create', json={
+        'username': 'emp_dup', 'pin': '1111', 'store': store_a.name,
+    })
+    res = logged_in_admin_client.post('/admin/users/create', json={
+        'username': 'emp_dup', 'pin': '2222', 'store': store_a.name,
+    })
     assert res.status_code == 409
 
 

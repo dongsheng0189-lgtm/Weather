@@ -19,8 +19,9 @@ def test_face_settings_requires_login(client):
     assert res.status_code in (302, 401)
 
 
-def test_face_settings_page(logged_in_client):
-    res = logged_in_client.get('/face/settings')
+def test_face_settings_page(logged_in_admin_client):
+    """/face/settings is admin-only (face/routes.py:28 — non-admin → 403)."""
+    res = logged_in_admin_client.get('/face/settings')
     assert res.status_code == 200
 
 
