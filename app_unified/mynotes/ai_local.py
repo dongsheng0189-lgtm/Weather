@@ -107,6 +107,17 @@ def _split_sections(text: str) -> list[tuple[str, str]]:
 # competes with numbered/bulleted format).
 _TAB_CONCLUSION_PREFIX_RE = re.compile(r"^結論\s*[:：]\s*(.*)$")
 
+# v7 (2026-05-11): "延伸議題:" / "延伸:" magic keyword. When seen at item
+# level, the line itself doesn't start a new item — it marks that the
+# following content + 結論 are an EXTENSION of the current item (a follow-up
+# discussion under the same topic). The walker enters extension mode and
+# collects extension_issue + extension_conclusion separately; flush() then
+# encodes both halves into a single item string using `_EXT_DELIM` as the
+# delimiter, and the renderer outputs them on continuation lines under the
+# primary `1. xxx → conc` pair.
+_TAB_EXTENSION_PREFIX_RE = re.compile(r"^延伸(?:議題)?\s*[:：]\s*(.*)$")
+_EXT_DELIM = "\x1fEXT\x1f"
+
 # Sub-category prefix encoding: items belonging to a sub-category get prefixed
 # with `[xxx] ` in the items list. The renderer strips this back out and emits
 # `### xxx` headings. Encoding chosen so the existing list[str] contract of
@@ -182,19 +193,32 @@ def _split_items(section_body: str) -> list[str]:
     current_issue: str | None = None
     current_conclusion: str | None = None
     just_saw_conclusion: bool = False  # 結論 line is end-of-item marker
+    # Extension state (v7): triggered by `延伸議題:` line. While true, content
+    # lines APPEND to ext_issue and 結論 lines set ext_conclusion.
+    in_extension: bool = False
+    ext_issue: str | None = None
+    ext_conclusion: str | None = None
 
     def flush() -> None:
         nonlocal current_issue, current_conclusion, just_saw_conclusion
+        nonlocal in_extension, ext_issue, ext_conclusion
         if current_issue is None:
             return
         head = f"[{current_sub}] {current_issue}" if current_sub else current_issue
         if current_conclusion is not None:
-            items.append(f"{head}\n結論：{current_conclusion}")
-        else:
-            items.append(head)
+            head = f"{head}\n結論：{current_conclusion}"
+        if in_extension and ext_issue is not None:
+            ext_block = ext_issue
+            if ext_conclusion is not None:
+                ext_block = f"{ext_block}\n結論：{ext_conclusion}"
+            head = f"{head}{_EXT_DELIM}{ext_block}"
+        items.append(head)
         current_issue = None
         current_conclusion = None
         just_saw_conclusion = False
+        in_extension = False
+        ext_issue = None
+        ext_conclusion = None
 
     i = 0
     while i < len(cells):
@@ -217,6 +241,21 @@ def _split_items(section_body: str) -> list[str]:
 
         # bullet or indent kinds carry content.
 
+        # Extension marker (v7) — must come BEFORE conclusion check because
+        # the regex is more specific. `延伸議題:` / `延伸:` line: keep the
+        # current item alive, enter extension mode so subsequent content
+        # + 結論 attach to ext_issue / ext_conclusion instead of replacing.
+        m_ext = _TAB_EXTENSION_PREFIX_RE.match(content)
+        if m_ext and current_issue is not None:
+            in_extension = True
+            inline = m_ext.group(1).strip()
+            # If the 延伸議題: line has inline content (rare — user might
+            # write `延伸: xxx`), seed ext_issue with it.
+            if inline:
+                ext_issue = inline
+            just_saw_conclusion = False
+            continue
+
         # Conclusion line?
         m_conc = _TAB_CONCLUSION_PREFIX_RE.match(content)
         if m_conc:
@@ -233,8 +272,13 @@ def _split_items(section_body: str) -> list[str]:
                     if kind == "indent" and nk == "indent" and nind > indent:
                         conclusion_text = ncontent.rstrip()
                         i = j + 1
-            if current_issue is not None:
-                current_conclusion = conclusion_text or None
+            if in_extension:
+                # Conclusion of the extension half — attach to ext_conclusion.
+                if current_issue is not None:
+                    ext_conclusion = conclusion_text or None
+            else:
+                if current_issue is not None:
+                    current_conclusion = conclusion_text or None
             just_saw_conclusion = True
             continue
 
@@ -277,6 +321,18 @@ def _split_items(section_body: str) -> list[str]:
         if kind == "bullet":
             flush()
             current_issue = stripped
+        elif in_extension:
+            # Content under an active 延伸議題 marker — append to ext_issue.
+            if ext_issue is None or just_saw_conclusion:
+                # After the extension's 結論, a new content line means a new
+                # *primary* item starting — exit extension mode by flushing.
+                if just_saw_conclusion:
+                    flush()
+                    current_issue = stripped
+                else:
+                    ext_issue = stripped
+            else:
+                ext_issue = f"{ext_issue}\n{stripped}"
         elif current_issue is None or just_saw_conclusion:
             # New item: previous one (if any) ended at 結論 or doesn't exist.
             flush()
@@ -350,6 +406,41 @@ def _decode_sub_cat(item: str) -> tuple[str | None, str]:
     return None, item
 
 
+def _split_extension(body: str) -> tuple[str, str | None]:
+    """從 item body 中拆出 primary 部分跟 extension 部分。
+
+    body 用 `_EXT_DELIM` 分隔 primary 與 extension（v7 encoding）。沒
+    delimiter 就 (body, None)。
+    """
+    if _EXT_DELIM in body:
+        primary, ext = body.split(_EXT_DELIM, 1)
+        return primary, ext
+    return body, None
+
+
+def _render_item_lines(counter: int, body: str) -> list[str]:
+    """單一 item 的渲染（不論 section 走哪條 renderer 都共用）。
+
+    處理：sub-cat decode → extension split → primary `1. issue + → conc` →
+    若有 extension 加 `延伸議題：ext_issue + → ext_conc` 縮排在同 item 下。
+    """
+    primary, ext = _split_extension(body)
+    issue, conclusion = _extract_conclusion(primary)
+    out = _render_issue_lines(counter, issue)
+    if conclusion:
+        out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
+    if ext is not None:
+        ext_issue, ext_conclusion = _extract_conclusion(ext)
+        ext_lines = ext_issue.split("\n")
+        out.append(f"{_ISSUE_CONT_PREFIX}延伸議題：{ext_lines[0]}")
+        for cont in ext_lines[1:]:
+            if cont.strip():
+                out.append(f"{_ISSUE_CONT_PREFIX}{cont}")
+        if ext_conclusion:
+            out.append(f"{_CONCLUSION_PREFIX}{ext_conclusion}")
+    return out
+
+
 def _render_section(icon: str, name: str, items: list[str]) -> list[str]:
     """渲染通用 section（代理商/追蹤部份/店務）：依 sub-category 分組、
     每組內部從 1 開始編號。沒 sub-category 的 items 直接平鋪在最上（沒
@@ -369,10 +460,7 @@ def _render_section(icon: str, name: str, items: list[str]) -> list[str]:
             if sub:
                 out.append(f"### {sub}")
         counter += 1
-        issue, conclusion = _extract_conclusion(body)
-        out.extend(_render_issue_lines(counter, issue))
-        if conclusion:
-            out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
+        out.extend(_render_item_lines(counter, body))
     out.append("")
     return out
 
@@ -397,10 +485,7 @@ def _render_personnel(items: list[str]) -> list[str]:
                 if sub:
                     out.append(f"### {sub}")
             counter += 1
-            issue, conclusion = _extract_conclusion(body)
-            out.extend(_render_issue_lines(counter, issue))
-            if conclusion:
-                out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
+            out.extend(_render_item_lines(counter, body))
         out.append("")
         return out
 
@@ -415,10 +500,11 @@ def _render_personnel(items: list[str]) -> list[str]:
     for cat in non_empty:
         out.append(f"### {cat}")
         for idx, item in enumerate(buckets[cat], start=1):
-            issue, conclusion = _extract_conclusion(item)
-            out.extend(_render_issue_lines(idx, issue))
-            if conclusion:
-                out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
+            # _classify_personnel works on the full encoded string; renderer
+            # decodes here. Items in buckets are still full encoded strings
+            # (no sub-cat prefix in personnel mode, but may have extensions).
+            _, body = _decode_sub_cat(item)
+            out.extend(_render_item_lines(idx, body))
         out.append("")
     return out
 

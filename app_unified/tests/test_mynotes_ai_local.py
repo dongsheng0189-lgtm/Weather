@@ -604,6 +604,59 @@ def test_split_items_two_items_separated_by_blank_line():
     assert items == ["冷氣", "外牆"]
 
 
+def test_summarize_meeting_extension_keeps_extension_inline_under_topic():
+    """v7 (2026-05-11): `延伸議題:` after an item's 結論 keeps the extension
+    under the SAME item — extension issue + conclusion render inline on
+    continuation lines, not as a separate numbered item."""
+    text = """店務:
+    代理商:
+         點餐系統:
+         結論:J/JJ/Q/S/KDF先裝
+         延伸議題:
+         是否需要收集客人點餐的資訊, 提供更好的服務
+         結論:
+              可以, 但是需要有好的流程, 讓員工點餐時可以直接快速紀錄是誰點
+         S監視系統有漏畫面
+         結論: 代理商先看回放
+"""
+    out = summarize_meeting(title="x", content=text)
+    # 代理商 promoted to top-level section
+    assert "🤝 代理商" in out
+    # Item 1 (= 點餐系統) gets both the primary conclusion AND the extension
+    # block, then item 2 (= S監視系統) is the NEXT distinct topic.
+    assert "1. 點餐系統" in out
+    assert "   → J/JJ/Q/S/KDF先裝" in out
+    assert "   延伸議題：是否需要收集客人點餐的資訊, 提供更好的服務" in out
+    assert "   → 可以, 但是需要有好的流程, 讓員工點餐時可以直接快速紀錄是誰點" in out
+    assert "2. S監視系統有漏畫面" in out
+    assert "   → 代理商先看回放" in out
+
+
+def test_split_items_extension_encoded_with_ext_delim():
+    """_split_items returns an item string with `_EXT_DELIM` separating
+    primary half from extension half — verifies encoding directly."""
+    from mynotes.ai_local import _EXT_DELIM
+    # All lines at same indent (no sub-cat triggered) — the previous version
+    # had 點餐系統: at shallower indent which caused it to be detected as
+    # sub-cat (because there was deeper content under it). Keep all 5 lines
+    # at indent 9 to test extension encoding without sub-cat noise.
+    body = (
+        "         點餐系統:\n         結論:J/JJ\n"
+        "         延伸議題:\n         是否要X\n         結論:可以\n"
+    )
+    items = _split_items(body)
+    assert len(items) == 1, f"expected 1 item, got {items!r}"
+    assert _EXT_DELIM in items[0], f"missing _EXT_DELIM in {items[0]!r}"
+    primary, ext = items[0].split(_EXT_DELIM, 1)
+    # Primary: trailing `:` from "點餐系統:" stays (it's mid-string in the
+    # joined primary text). _extract_conclusion trims it during render.
+    assert "點餐系統" in primary
+    assert "結論：J/JJ" in primary
+    # Extension half: ext_issue + 結論
+    assert "是否要X" in ext
+    assert "結論：可以" in ext
+
+
 def test_summarize_meeting_user_sample_promotes_dailishang_to_top_section():
     """v6 (2026-05-11): 代理商 promoted to a top-level section header,
     not a sub-cat under 店務. SPACE_INDENT_SAMPLE has 店務: at line 1,
