@@ -1,6 +1,14 @@
 from gevent import monkey
 monkey.patch_all()
 
+# Re-point psycopg2's wait callback at gevent.socket so PG I/O yields to the
+# hub instead of blocking the worker natively. Without this, a stale PG
+# connection (server-side idle timeout closes it) hangs the worker in native
+# recv() — no heartbeat to gunicorn master — SIGKILL after timeout=60s.
+# Must run AFTER monkey.patch_all() and BEFORE any psycopg2 connection opens.
+from psycogreen.gevent import patch_psycopg
+patch_psycopg()
+
 import os, sys, types, time
 
 # pkg_resources 替代方案：用 importlib 提供 resource_filename

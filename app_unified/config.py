@@ -14,7 +14,11 @@ class Config:
         _db_url = _db_url.replace("postgres://", "postgresql://", 1)
     SQLALCHEMY_DATABASE_URI = _db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
+    # pool_pre_ping: checkout-time validation catches dead connections (PG
+    #   server idle-timeout closed them) before they reach a query.
+    # pool_recycle: proactively recycle connections every hour so they don't
+    #   age out to where pre_ping has to fail; defense in depth.
+    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 3600}
 
     # Cookie security (set True in production via env var)
     SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
