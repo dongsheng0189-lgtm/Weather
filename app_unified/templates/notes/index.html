@@ -147,7 +147,7 @@
   <input type="text" name="q" value="{{ current_keyword or '' }}" placeholder="搜尋標題/內容…" style="flex:1;max-width:300px;padding:.4rem .6rem;border:1px solid #ddd;border-radius:6px;font-size:.9rem;min-height:36px;">
   <button type="submit" class="btn btn-primary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">搜尋</button>
   {% if active_filter == 'keyword' %}
-  <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">取消</a>
+  <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;display:inline-flex;align-items:center;gap:.3rem;"><span style="color:#e74c3c;font-weight:700;">✕</span> 取消</a>
   {% endif %}
 </form>
 {% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('machine','機台'),('misc','雜項')] %}
