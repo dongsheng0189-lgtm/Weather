@@ -10,6 +10,7 @@ on:
       - fix/psycogreen-gevent
     paths:
       - 'app_unified/**'
+      - '!app_unified/tests/**'
       - '.github/workflows/docker.yml'
   workflow_dispatch:
 
