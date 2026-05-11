@@ -68,6 +68,14 @@
 <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
   <a href="{{ url_for('notes.index', q=request.args.get('q')) }}" class="btn btn-secondary" id="btn-back">← 返回</a>
   <span class="save-status" id="save-status"></span>
+  {# 關鍵字命中跳轉 widget — 只在 URL 帶 q= 且有 match 時 display:flex by JS #}
+  <span id="search-hit-widget"
+        style="display:none;align-items:center;gap:.4rem;padding:.3rem .65rem;background:#fff8e1;border:1px solid #ffd54f;border-radius:14px;font-size:.85rem;color:#5d4037;">
+    <span>🔍 <span id="search-hit-counter">0/0</span> 命中</span>
+    <button type="button" id="search-hit-next"
+            style="background:#ffb300;border:none;color:#fff;border-radius:50%;width:24px;height:24px;font-size:.8rem;cursor:pointer;line-height:1;"
+            title="下一個命中">▶</button>
+  </span>
 </div>
 <div id="lock-banner" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#856404;display:{% if is_readonly %}flex{% else %}none{% endif %};align-items:center;gap:.75rem;flex-wrap:wrap;">
   <span id="lock-banner-text">⚠️ 目前由 <strong id="lock-banner-name">{{ locker_name or '' }}</strong> 編輯中，無法編輯</span>
@@ -213,6 +221,96 @@ var SEARCH_Q = new URLSearchParams(window.location.search).get('q') || '';
 var NOTES_INDEX_URL = SEARCH_Q
   ? '/notes/?q=' + encodeURIComponent(SEARCH_Q)
   : '/notes/';
+
+// ── 關鍵字命中跳轉 (2026-05-11) ─────────────────────────────────────────
+// regular note (textarea): hits = [{start, end}] offsets，setSelectionRange 顯示
+// checklist:               hits = [<row DOM元素>]，scrollIntoView + <mark> 高亮
+// widget 「▶」做循環跳轉（N/N 後再按回到 1/N）
+var _searchHits = [];
+var _currentHit = 0;
+function _escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function _escHTML(s) {
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function buildSearchHits() {
+  _searchHits = [];
+  _currentHit = 0;
+  if (!SEARCH_Q) return;
+  var ql = SEARCH_Q.toLowerCase();
+  if (EDITOR_TYPE === 'checklist') {
+    // 在每個 checklist row 內的 text 區塊找命中、用 <mark> 包覆
+    var re = new RegExp(_escRegex(SEARCH_Q), 'gi');
+    document.querySelectorAll('#checklist-items > div[data-item-id]').forEach(function(row) {
+      // row 結構：[checkbox][content > [text, attachments, meta]]
+      var textDiv = row.querySelector('div[style*="white-space:pre-wrap"]');
+      if (!textDiv) return;
+      var raw = textDiv.textContent;
+      if (raw.toLowerCase().indexOf(ql) === -1) return;
+      var escaped = _escHTML(raw);
+      textDiv.innerHTML = escaped.replace(re, '<mark class="kw-hl">$&</mark>');
+      _searchHits.push(row);
+    });
+  } else {
+    // textarea：算出每個 match 的 offset
+    var ta = document.getElementById('content-area');
+    if (!ta) return;
+    var text = (ta.value || '').toLowerCase();
+    var pos = 0;
+    while (pos < text.length) {
+      var idx = text.indexOf(ql, pos);
+      if (idx === -1) break;
+      _searchHits.push({ start: idx, end: idx + ql.length });
+      pos = idx + ql.length;
+    }
+  }
+  // 顯示 widget + 跳到第一個
+  var widget = document.getElementById('search-hit-widget');
+  if (_searchHits.length === 0) {
+    widget.style.display = 'none';
+    return;
+  }
+  widget.style.display = 'inline-flex';
+  jumpToHit(0);
+}
+function jumpToHit(idx) {
+  if (_searchHits.length === 0) return;
+  idx = ((idx % _searchHits.length) + _searchHits.length) % _searchHits.length;
+  _currentHit = idx;
+  document.getElementById('search-hit-counter').textContent =
+    (idx + 1) + '/' + _searchHits.length;
+  if (EDITOR_TYPE === 'checklist') {
+    var row = _searchHits[idx];
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // 短暫脈衝高亮
+    row.style.boxShadow = '0 0 0 3px #ffd54f';
+    setTimeout(function() { row.style.boxShadow = ''; }, 1000);
+  } else {
+    var ta = document.getElementById('content-area');
+    if (!ta) return;
+    var hit = _searchHits[idx];
+    ta.focus();
+    ta.setSelectionRange(hit.start, hit.end);
+    // scroll textarea so the selection is visible — 粗略估算 line height
+    var lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 24;
+    var before = ta.value.substring(0, hit.start);
+    var lineNum = before.split('\n').length - 1;
+    ta.scrollTop = Math.max(0, lineNum * lineHeight - ta.clientHeight / 2);
+  }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  var nextBtn = document.getElementById('search-hit-next');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', function() {
+      jumpToHit(_currentHit + 1);
+    });
+  }
+  // regular note 立刻 build；checklist 等 items 載完才 build
+  if (SEARCH_Q && EDITOR_TYPE !== 'checklist') {
+    buildSearchHits();
+  }
+});
 
 // Readonly 模式：禁用所有輸入和按鈕（除了返回和強制釋放）
 function applyReadonly() {
@@ -965,6 +1063,8 @@ function loadChecklistItems() {
         wrap.appendChild(renderChecklistItem(item));
       });
       if (IS_READONLY) applyReadonly();
+      // checklist items ready → 跑命中偵測 + 高亮 + 跳第一個
+      if (SEARCH_Q) buildSearchHits();
     }).catch(function() {});
 }
 
