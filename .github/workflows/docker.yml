@@ -7,6 +7,7 @@ on:
       - feat/ghcr-deploy
       - fix/face-hub-block
       - worktree-fix-ai-task-db-state
+      - fix/psycogreen-gevent
     paths:
       - 'app_unified/**'
       - '.github/workflows/docker.yml'
