@@ -78,6 +78,28 @@ def test_user_does_not_see_other_store_announcement_in_index(client, db):
     assert "C_STORE_SECRET" not in html
 
 
+def test_announcements_hidden_when_keyword_search_active(client, db):
+    """When /notes/?q=foo is requested, announcement section MUST be hidden
+    so the user can see keyword matches without scrolling past announcements."""
+    sa = _make_user(db, "super_admin", username="sa_idx_hide")
+    _login(client, sa)
+    client.post(
+        "/notes/announcement/api",
+        json={"title": "VISIBLE_NORMALLY", "content": "x", "store": None},
+    )
+
+    # Without keyword: announcement renders
+    r = client.get("/notes/")
+    assert "VISIBLE_NORMALLY" in r.get_data(as_text=True)
+
+    # With keyword: announcement hidden (regardless of whether anything matched)
+    r = client.get("/notes/?q=anything")
+    html = r.get_data(as_text=True)
+    assert "VISIBLE_NORMALLY" not in html
+    assert "announcement-section" not in html
+    assert "announcement-card" not in html
+
+
 def test_announcement_shows_edited_chip_after_edit(client, db):
     """Newly-created announcement → no 已編輯 chip; after PUT edit → chip shows
     AND footer time advances to the new updated_at."""

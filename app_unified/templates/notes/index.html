@@ -94,7 +94,10 @@
   </div>
 </div>
 
+{# 關鍵字搜尋時隱藏公告 — 避免一堆公告擋在前面、要滑掉才看到關鍵字結果 #}
+{% if not current_keyword %}
 {% include 'announcements/_card_list.html' %}
+{% endif %}
 
 {% if current_user.is_admin() %}
 <div class="card" style="margin-bottom:1rem;">
