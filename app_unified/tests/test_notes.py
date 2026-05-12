@@ -416,3 +416,93 @@ def test_index_keyword_preserves_store_tabs_for_super_admin(client, db_session):
         db_session.delete(user)
         db_session.delete(store)
         db_session.commit()
+
+
+# ── Checklist editor: completion partition tab row (2026-05-12) ─────────────
+
+
+def test_checklist_editor_renders_completion_tab_row(client, db_session):
+    """Opening a checklist note's editor must render the 排列 tab row
+    (全部/已完成/未完成) so users can re-partition items client-side."""
+    import time
+    import uuid
+    from models import User, Store, Note
+
+    suffix = uuid.uuid4().hex[:6]
+    store = Store(name=f"S-{suffix}", login_enabled=True)
+    db_session.add(store)
+    db_session.commit()
+
+    user = User(username=f"u-{suffix}", role="admin", store=store.name)
+    user.set_password("0000")
+    db_session.add(user)
+    db_session.commit()
+
+    note = Note(title="check", note_type="checklist", store=store.name,
+                user_id=user.id, status="pending", category="misc")
+    db_session.add(note)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(user.id)
+        sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
+
+    try:
+        r = client.get(f"/notes/{note.id}")
+        html = r.get_data(as_text=True)
+        assert 'data-completion-tab="all"' in html, \
+            "checklist editor must render 全部 tab"
+        assert 'data-completion-tab="done"' in html, \
+            "checklist editor must render 已完成 tab"
+        assert 'data-completion-tab="undone"' in html, \
+            "checklist editor must render 未完成 tab"
+        assert "setCompletionMode" in html, \
+            "tab click handler setCompletionMode must be present"
+    finally:
+        Note.query.filter_by(user_id=user.id).delete()
+        db_session.delete(user)
+        db_session.delete(store)
+        db_session.commit()
+
+
+def test_regular_note_editor_does_not_render_completion_tab_row(client, db_session):
+    """Non-checklist note editor must NOT render the completion tab buttons
+    — they live inside the checklist {% else %} branch only."""
+    import time
+    import uuid
+    from models import User, Store, Note
+
+    suffix = uuid.uuid4().hex[:6]
+    store = Store(name=f"S-{suffix}", login_enabled=True)
+    db_session.add(store)
+    db_session.commit()
+
+    user = User(username=f"u-{suffix}", role="admin", store=store.name)
+    user.set_password("0000")
+    db_session.add(user)
+    db_session.commit()
+
+    note = Note(title="reg", note_type="note", store=store.name,
+                user_id=user.id, status="pending", category="misc")
+    db_session.add(note)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(user.id)
+        sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
+
+    try:
+        r = client.get(f"/notes/{note.id}")
+        html = r.get_data(as_text=True)
+        # `id="completion-tabs"` is the container div — only emitted in checklist branch.
+        # Plain selector-string `data-completion-tab` lives in JS even for non-checklist
+        # so we anchor on the wrapper div instead.
+        assert 'id="completion-tabs"' not in html, \
+            "regular note editor must NOT render completion tab wrapper"
+    finally:
+        Note.query.filter_by(user_id=user.id).delete()
+        db_session.delete(user)
+        db_session.delete(store)
+        db_session.commit()

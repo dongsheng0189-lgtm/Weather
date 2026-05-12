@@ -171,6 +171,16 @@
   <div id="checklist-wrap" style="margin-top:.5rem;">
     <h4 style="font-size:.9rem;color:#666;margin-bottom:.5rem;">☑ 確認項目</h4>
     <button class="btn btn-primary" type="button" onclick="openAddItemDialog()" style="background:#27ae60;margin-bottom:.6rem;width:100%;">+ 新增項目</button>
+    {# 排列：穩定 partition overlay。「全部」= 原順序；「已完成」= 已勾的浮頂；「未完成」= 未勾的浮頂。 #}
+    <div id="completion-tabs" style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.6rem;align-items:center;">
+      <span style="font-size:.85rem;color:#666;margin-right:.25rem;">排列：</span>
+      <button type="button" data-completion-tab="all" onclick="setCompletionMode('all')"
+              style="padding:.35rem .8rem;border-radius:20px;font-size:.85rem;font-weight:600;cursor:pointer;border:2px solid transparent;background:#f0f0f0;color:#555;min-height:36px;">全部</button>
+      <button type="button" data-completion-tab="done" onclick="setCompletionMode('done')"
+              style="padding:.35rem .8rem;border-radius:20px;font-size:.85rem;font-weight:600;cursor:pointer;border:2px solid transparent;background:#f0f0f0;color:#555;min-height:36px;">已完成</button>
+      <button type="button" data-completion-tab="undone" onclick="setCompletionMode('undone')"
+              style="padding:.35rem .8rem;border-radius:20px;font-size:.85rem;font-weight:600;cursor:pointer;border:2px solid transparent;background:#f0f0f0;color:#555;min-height:36px;">未完成</button>
+    </div>
     <div id="checklist-items"></div>
   </div>
 
@@ -1063,20 +1073,76 @@ if (NOTE_ID && EDITOR_TYPE !== 'checklist') loadAttachments();
 var _itemAttachmentsPending = []; // 暫存新項目的附件（在 modal 裡還沒按完成前）
 var _itemAttachmentsSaved = [];   // 編輯模式下已儲存的附件
 
+// ── 完成排列：穩定 partition overlay。「all」不分區，「done」已勾浮頂，「undone」未勾浮頂。
+// 切換 tab 時用快取 items 重新 render，不打 server。toggle checkbox 仍保持原地不重排（已知設計：
+// 避免項目跳動），需要 refresh 排列就重點 tab。
+var _cachedItems = [];
+var _currentCompletion = (function() {
+  try {
+    var v = localStorage.getItem('notes_editor_completion');
+    if (v === 'done' || v === 'undone' || v === 'all') return v;
+  } catch (e) {}
+  return 'all';
+})();
+
+function _applyCompletionPartition(items) {
+  if (_currentCompletion === 'all') return items.slice();
+  var matchFn = _currentCompletion === 'done'
+    ? function(it) { return !!it.is_checked; }
+    : function(it) { return !it.is_checked; };
+  var matched = [];
+  var rest = [];
+  items.forEach(function(it) {
+    (matchFn(it) ? matched : rest).push(it);
+  });
+  return matched.concat(rest);
+}
+
+function _renderChecklistItemsFromCache() {
+  var wrap = document.getElementById('checklist-items');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  _applyCompletionPartition(_cachedItems).forEach(function(item) {
+    wrap.appendChild(renderChecklistItem(item));
+  });
+  if (IS_READONLY) applyReadonly();
+  if (SEARCH_Q) buildSearchHits();
+}
+
+function _updateCompletionTabUI() {
+  var DONE_BG = '#27ae60', UNDONE_BG = '#e67e22';
+  document.querySelectorAll('[data-completion-tab]').forEach(function(el) {
+    var mode = el.dataset.completionTab;
+    var active = mode === _currentCompletion;
+    if (active && mode === 'done') {
+      el.style.background = DONE_BG; el.style.color = '#fff';
+    } else if (active && mode === 'undone') {
+      el.style.background = UNDONE_BG; el.style.color = '#fff';
+    } else if (active) {
+      el.style.background = '#2c3e50'; el.style.color = '#fff';
+    } else {
+      el.style.background = '#f0f0f0'; el.style.color = '#555';
+    }
+  });
+}
+
+function setCompletionMode(mode) {
+  if (mode !== 'all' && mode !== 'done' && mode !== 'undone') mode = 'all';
+  _currentCompletion = mode;
+  try { localStorage.setItem('notes_editor_completion', mode); } catch (e) {}
+  _updateCompletionTabUI();
+  _renderChecklistItemsFromCache();
+}
+
 function loadChecklistItems() {
   if (!NOTE_ID || EDITOR_TYPE !== 'checklist') return;
   fetch('/notes/api/' + NOTE_ID + '/items?sort=' + encodeURIComponent(CURRENT_SORT))
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.status !== 'ok') return;
-      var wrap = document.getElementById('checklist-items');
-      wrap.innerHTML = '';
-      d.items.forEach(function(item) {
-        wrap.appendChild(renderChecklistItem(item));
-      });
-      if (IS_READONLY) applyReadonly();
-      // checklist items ready → 跑命中偵測 + 高亮 + 跳第一個
-      if (SEARCH_Q) buildSearchHits();
+      _cachedItems = d.items || [];
+      _updateCompletionTabUI();
+      _renderChecklistItemsFromCache();
     }).catch(function() {});
 }
 
@@ -1194,8 +1260,17 @@ function toggleChecklistItem(itemId, isChecked, rowEl) {
       return;
     }
     if (d.status !== 'ok') return;
+    // 更新快取 is_checked 狀態：下次切換完成 tab 時 partition 才會用到最新值
+    for (var i = 0; i < _cachedItems.length; i++) {
+      if (_cachedItems[i].id === itemId) {
+        _cachedItems[i].is_checked = !!d.item.is_checked;
+        _cachedItems[i].checked_by_name = d.item.checked_by_name;
+        _cachedItems[i].checked_at = d.item.checked_at;
+        break;
+      }
+    }
     // 在原地更新 DOM：避免重新排序造成項目跳動
-    // 排序變動會在下次重新進入頁面時生效
+    // 排序變動會在下次重新進入頁面時 / 切換完成 tab 時生效
     if (rowEl) {
       var textEl = rowEl.querySelector('div[style*="white-space:pre-wrap"]');
       if (textEl) {
