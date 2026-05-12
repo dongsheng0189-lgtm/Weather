@@ -521,6 +521,34 @@ async function deleteUser(id, username) {
 var approveStream = null;
 var approveFaceImage = null;
 
+function _escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function _renderReauthHint(d) {
+  // 已核准 / 已掛失 row 不顯示提示
+  if (d.is_approved || d.is_revoked) return '';
+  var cands = d.reauth_candidates || [];
+  if (cands.length === 0) {
+    return '<div style="font-size:.72rem;color:#888;margin-top:.25rem;">🆕 全新裝置</div>';
+  }
+  var lis = cands.map(function(c) {
+    return '<li style="margin:.15rem 0;">'
+         + '<strong>' + _escapeHtml(c.username) + '</strong>'
+         + ' <span style="color:#888;">(' + _escapeHtml(c.store || '—') + ')</span>'
+         + ' <span style="color:#aaa;font-size:.72rem;">最後 ' + _escapeHtml(c.last_seen || '—') + '</span>'
+         + '</li>';
+  }).join('');
+  return '<details style="margin-top:.25rem;font-size:.75rem;">'
+       + '<summary style="cursor:pointer;color:#e67e22;font-weight:600;">'
+       + '⚠️ 需重綁定（' + cands.length + ' 人候選）'
+       + '</summary>'
+       + '<ul style="margin:.3rem 0 0 0;padding-left:1.2rem;color:#555;">' + lis + '</ul>'
+       + '</details>';
+}
+
 function loadDevices() {
   var storeEl = document.getElementById('filter-device-store');
   var storeVal = storeEl ? storeEl.value : '';
@@ -532,6 +560,7 @@ function loadDevices() {
       var statusBadge = d.is_revoked
         ? '<span class="badge badge-inactive">已掛失</span>'
         : (d.is_approved ? '<span class="badge badge-active">已核准</span>' : '<span class="badge badge-user">待核准</span>');
+      statusBadge += _renderReauthHint(d);
       var actions = '';
       if (!d.is_approved && !d.is_revoked) {
         actions += '<button class="btn btn-primary" style="font-size:.8rem;padding:.3rem .7rem;" onclick="openApproveModal(' + d.id + ')">設定並核准</button>';

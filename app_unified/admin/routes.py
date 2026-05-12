@@ -510,6 +510,36 @@ def list_devices():
             query = query.join(User, TrustedDevice.user_id == User.id).filter(User.store == store_filter)
 
     devices = query.order_by(TrustedDevice.created_at.desc()).all()
+
+    # 為 pending 列出同 fingerprint 已核准員工（給 UI 顯示「全新裝置」vs「需重綁定」+ 候選清單）
+    # 安全模型：非 super_admin 只看本店候選；revoked / 沒綁 user 的 sibling 排除
+    pending_fps = list({d.fingerprint for d in devices
+                        if not d.is_approved and not d.is_revoked})
+    reauth_candidates_map = {}
+    if pending_fps:
+        sibling_q = (TrustedDevice.query
+                     .join(User, TrustedDevice.user_id == User.id)
+                     .filter(TrustedDevice.fingerprint.in_(pending_fps),
+                             TrustedDevice.is_approved.is_(True),
+                             TrustedDevice.is_revoked.is_(False),
+                             TrustedDevice.user_id.isnot(None)))
+        if not current_user.is_super_admin():
+            sibling_q = sibling_q.filter(User.store == current_user.store)
+        for s in sibling_q.all():
+            reauth_candidates_map.setdefault(s.fingerprint, []).append({
+                "user_id": s.user_id,
+                "username": s.user.username,
+                "store": s.user.store,
+                "last_seen": (s.last_seen_at.replace(tzinfo=timezone.utc)
+                              .astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M"))
+                             if s.last_seen_at else "",
+            })
+
+    def _candidates_for(d):
+        if d.is_approved or d.is_revoked:
+            return []
+        return reauth_candidates_map.get(d.fingerprint, [])
+
     return jsonify([{
         "id": d.id,
         "fingerprint": d.fingerprint[:12] + "...",
@@ -522,6 +552,7 @@ def list_devices():
         "role": d.user.role if d.user else None,
         "created_at": (d.created_at.replace(tzinfo=timezone.utc).astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")) if d.created_at else "",
         "last_seen_at": (d.last_seen_at.replace(tzinfo=timezone.utc).astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")) if d.last_seen_at else "",
+        "reauth_candidates": _candidates_for(d),
     } for d in devices])
 
 
