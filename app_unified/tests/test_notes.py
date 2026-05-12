@@ -336,9 +336,9 @@ def _seed_admin_for_keyword_ui(client, db_session, role="super_admin"):
 
 
 def test_index_with_keyword_hides_filter_tabs(client, db_session):
-    """Under keyword mode the category / shift / range / status filter blocks
+    """Under keyword mode the category / shift / range / status / sort blocks
     must be hidden — keyword search already returns the full matched set, so
-    these limiting filters are off-topic and misleading."""
+    these limiting filters / sort overlay are off-topic and misleading."""
     from models import Note
 
     user, store, _ = _seed_admin_for_keyword_ui(client, db_session, role="admin")
@@ -349,6 +349,7 @@ def test_index_with_keyword_hides_filter_tabs(client, db_session):
         assert "班別：" not in html, "shift filter must be hidden under keyword"
         assert "時間：" not in html, "range filter must be hidden under keyword"
         assert "狀態：" not in html, "status filter must be hidden under keyword"
+        assert "排列：" not in html, "sort row must be hidden under keyword"
     finally:
         Note.query.filter_by(user_id=user.id).delete()
         db_session.delete(user)
@@ -357,7 +358,7 @@ def test_index_with_keyword_hides_filter_tabs(client, db_session):
 
 
 def test_index_without_keyword_shows_filter_tabs(client, db_session):
-    """Without keyword, the filter blocks must render (regression guard)."""
+    """Without keyword, the filter + sort blocks must render (regression guard)."""
     from models import Note
 
     user, store, _ = _seed_admin_for_keyword_ui(client, db_session, role="admin")
@@ -368,6 +369,7 @@ def test_index_without_keyword_shows_filter_tabs(client, db_session):
         assert "班別：" in html, "shift filter must render without keyword"
         assert "時間：" in html, "range filter must render without keyword"
         assert "狀態：" in html, "status filter must render without keyword"
+        assert "排列：" in html, "sort row must render without keyword"
     finally:
         Note.query.filter_by(user_id=user.id).delete()
         db_session.delete(user)

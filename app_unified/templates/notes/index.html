@@ -197,7 +197,6 @@
             {% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
-{% endif %}
 {% set sort_labels = [('updated','照更新'),('created','照日期')] %}
 <div class="status-tabs">
   <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">排列：</span>
@@ -208,6 +207,7 @@
      style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
+{% endif %}
 
 {% if notes %}
 <div class="notes-grid">
