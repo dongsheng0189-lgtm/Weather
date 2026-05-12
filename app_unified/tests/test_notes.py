@@ -310,3 +310,109 @@ def test_index_with_keyword_propagates_q_into_note_card_link(client, db_session)
         db_session.delete(sa)
         db_session.delete(store)
         db_session.commit()
+
+
+def _seed_admin_for_keyword_ui(client, db_session, role="super_admin"):
+    """Helper: create a Store + User(role) and log in. Returns (user, store, suffix)."""
+    import time
+    import uuid
+    from models import User, Store
+
+    suffix = uuid.uuid4().hex[:6]
+    store = Store(name=f"S-{suffix}", login_enabled=True)
+    db_session.add(store)
+    db_session.commit()
+
+    user = User(username=f"u-{suffix}", role=role, store=store.name)
+    user.set_password("0000")
+    db_session.add(user)
+    db_session.commit()
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(user.id)
+        sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
+    return user, store, suffix
+
+
+def test_index_with_keyword_hides_filter_tabs(client, db_session):
+    """Under keyword mode the category / shift / range / status filter blocks
+    must be hidden — keyword search already returns the full matched set, so
+    these limiting filters are off-topic and misleading."""
+    from models import Note
+
+    user, store, _ = _seed_admin_for_keyword_ui(client, db_session, role="admin")
+    try:
+        r = client.get("/notes/?q=foo")
+        html = r.get_data(as_text=True)
+        assert "種類：" not in html, "category filter must be hidden under keyword"
+        assert "班別：" not in html, "shift filter must be hidden under keyword"
+        assert "時間：" not in html, "range filter must be hidden under keyword"
+        assert "狀態：" not in html, "status filter must be hidden under keyword"
+    finally:
+        Note.query.filter_by(user_id=user.id).delete()
+        db_session.delete(user)
+        db_session.delete(store)
+        db_session.commit()
+
+
+def test_index_without_keyword_shows_filter_tabs(client, db_session):
+    """Without keyword, the filter blocks must render (regression guard)."""
+    from models import Note
+
+    user, store, _ = _seed_admin_for_keyword_ui(client, db_session, role="admin")
+    try:
+        r = client.get("/notes/")
+        html = r.get_data(as_text=True)
+        assert "種類：" in html, "category filter must render without keyword"
+        assert "班別：" in html, "shift filter must render without keyword"
+        assert "時間：" in html, "range filter must render without keyword"
+        assert "狀態：" in html, "status filter must render without keyword"
+    finally:
+        Note.query.filter_by(user_id=user.id).delete()
+        db_session.delete(user)
+        db_session.delete(store)
+        db_session.commit()
+
+
+def test_index_with_keyword_hides_ai_summary_card(client, db_session):
+    """Admin sees the AI summary card on /notes/ index. Under keyword mode
+    it must be hidden — AI summary scope ≠ keyword result scope."""
+    from models import Note
+
+    user, store, _ = _seed_admin_for_keyword_ui(client, db_session, role="admin")
+    try:
+        r0 = client.get("/notes/")
+        html0 = r0.get_data(as_text=True)
+        assert 'id="btn-ai-summary"' in html0, \
+            "admin must see AI summary card without keyword (sanity)"
+
+        r = client.get("/notes/?q=foo")
+        html = r.get_data(as_text=True)
+        assert 'id="btn-ai-summary"' not in html, \
+            "AI summary button must be hidden under keyword search"
+        assert "🤖 AI 摘要" not in html, \
+            "AI summary card header must be hidden under keyword search"
+    finally:
+        Note.query.filter_by(user_id=user.id).delete()
+        db_session.delete(user)
+        db_session.delete(store)
+        db_session.commit()
+
+
+def test_index_keyword_preserves_store_tabs_for_super_admin(client, db_session):
+    """super_admin keeps store-tabs visible under keyword mode so they can
+    pivot between stores while searching."""
+    from models import Note
+
+    user, store, _ = _seed_admin_for_keyword_ui(client, db_session, role="super_admin")
+    try:
+        r = client.get("/notes/?q=foo")
+        html = r.get_data(as_text=True)
+        assert 'class="store-tabs"' in html, \
+            "store-tabs must remain visible under keyword for super_admin"
+    finally:
+        Note.query.filter_by(user_id=user.id).delete()
+        db_session.delete(user)
+        db_session.delete(store)
+        db_session.commit()
