@@ -1167,7 +1167,7 @@ function renderChecklistItem(item) {
 
   var text = document.createElement('div');
   text.className = 'item-text';
-  text.style.cssText = 'font-size:.95rem;white-space:pre-wrap;word-break:break-word;' + (item.is_checked ? 'text-decoration:line-through;color:#888;' : '');
+  text.style.cssText = 'font-size:.95rem;white-space:pre-wrap;word-break:break-word;' + (item.is_checked ? 'text-decoration:line-through;text-decoration-thickness:1px;text-decoration-color:#aaa;color:#555;' : '');
   text.textContent = item.text || '（無內容）';
   content.appendChild(text);
 
@@ -1276,9 +1276,13 @@ function toggleChecklistItem(itemId, isChecked, rowEl) {
       if (textEl) {
         if (d.item.is_checked) {
           textEl.style.textDecoration = 'line-through';
-          textEl.style.color = '#888';
+          textEl.style.textDecorationThickness = '1px';
+          textEl.style.textDecorationColor = '#aaa';
+          textEl.style.color = '#555';
         } else {
           textEl.style.textDecoration = '';
+          textEl.style.textDecorationThickness = '';
+          textEl.style.textDecorationColor = '';
           textEl.style.color = '';
         }
       }
