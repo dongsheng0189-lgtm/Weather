@@ -8,6 +8,8 @@ on:
     paths:
       - 'app_unified/**'
       - '!app_unified/tests/**'
+      - '!app_unified/dev/**'
+      - '!app_unified/scripts/**'
       - '.github/workflows/docker.yml'
   workflow_dispatch:
 

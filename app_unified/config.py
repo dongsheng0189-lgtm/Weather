@@ -1,14 +1,28 @@
 import os
 from dotenv import load_dotenv
 
+# dotenv loads `.env` by default; we renamed prod creds to `.env.prod` on
+# 2026-05-12 so a naked `python app.py` cannot accidentally hit prod PG.
+# Local dev sources `.env.local` explicitly via scripts/run_local.sh.
 load_dotenv()
+
+
+# Hard guard: when FLASK_DEV_MODE=1 the app MUST be on a local sqlite DB.
+# Prevents an accidental prod env-var leak from writing to live PostgreSQL.
+_dev_mode = os.getenv("FLASK_DEV_MODE") == "1"
+_db_url_raw = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+if _dev_mode and not _db_url_raw.startswith("sqlite:"):
+    raise RuntimeError(
+        f"FLASK_DEV_MODE=1 requires a sqlite DATABASE_URL, got {_db_url_raw!r}. "
+        "Refusing to boot — pointing dev mode at a non-sqlite DB risks corrupting prod data."
+    )
 
 
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 
     # Database — defaults to SQLite for local dev, set DATABASE_URL for PostgreSQL
-    _db_url = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+    _db_url = _db_url_raw
     # Zeabur PostgreSQL uses postgres:// scheme; SQLAlchemy needs postgresql://
     if _db_url.startswith("postgres://"):
         _db_url = _db_url.replace("postgres://", "postgresql://", 1)

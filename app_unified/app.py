@@ -491,6 +491,14 @@ def create_app():
     from icinfo import icinfo_bp
     app.register_blueprint(icinfo_bp)
 
+    # Dev-only login bypass blueprint + outbound HTTP guard. ONLY when
+    # FLASK_DEV_MODE=1 — prod never sets this.
+    if os.getenv("FLASK_DEV_MODE") == "1":
+        from dev.routes import dev_bp
+        app.register_blueprint(dev_bp)
+        from dev.outbound_guard import install as _install_outbound_guard
+        _install_outbound_guard()
+
     from notes.ws import register_ws_events
     register_ws_events(socketio)
 
