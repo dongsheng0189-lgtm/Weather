@@ -332,3 +332,29 @@ def test_purge_r2_no_attachments_skips_call(app, client, db_session, monkeypatch
     res = client.post("/admin/q-store/notes-purge")
     assert res.status_code == 200
     mock_client.delete_objects.assert_not_called()
+
+
+# ── Tamper-proof verification ────────────────────────────────────
+
+
+def test_purge_hardcoded_to_q_ignores_query_string(app, client, db_session, monkeypatch):
+    """POST with ?store=B → still only Q is deleted (hardcoded, not parameterized)."""
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    if not Store.query.filter_by(name="B").first():
+        db_session.add(Store(name="B", login_enabled=True))
+    db_session.commit()
+
+    db_session.add(Note(store="Q", title="q", content="x"))
+    db_session.add(Note(store="B", title="b", content="x"))
+    db_session.commit()
+
+    _patch_r2(monkeypatch, _mock_r2_client(success_keys=[]))
+    _login(client, admin)
+    res = client.post("/admin/q-store/notes-purge?store=B",
+                      json={"store": "B"})  # Tamper with both query & body
+    assert res.status_code == 200
+    # Verify only Q was deleted, B is intact
+    assert Note.query.filter_by(store="Q").count() == 0
+    assert Note.query.filter_by(store="B").count() == 1
