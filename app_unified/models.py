@@ -46,7 +46,7 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     # 模組開關（JSON 陣列字串）。只有種子 admin (username=='admin') bypass，
     # 其他角色（含 super_admin）一律嚴格依此陣列判斷
-    features = db.Column(db.Text, nullable=False, default='["notes"]')
+    features = db.Column(db.Text, nullable=False, default='["notes", "vetting"]')
 
     notes = db.relationship("Note", backref="author", lazy=True, foreign_keys="Note.user_id")
 
