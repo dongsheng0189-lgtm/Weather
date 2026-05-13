@@ -169,6 +169,8 @@ def test_build_url_bundle_with_phone():
     assert p is not None
     assert p["normalized"] == "0912-345-678"  # display format
     assert p["whoscall_url"].startswith("https://whoscall.com/")
+    assert "886-912-345-678" in p["whoscall_url"]  # Whoscall format: country code + 9 digits (no leading 0)
+    assert "886-0912" not in p["whoscall_url"]  # leading 0 must be stripped
     assert p["truecaller_url"].startswith("https://www.truecaller.com/")
     assert p["google_phone_url"].startswith("https://www.google.com/search?q=")
     # employee URLs should also bake in phone as disambiguator

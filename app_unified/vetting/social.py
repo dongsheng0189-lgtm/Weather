@@ -141,7 +141,7 @@ def build_url_bundle(name, phone="", relatives=None, feature=""):
         or_query = " OR ".join(f'"{v}"' for v in variants)
         phone_block = {
             "normalized":      _phone_display_format(canonical),
-            "whoscall_url":    WHOSCALL.format(_phone_display_format(canonical).replace("-", "-")),
+            "whoscall_url":    WHOSCALL.format(_phone_display_format(canonical)[1:]),
             "truecaller_url": TRUECALLER.format(canonical),
             "google_phone_url": GOOGLE_SEARCH.format(quote_plus(or_query)),
         }
