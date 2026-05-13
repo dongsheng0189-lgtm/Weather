@@ -239,3 +239,96 @@ def test_purge_returns_correct_response_shape(app, client, db_session, monkeypat
     assert "deleted_r2_fail" in data
     assert "errors" in data
     assert isinstance(data["errors"], list)
+
+
+# ── R2 cleanup verification ──────────────────────────────────────
+
+
+def test_purge_calls_r2_delete_with_collected_keys(app, client, db_session, monkeypatch):
+    """R2 client.delete_objects should be called with the Q-store attachments' object_keys."""
+    _clean_test_data(db_session)
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+
+    n = Note(store="Q", title="x", content="x")
+    db_session.add(n)
+    db_session.commit()
+    a1 = NoteAttachment(
+        note_id=n.id, object_key="q-store/key1.jpg",
+        filename="k1.jpg", content_type="image/jpeg", file_size=10,
+    )
+    a2 = NoteAttachment(
+        note_id=n.id, object_key="q-store/key2.jpg",
+        filename="k2.jpg", content_type="image/jpeg", file_size=20,
+    )
+    db_session.add_all([a1, a2])
+    db_session.commit()
+
+    mock_client = _mock_r2_client(success_keys=["q-store/key1.jpg", "q-store/key2.jpg"])
+    _patch_r2(monkeypatch, mock_client)
+
+    _login(client, admin)
+    res = client.post("/admin/q-store/notes-purge")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["deleted_r2_ok"] == 2
+    assert data["deleted_r2_fail"] == 0
+
+    # Verify boto3 client received the right call shape
+    mock_client.delete_objects.assert_called_once()
+    call_kwargs = mock_client.delete_objects.call_args.kwargs
+    delivered_keys = sorted(o["Key"] for o in call_kwargs["Delete"]["Objects"])
+    assert delivered_keys == ["q-store/key1.jpg", "q-store/key2.jpg"]
+
+
+def test_purge_r2_partial_failure_reported(app, client, db_session, monkeypatch):
+    """R2 returns Deleted=[1 ok] + Errors=[1 fail] → response reports both."""
+    _clean_test_data(db_session)
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+
+    n = Note(store="Q", title="x", content="x")
+    db_session.add(n)
+    db_session.commit()
+    db_session.add(NoteAttachment(
+        note_id=n.id, object_key="qkey-a", filename="a", content_type="image/jpeg", file_size=10,
+    ))
+    db_session.add(NoteAttachment(
+        note_id=n.id, object_key="qkey-b", filename="b", content_type="image/jpeg", file_size=10,
+    ))
+    db_session.commit()
+
+    mock_client = _mock_r2_client(
+        success_keys=["qkey-a"],
+        fail_entries=[{"Key": "qkey-b", "Message": "AccessDenied"}],
+    )
+    _patch_r2(monkeypatch, mock_client)
+
+    _login(client, admin)
+    res = client.post("/admin/q-store/notes-purge")
+    data = res.get_json()
+    assert data["deleted_r2_ok"] == 1
+    assert data["deleted_r2_fail"] == 1
+    assert data["errors"] == [{"key": "qkey-b", "msg": "AccessDenied"}]
+
+
+def test_purge_r2_no_attachments_skips_call(app, client, db_session, monkeypatch):
+    """Q store has notes but zero attachments → R2 client.delete_objects NOT called."""
+    _clean_test_data(db_session)
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+    db_session.add(Note(store="Q", title="x", content="x"))
+    db_session.commit()
+
+    mock_client = _mock_r2_client(success_keys=[])
+    _patch_r2(monkeypatch, mock_client)
+    _login(client, admin)
+    res = client.post("/admin/q-store/notes-purge")
+    assert res.status_code == 200
+    mock_client.delete_objects.assert_not_called()
