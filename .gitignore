@@ -53,3 +53,4 @@ cap_%d/
 
 # Worktrees (subagent-driven dev)
 .worktrees/
+.superpowers/
