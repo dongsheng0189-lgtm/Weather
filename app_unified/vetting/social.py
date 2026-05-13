@@ -37,3 +37,20 @@ def normalize_phone(raw) -> str:
     if len(digits) != 10 or not digits.startswith("0"):
         return ""
     return digits
+
+
+def phone_query_variants(canonical: str) -> list:
+    """Canonical 10-digit (e.g. '0912345678') → 3 variants for OR query.
+
+    Variants cover the most common public-records formats:
+      - no separator:  0912345678
+      - hyphenated:    0912-345-678
+      - international: +886912345678
+    """
+    if not canonical or len(canonical) != 10 or not canonical.startswith("0"):
+        return []
+    return [
+        canonical,                                            # 0912345678
+        f"{canonical[:4]}-{canonical[4:7]}-{canonical[7:]}",  # 0912-345-678
+        f"+886{canonical[1:]}",                               # +886912345678
+    ]

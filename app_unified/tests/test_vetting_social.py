@@ -42,3 +42,19 @@ def test_normalize_phone_variants(raw, expected):
 def test_normalize_phone_invalid_returns_empty(raw):
     """Bad input returns empty string (caller filters on truthy check)."""
     assert social.normalize_phone(raw) == ""
+
+
+def test_phone_query_variants():
+    """Canonical 0912345678 → 3 search variants (no-sep / hyphenated / +886)."""
+    variants = social.phone_query_variants("0912345678")
+    assert variants == [
+        "0912345678",
+        "0912-345-678",
+        "+886912345678",
+    ]
+
+
+def test_phone_query_variants_empty_input():
+    """Empty/invalid canonical returns empty list."""
+    assert social.phone_query_variants("") == []
+    assert social.phone_query_variants("invalid") == []
