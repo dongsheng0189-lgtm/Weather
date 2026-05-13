@@ -144,3 +144,98 @@ def test_preview_counts_zero_when_no_q_data(app, client, db_session):
     data = res.get_json()
     assert data["notes_count"] == 0
     assert data["attachments_count"] == 0
+
+
+# ── Purge happy path (with R2 mocked to no-op) ──────────────────
+
+
+def _mock_r2_client(success_keys, fail_entries=None):
+    """Build a MagicMock R2 client whose delete_objects returns deterministic shape."""
+    fail_entries = fail_entries or []
+    client = MagicMock()
+    client.delete_objects.return_value = {
+        "Deleted": [{"Key": k} for k in success_keys],
+        "Errors": fail_entries,
+    }
+    return client
+
+
+def _patch_r2(monkeypatch, mock_client):
+    """Replace storage._get_client to return our mock; also set R2_BUCKET_NAME."""
+    monkeypatch.setattr("admin.routes._get_r2_client", lambda: mock_client)
+
+
+def test_purge_404_for_user_role(app, client, db_session, monkeypatch):
+    """Non-root-admin POSTing purge → 404."""
+    u = _mk_user(db_session)
+    _login(client, u)
+    res = client.post("/admin/q-store/notes-purge")
+    assert res.status_code == 404
+
+
+def test_purge_deletes_q_notes_only(app, client, db_session, monkeypatch):
+    """3 Q notes + 5 B notes → after purge: 0 Q, 5 B remain."""
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    if not Store.query.filter_by(name="B").first():
+        db_session.add(Store(name="B", login_enabled=True))
+    db_session.commit()
+
+    for _ in range(3):
+        db_session.add(Note(store="Q", title="q-note", content="x"))
+    for _ in range(5):
+        db_session.add(Note(store="B", title="b-note", content="x"))
+    db_session.commit()
+
+    _patch_r2(monkeypatch, _mock_r2_client(success_keys=[]))
+    _login(client, admin)
+    res = client.post("/admin/q-store/notes-purge")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["deleted_notes"] == 3
+
+    # Verify DB state
+    assert Note.query.filter_by(store="Q").count() == 0
+    assert Note.query.filter_by(store="B").count() == 5
+
+
+def test_purge_writes_user_log(app, client, db_session, monkeypatch):
+    """After purge → UserLog has 1 new row with action='purge_store_notes'."""
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+    db_session.add(Note(store="Q", title="x", content="x"))
+    db_session.commit()
+
+    before = UserLog.query.filter_by(action="purge_store_notes").count()
+    _patch_r2(monkeypatch, _mock_r2_client(success_keys=[]))
+    _login(client, admin)
+    client.post("/admin/q-store/notes-purge")
+
+    after = UserLog.query.filter_by(action="purge_store_notes").count()
+    assert after == before + 1
+    log = UserLog.query.filter_by(action="purge_store_notes").order_by(UserLog.id.desc()).first()
+    assert log.target_name == "store:Q"
+    assert log.operator_name == admin.username
+    assert log.target_id is None
+    assert "notes=1" in (log.detail or "")
+
+
+def test_purge_returns_correct_response_shape(app, client, db_session, monkeypatch):
+    """Response has deleted_notes, deleted_r2_ok, deleted_r2_fail, errors keys."""
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+
+    _patch_r2(monkeypatch, _mock_r2_client(success_keys=[]))
+    _login(client, admin)
+    res = client.post("/admin/q-store/notes-purge")
+    data = res.get_json()
+    assert "deleted_notes" in data
+    assert "deleted_r2_ok" in data
+    assert "deleted_r2_fail" in data
+    assert "errors" in data
+    assert isinstance(data["errors"], list)

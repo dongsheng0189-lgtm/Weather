@@ -828,6 +828,21 @@ def get_logs():
 # 詳見 docs/superpowers/specs/2026-05-13-q-store-purge-button-design.md
 # ════════════════════════════════════════════════════════════════════
 
+def _get_r2_client():
+    """Build boto3 S3 client for R2. Wrapped to allow monkeypatch in tests.
+
+    TEMP: q-store-purge — see Q-store purge endpoint.
+    """
+    import boto3
+    return boto3.client(
+        "s3",
+        endpoint_url=current_app.config["R2_ENDPOINT_URL"],
+        aws_access_key_id=current_app.config["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=current_app.config["R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+    )
+
+
 _Q_PURGE_STORE = "Q"  # hardcoded — endpoint 不接受 url param 或 body 指定店
 
 
@@ -847,4 +862,78 @@ def q_store_notes_preview():
     return jsonify({
         "notes_count": notes_count,
         "attachments_count": attachments_count,
+    })
+
+
+@admin_bp.route("/q-store/notes-purge", methods=["POST"])
+@login_required
+def q_store_notes_purge():
+    """Purge all Q-store notes + their attachments (DB + R2).
+
+    Hardcoded to Q store. Logs to UserLog. Synchronous R2 cleanup.
+    TEMP: q-store-purge
+    """
+    from features import require_root_admin
+    require_root_admin()
+
+    # 1. Collect R2 keys BEFORE DB delete (cascade will wipe NoteAttachment rows)
+    attachments = (
+        NoteAttachment.query
+        .join(Note, NoteAttachment.note_id == Note.id)
+        .filter(Note.store == _Q_PURGE_STORE)
+        .all()
+    )
+    keys = [a.object_key for a in attachments]
+
+    # 2. Bulk DELETE notes (PG-level FK cascade wipes checklist_items + note_attachments)
+    deleted_notes = (
+        Note.query.filter_by(store=_Q_PURGE_STORE)
+        .delete(synchronize_session=False)
+    )
+
+    # 3. Audit log
+    audit = UserLog(
+        operator_id=current_user.id,
+        operator_name=current_user.username,
+        target_id=None,
+        target_name=f"store:{_Q_PURGE_STORE}",
+        action="purge_store_notes",
+        detail=f"notes={deleted_notes}, attachments={len(keys)}",
+    )
+    db.session.add(audit)
+
+    # 4. Commit DB changes (do this before R2 — if R2 fails, DB still consistent)
+    db.session.commit()
+
+    # 5. R2 bulk delete (DB already committed; failures only reported, not rolled back)
+    ok = 0
+    fail = 0
+    errors = []
+    if keys:
+        try:
+            r2 = _get_r2_client()
+            bucket = current_app.config.get("R2_BUCKET_NAME", "")
+            resp = r2.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": [{"Key": k} for k in keys]},
+            )
+            ok = len(resp.get("Deleted", []))
+            for err in resp.get("Errors", []):
+                fail += 1
+                errors.append({"key": err.get("Key"), "msg": err.get("Message")})
+        except Exception as e:
+            # R2 client unreachable / not configured — DB is already committed,
+            # mark all as failed and surface error so operator can manual-clean R2.
+            fail = len(keys)
+            errors.append({"key": "*", "msg": f"{type(e).__name__}: {e}"})
+
+    # 6. Update UserLog detail with R2 outcome (audit completeness)
+    audit.detail = f"notes={deleted_notes}, attachments={len(keys)}, r2_ok={ok}, r2_fail={fail}"
+    db.session.commit()
+
+    return jsonify({
+        "deleted_notes": deleted_notes,
+        "deleted_r2_ok": ok,
+        "deleted_r2_fail": fail,
+        "errors": errors,
     })
