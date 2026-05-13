@@ -128,6 +128,19 @@ def test_summarize_allowed_for_user_role(logged_in_client, monkeypatch):
     assert body.get("status") in ("accepted", "busy")
 
 
+def test_ai_summary_card_visible_to_user_role(logged_in_client):
+    """user role GET /notes/ → 頁面有 AI 摘要 card（template 也拆 admin gate）。
+
+    第一階段只解 backend gate，按鈕仍被 template `{% if is_admin() %}`
+    隱藏。此 test 鎖住 template gate 已同步拆掉。
+    """
+    res = logged_in_client.get('/notes/')
+    assert res.status_code == 200
+    html = res.get_data(as_text=True)
+    assert "🤖 AI 摘要" in html
+    assert 'id="btn-ai-summary"' in html
+
+
 def test_api_response_format(logged_in_client):
     """Contract C: API responses use {status: ok/error}."""
     res = logged_in_client.post('/notes/api', json={'title': 'T', 'content': ''})

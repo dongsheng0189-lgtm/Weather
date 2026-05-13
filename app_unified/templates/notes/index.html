@@ -99,7 +99,7 @@
 {% include 'announcements/_card_list.html' %}
 {% endif %}
 
-{% if current_user.is_admin() and not current_keyword %}
+{% if not current_keyword %}
 <div class="card" style="margin-bottom:1rem;">
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
     <strong style="font-size:.95rem;">🤖 AI 摘要</strong>
