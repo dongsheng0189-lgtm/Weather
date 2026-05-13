@@ -5,7 +5,7 @@ TW_TZ = timezone(timedelta(hours=8))
 from flask import Blueprint, render_template, jsonify, request, abort, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from models import User, Note, Store, NoteLog, UserLog, TrustedDevice, STATUS_CHOICES
+from models import User, Note, Store, NoteLog, UserLog, TrustedDevice, NoteAttachment, STATUS_CHOICES
 
 
 def _log_user_action(action, target_user, detail=None):
@@ -820,3 +820,31 @@ def get_logs():
         "diff": l.diff,
         "created_at": (l.created_at.replace(tzinfo=timezone.utc).astimezone(TW_TZ).strftime("%Y/%m/%d %H:%M")) if l.created_at else "",
     } for l in logs])
+
+
+# ════════════════════════════════════════════════════════════════════
+# TEMP: q-store-purge — Q 店一次性清理，2026-05-13 加。
+# 完成後整段 endpoint + 對應 UI + tests 移除。
+# 詳見 docs/superpowers/specs/2026-05-13-q-store-purge-button-design.md
+# ════════════════════════════════════════════════════════════════════
+
+_Q_PURGE_STORE = "Q"  # hardcoded — endpoint 不接受 url param 或 body 指定店
+
+
+@admin_bp.route("/q-store/notes-preview", methods=["GET"])
+@login_required
+def q_store_notes_preview():
+    """Preview how many notes/attachments will be purged from Q store."""
+    from features import require_root_admin
+    require_root_admin()
+    notes_count = Note.query.filter_by(store=_Q_PURGE_STORE).count()
+    attachments_count = (
+        NoteAttachment.query
+        .join(Note, NoteAttachment.note_id == Note.id)
+        .filter(Note.store == _Q_PURGE_STORE)
+        .count()
+    )
+    return jsonify({
+        "notes_count": notes_count,
+        "attachments_count": attachments_count,
+    })
