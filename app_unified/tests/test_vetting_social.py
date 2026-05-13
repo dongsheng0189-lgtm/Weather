@@ -58,3 +58,84 @@ def test_phone_query_variants_empty_input():
     """Empty/invalid canonical returns empty list."""
     assert social.phone_query_variants("") == []
     assert social.phone_query_variants("invalid") == []
+
+
+# ---------------------------------------------------------------------------
+# Task 4: google_search_url
+# ---------------------------------------------------------------------------
+from urllib.parse import unquote_plus
+
+
+def _decode_q(url: str) -> str:
+    """Extract the decoded `q=` parameter from a Google search URL for assertion."""
+    assert url.startswith("https://www.google.com/search?q=")
+    return unquote_plus(url.split("q=", 1)[1])
+
+
+def test_google_search_url_basic():
+    """Name only → URL contains quoted name, nothing else."""
+    url = social.google_search_url("王小明")
+    assert _decode_q(url) == '"王小明"'
+
+
+def test_google_search_url_with_company_bucket():
+    """bucket=company → URL has name + OR of company tokens."""
+    url = social.google_search_url("王小明", bucket="company")
+    q = _decode_q(url)
+    assert '"王小明"' in q
+    assert "公司" in q and "商行" in q and "負責人" in q
+    assert " OR " in q
+
+
+def test_google_search_url_with_award_bucket():
+    url = social.google_search_url("王小明", bucket="award")
+    q = _decode_q(url)
+    assert '"王小明"' in q
+    assert "獲獎" in q and "公會" in q
+
+
+def test_google_search_url_with_negative_bucket():
+    url = social.google_search_url("王小明", bucket="negative")
+    q = _decode_q(url)
+    assert '"王小明"' in q
+    assert "警察" in q and "詐欺" in q and "判決" in q
+
+
+def test_google_search_url_with_disambiguators():
+    """General (no bucket) + disambiguators → URL has name + each disambig quoted."""
+    url = social.google_search_url(
+        "王小明",
+        disambiguators=["0912-345-678", "李美麗", "新北市"]
+    )
+    q = _decode_q(url)
+    assert '"王小明"' in q
+    assert '"0912-345-678"' in q
+    assert '"李美麗"' in q
+    assert '"新北市"' in q
+
+
+def test_google_search_url_bucket_and_disambiguators_together():
+    """bucket + disambiguators → both appear in query."""
+    url = social.google_search_url(
+        "王小明",
+        bucket="company",
+        disambiguators=["李美麗"]
+    )
+    q = _decode_q(url)
+    assert '"王小明"' in q
+    assert '"李美麗"' in q
+    assert "公司" in q  # bucket OR group present
+
+
+def test_google_search_url_invalid_bucket_raises():
+    """Unknown bucket name raises ValueError (catch typos early)."""
+    with pytest.raises(ValueError):
+        social.google_search_url("王", bucket="unknown")
+
+
+def test_google_search_url_special_chars_in_name():
+    """Names with quotes, ampersands, Chinese — URL must be properly encoded."""
+    url = social.google_search_url('A&B "Studio"')
+    # We just check the URL is valid + can be decoded back to recognizable text
+    q = _decode_q(url)
+    assert 'A&B' in q or 'A%26B' in q  # depending on how & is encoded

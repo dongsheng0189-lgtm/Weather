@@ -54,3 +54,40 @@ def phone_query_variants(canonical: str) -> list:
         f"{canonical[:4]}-{canonical[4:7]}-{canonical[7:]}",  # 0912-345-678
         f"+886{canonical[1:]}",                               # +886912345678
     ]
+
+
+from urllib.parse import quote_plus
+
+
+def google_search_url(name: str, *, bucket=None, disambiguators=None) -> str:
+    """Build a Google search URL for `name`, optionally narrowed by a keyword
+    bucket and disambiguator tokens.
+
+    Args:
+        name: Person's name (will be quoted in the query).
+        bucket: One of 'company' / 'award' / 'negative' / None.
+                None = general search (no keyword filter).
+        disambiguators: Extra tokens to AND-narrow the search (phone variants,
+                relative names, feature words). Each gets quote-wrapped.
+
+    Returns:
+        Full https URL string with q= encoded.
+
+    Raises:
+        ValueError: bucket is not in BUCKET_KEYWORDS keys.
+    """
+    parts = [f'"{name}"']
+
+    if bucket is not None:
+        if bucket not in BUCKET_KEYWORDS:
+            raise ValueError(f"unknown bucket: {bucket!r}")
+        bucket_or = " OR ".join(BUCKET_KEYWORDS[bucket])
+        parts.append(f"({bucket_or})")
+
+    if disambiguators:
+        for tok in disambiguators:
+            if tok:  # skip empty strings
+                parts.append(f'"{tok}"')
+
+    q = " ".join(parts)
+    return GOOGLE_SEARCH.format(quote_plus(q))
