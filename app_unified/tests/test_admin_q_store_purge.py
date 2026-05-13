@@ -358,3 +358,45 @@ def test_purge_hardcoded_to_q_ignores_query_string(app, client, db_session, monk
     # Verify only Q was deleted, B is intact
     assert Note.query.filter_by(store="Q").count() == 0
     assert Note.query.filter_by(store="B").count() == 1
+
+
+# ── Frontend conditional rendering ──────────────────────────────
+
+
+def test_purge_button_visible_for_root_admin_on_q_tab(app, client, db_session):
+    """root_admin GET /notes/?store=Q → page has id='q-purge-btn'."""
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+    _login(client, admin)
+    res = client.get("/notes/?store=Q")
+    html = res.get_data(as_text=True)
+    assert 'id="q-purge-btn"' in html
+    # Modal markers also present
+    assert 'id="q-purge-modal"' in html
+    assert "清除 Q 店全部筆記" in html
+
+
+def test_purge_button_hidden_for_root_admin_on_other_store(app, client, db_session):
+    """root_admin on store=B (not Q) → no purge button."""
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="B").first():
+        db_session.add(Store(name="B", login_enabled=True))
+    db_session.commit()
+    _login(client, admin)
+    res = client.get("/notes/?store=B")
+    html = res.get_data(as_text=True)
+    assert 'id="q-purge-btn"' not in html
+
+
+def test_purge_button_hidden_for_super_admin_on_q_tab(app, client, db_session):
+    """super_admin (non-seed admin) on store=Q → no purge button."""
+    boss = _mk_user(db_session, username="boss", role="super_admin", store="Q")
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+    _login(client, boss)
+    res = client.get("/notes/?store=Q")
+    html = res.get_data(as_text=True)
+    assert 'id="q-purge-btn"' not in html
