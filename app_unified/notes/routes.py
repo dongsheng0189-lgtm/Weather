@@ -790,10 +790,7 @@ def _run_ai_task(task_id, app, prompt, max_tokens, note_id=None, field=None):
 @notes_bp.route("/ai/task/<task_id>", methods=["GET"])
 @login_required
 def get_ai_task(task_id):
-    """輪詢 AI 任務狀態"""
-    if not current_user.is_admin():
-        return jsonify({"status": "error", "message": "僅限管理員"}), 403
-
+    """輪詢 AI 任務狀態（登入即可、不限 admin、配合 spec 2026-05-13）。"""
     _sweep_ai_tasks()
 
     row = db.session.get(AiTask, task_id)
@@ -1218,12 +1215,10 @@ def outline(note_id):
 @notes_bp.route("/ai/summary", methods=["POST"])
 @login_required
 def notes_ai_summary():
-    if not current_user.is_admin():
-        return jsonify({"status": "error", "message": "僅限管理員"}), 403
     data = request.get_json(silent=True) or {}
     store = data.get("store", "")
-    # Admin 只能摘要自己的店
-    if current_user.is_admin() and not current_user.is_super_admin():
+    # 非 super_admin 一律鎖到自己的店（user / admin 都不能跨店摘要）
+    if not current_user.is_super_admin():
         store = current_user.store
     business_day = data.get("business_day", "today")
     offset = -1 if business_day == "yesterday" else 0

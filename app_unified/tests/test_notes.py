@@ -141,6 +141,30 @@ def test_ai_summary_card_visible_to_user_role(logged_in_client):
     assert 'id="btn-ai-summary"' in html
 
 
+def test_real_ai_summary_endpoint_no_403_for_user(logged_in_client, monkeypatch):
+    """user role POST /notes/ai/summary (real endpoint UI 按鈕打的) 不再回 403。
+
+    第一階段只拆 /api/<id>/summarize（沒人用的 legacy）的 gate、漏了
+    UI 真正打的 /notes/ai/summary。此 test 鎖住真實 endpoint 也已解。
+    """
+    monkeypatch.setattr("notes.routes.gevent.spawn", lambda *a, **kw: None)
+    res = logged_in_client.post('/notes/ai/summary', json={'store': 'B', 'business_day': 'today'})
+    assert res.status_code != 403
+    # 視 test_user 有沒有 store 設定、可能回 400 ("請選擇店別") 或 202 ("accepted")
+    # 重點：不再是 403 + "僅限管理員"
+    body = res.get_json()
+    assert body.get("message") != "僅限管理員"
+
+
+def test_ai_task_polling_no_403_for_user(logged_in_client):
+    """user role GET /notes/ai/task/<id> (輪詢端點) 不再回 403。"""
+    res = logged_in_client.get('/notes/ai/task/nonexistent-task-id')
+    assert res.status_code != 403
+    # 任務不存在 → 404 + "任務不存在"、不是 403 + "僅限管理員"
+    body = res.get_json()
+    assert body.get("message") != "僅限管理員"
+
+
 def test_api_response_format(logged_in_client):
     """Contract C: API responses use {status: ok/error}."""
     res = logged_in_client.post('/notes/api', json={'title': 'T', 'content': ''})
