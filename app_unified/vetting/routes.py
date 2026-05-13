@@ -13,7 +13,7 @@ from requests.utils import dict_from_cookiejar, add_dict_to_cookiejar
 from crypto import encrypt, decrypt
 from extensions import limiter
 from features import user_has_feature
-from vetting import judicial, mjib, npa
+from vetting import judicial, mjib, npa, social
 from vetting.errors import RateLimited, Forbidden
 from vetting.http_client import throttle_sleep, make_session
 
@@ -71,6 +71,7 @@ def _serialize_state(state: dict) -> str:
         "id_no": state.get("id_no"),
         "judicial": state.get("judicial"),
         "mjib": state.get("mjib"),
+        "social": state.get("social"),  # link-out URL bundle（含姓名/電話/關係人）→ 隨加密 blob 跨 worker
     }))
 
 
@@ -92,6 +93,7 @@ def _deserialize_state(raw) -> dict:
         "id_no": payload.get("id_no"),
         "judicial": payload.get("judicial"),
         "mjib": payload.get("mjib"),
+        "social": payload.get("social"),  # link-out URL bundle（跨 worker 取回）
     }
 
 
@@ -161,6 +163,10 @@ def start():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     id_no = (data.get("id") or "").strip()  # 選填，給 NPA 配對更精準
+    # NEW: social fields (all optional)
+    phone = (data.get("phone") or "").strip()
+    relatives = [r.strip() for r in (data.get("relatives") or []) if r and r.strip()]
+    feature = (data.get("feature") or "").strip()
     if not name:
         return jsonify({"error": "missing_params",
                         "message": "姓名必填"}), 400
@@ -241,6 +247,9 @@ def start():
         "id_no": id_no,
         "judicial": judicial_results,
         "mjib": mjib_results,
+        "social": social.build_url_bundle(
+            name, phone=phone, relatives=relatives, feature=feature
+        ),
     })
 
     return jsonify({

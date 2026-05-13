@@ -273,6 +273,7 @@ def test_put_take_state_redis_roundtrip_rebuilds_session(monkeypatch):
         "name": "王", "id_no": "A123",
         "judicial": [{"subject": "詐欺", "keyword_hits": ["詐欺"]}],
         "mjib": [],
+        "social": {"phone": "886-912-345-678", "people": [{"name": "王"}]},
     })
 
     # 落 Redis 的 blob 必須是密文（PII：姓名/身分證/結果不得明文落地）
@@ -289,6 +290,8 @@ def test_put_take_state_redis_roundtrip_rebuilds_session(monkeypatch):
     assert entry["npa_jwt"] == "jwt"
     assert entry["name"] == "王" and entry["id_no"] == "A123"
     assert entry["judicial"] == [{"subject": "詐欺", "keyword_hits": ["詐欺"]}]
+    # social link-out bundle 也要隨加密 blob 跨 worker 還原（rebase 整併補的白名單欄位）
+    assert entry["social"] == {"phone": "886-912-345-678", "people": [{"name": "王"}]}
 
     # 一次性：刪除後再取應為 None
     vr._del_state(qid)
@@ -320,3 +323,76 @@ def test_start_rate_limited_returns_json_429(app, client, db_session, monkeypatc
     assert r.status_code == 429
     assert r.content_type.startswith("application/json")   # JSON 而非 HTML
     assert r.get_json().get("error") == "rate_limited"
+
+
+# ────────────────────────────────────────────────────────────────
+# Social / Google link-out (spec 2026-05-13)
+# ────────────────────────────────────────────────────────────────
+
+def _mock_npa_judicial_mjib(monkeypatch):
+    """Common monkeypatch helper: stub external scraping/captcha calls."""
+    monkeypatch.setattr("vetting.routes.npa.fetch_home_state",
+                        lambda sess=None: ({"_csrf": "x", "_csrf_header": "h", "_key": "k"}, MagicMock()))
+    monkeypatch.setattr("vetting.routes.npa.fetch_auth_token", lambda sess, tok: "JWT")
+    monkeypatch.setattr("vetting.routes.npa.fetch_captcha_bytes", lambda sess: b"\xff\xd8FAKE")
+    monkeypatch.setattr("vetting.routes.judicial.fetch_home_state",
+                        lambda sess=None: ({"form_action": "x", "hidden_fields": {}}, MagicMock()))
+    monkeypatch.setattr("vetting.routes.judicial.submit_search", lambda sess, state, name: [])
+    monkeypatch.setattr("vetting.routes.mjib.search_by_name", lambda name, session=None: [])
+    monkeypatch.setattr("vetting.routes.throttle_sleep", lambda: None)
+
+
+def test_start_accepts_new_social_fields(app, client, db_session, monkeypatch):
+    """POST /start with phone/relatives/feature → 200, state has 'social' key."""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    _mock_npa_judicial_mjib(monkeypatch)
+
+    res = client.post("/vetting/start", json={
+        "name": "王小明",
+        "id": "A123456789",
+        "phone": "0912-345-678",
+        "relatives": ["李美麗", "張三"],
+        "feature": "新北市",
+    })
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "query_id" in data
+
+    # Inspect state to confirm social bundle is stashed
+    from vetting.routes import _take_state
+    state = _take_state(data["query_id"])
+    assert "social" in state
+    assert state["social"]["phone"] is not None
+    assert len(state["social"]["people"]) == 3  # 1 employee + 2 relatives
+
+
+def test_start_social_optional_fields_default_to_no_phone_no_relatives(
+        app, client, db_session, monkeypatch):
+    """Omitting new fields → social bundle still produced, phone null, employee only."""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    _mock_npa_judicial_mjib(monkeypatch)
+
+    res = client.post("/vetting/start", json={"name": "王小明"})
+    assert res.status_code == 200
+    from vetting.routes import _take_state
+    state = _take_state(res.get_json()["query_id"])
+    assert state["social"]["phone"] is None
+    assert len(state["social"]["people"]) == 1
+
+
+def test_start_relatives_trimmed_to_2(app, client, db_session, monkeypatch):
+    """Sending 4 relatives → backend caps at 2 (defense in depth, UI also caps)."""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    _mock_npa_judicial_mjib(monkeypatch)
+
+    res = client.post("/vetting/start", json={
+        "name": "王",
+        "relatives": ["A", "B", "C", "D"],
+    })
+    assert res.status_code == 200
+    from vetting.routes import _take_state
+    state = _take_state(res.get_json()["query_id"])
+    assert len(state["social"]["people"]) == 3  # 1 + 2 (trimmed)
