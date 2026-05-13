@@ -139,3 +139,123 @@ def test_google_search_url_special_chars_in_name():
     # We just check the URL is valid + can be decoded back to recognizable text
     q = _decode_q(url)
     assert 'A&B' in q or 'A%26B' in q  # depending on how & is encoded
+
+
+# ---------------------------------------------------------------------------
+# Task 5: build_url_bundle
+# ---------------------------------------------------------------------------
+
+def test_build_url_bundle_employee_only():
+    """Minimum: only name provided. phone=null, people has 1 employee entry."""
+    bundle = social.build_url_bundle("王小明")
+    assert bundle["phone"] is None
+    assert len(bundle["people"]) == 1
+    emp = bundle["people"][0]
+    assert emp["name"] == "王小明"
+    assert emp["role"] == "employee"
+    assert emp["conjunction_with_employee_url"] is None
+    assert emp["google_general_url"].startswith("https://www.google.com/search?q=")
+    assert emp["google_company_url"]
+    assert emp["google_award_url"]
+    assert emp["google_negative_url"]
+    assert emp["fb_search_url"].startswith("https://www.facebook.com/search/")
+    assert emp["ig_search_url"].startswith("https://www.instagram.com/explore/")
+
+
+def test_build_url_bundle_with_phone():
+    """Phone provided → phone dict populated with 3 link-out URLs."""
+    bundle = social.build_url_bundle("王小明", phone="0912-345-678")
+    p = bundle["phone"]
+    assert p is not None
+    assert p["normalized"] == "0912-345-678"  # display format
+    assert p["whoscall_url"].startswith("https://whoscall.com/")
+    assert p["truecaller_url"].startswith("https://www.truecaller.com/")
+    assert p["google_phone_url"].startswith("https://www.google.com/search?q=")
+    # employee URLs should also bake in phone as disambiguator
+    emp = bundle["people"][0]
+    decoded = unquote_plus(emp["google_general_url"].split("q=", 1)[1])
+    assert "0912-345-678" in decoded or "0912345678" in decoded
+
+
+def test_build_url_bundle_with_2_relatives():
+    """2 relatives → people has 3 entries, each relative has conjunction URL."""
+    bundle = social.build_url_bundle(
+        "王小明",
+        relatives=["李美麗", "張三"]
+    )
+    assert len(bundle["people"]) == 3
+    names = [p["name"] for p in bundle["people"]]
+    roles = [p["role"] for p in bundle["people"]]
+    assert names == ["王小明", "李美麗", "張三"]
+    assert roles == ["employee", "relative", "relative"]
+    # Employee block has no conjunction URL
+    assert bundle["people"][0]["conjunction_with_employee_url"] is None
+    # Each relative has conjunction URL containing both names
+    for rel in bundle["people"][1:]:
+        url = rel["conjunction_with_employee_url"]
+        assert url and url.startswith("https://www.google.com/")
+        q = unquote_plus(url.split("q=", 1)[1])
+        assert '"王小明"' in q
+        assert f'"{rel["name"]}"' in q
+
+
+def test_build_url_bundle_relative_count_cap():
+    """Pass 3+ relatives → trimmed to first 2 (matches spec §2.1 cap)."""
+    bundle = social.build_url_bundle(
+        "王小明",
+        relatives=["A", "B", "C", "D", "E"]
+    )
+    assert len(bundle["people"]) == 3  # 1 employee + max 2 relatives
+    assert [p["name"] for p in bundle["people"][1:]] == ["A", "B"]
+
+
+def test_build_url_bundle_feature_baked_into_general_search():
+    """Feature ('新北市 ABC') tokens appear in general search disambiguators."""
+    bundle = social.build_url_bundle(
+        "王小明",
+        feature="新北市 ABC餐廳"
+    )
+    emp = bundle["people"][0]
+    q = unquote_plus(emp["google_general_url"].split("q=", 1)[1])
+    assert "新北市" in q and "ABC餐廳" in q
+
+
+def test_build_url_bundle_idempotent():
+    """Same input → identical output (no random ordering, no time-based fields)."""
+    args = {
+        "name": "王小明",
+        "phone": "0912-345-678",
+        "relatives": ["李美麗", "張三"],
+        "feature": "新北市",
+    }
+    b1 = social.build_url_bundle(**args)
+    b2 = social.build_url_bundle(**args)
+    assert b1 == b2
+
+
+def test_build_url_bundle_relatives_disambiguate_each_other():
+    """For relative 李美麗, the general search uses 王小明 + other relative + feature
+    as disambiguators (so Google narrows on the family network)."""
+    bundle = social.build_url_bundle(
+        "王小明",
+        relatives=["李美麗", "張三"],
+        feature="新北市"
+    )
+    li = bundle["people"][1]  # 李美麗
+    q = unquote_plus(li["google_general_url"].split("q=", 1)[1])
+    assert '"李美麗"' in q
+    assert '"王小明"' in q
+    assert '"張三"' in q
+    assert "新北市" in q
+
+
+def test_build_url_bundle_empty_phone_string_treated_as_no_phone():
+    """phone="" → phone dict is None (not crashing)."""
+    bundle = social.build_url_bundle("王小明", phone="")
+    assert bundle["phone"] is None
+
+
+def test_build_url_bundle_invalid_phone_treated_as_no_phone():
+    """phone="abc" → phone dict is None (normalize returns "")."""
+    bundle = social.build_url_bundle("王小明", phone="not-a-phone")
+    assert bundle["phone"] is None
