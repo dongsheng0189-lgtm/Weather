@@ -312,6 +312,66 @@ function renderResult(d) {
     });
   }
 
+  // ── Social warning banner + D/E/F ──
+  if (d.social && d.social.people && d.social.people.length > 0) {
+
+    // Banner: incognito-mode guide
+    html += '<details open style="margin-top:1.5rem; border:1px solid #fcd34d; background:#fef3c7; border-radius:6px; padding:.5rem .75rem;">';
+    html += '<summary style="cursor:pointer; font-weight:600;">ℹ️ 點連結前請先看 — 如何用無痕模式開啟</summary>';
+    html += '<div style="margin-top:.5rem; font-size:.88rem; line-height:1.6; color:#444;">';
+    html += '直接點連結會在當前瀏覽器開啟、登入的 FB / Google 帳號會記錄你查詢過誰。<br>強烈建議用「無痕視窗」開：<br>';
+    html += '• 桌機 Chrome / Edge：右鍵連結 → 「在無痕視窗中開啟連結」<br>';
+    html += '• 桌機 Safari（Mac）：右鍵連結 → 「在新的私密視窗中開啟連結」<br>';
+    html += '• 桌機 Firefox：右鍵連結 → 「在隱私視窗中開啟連結」<br>';
+    html += '• 手機 Chrome（Android）：長按連結 → 「在無痕分頁中開啟」<br>';
+    html += '• 手機 Safari（iPhone / iPad）：長按連結 → 「在私密瀏覽中開啟」<br>';
+    html += '</div></details>';
+
+    // ── D. 電話標記 ──
+    if (d.social.phone) {
+      var p = d.social.phone;
+      html += '<h2 style="margin-top:1rem;">D. 📞 電話標記</h2>';
+      html += '<div style="border:1px solid #e0e0e0; border-radius:6px; padding:.6rem; background:#f9fafb;">';
+      html += '<div style="font-family:monospace; font-size:1.05rem; margin-bottom:.4rem;">' + escapeHtml(p.normalized) + '</div>';
+      html += '<a href="' + escapeHtml(p.whoscall_url) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="margin-right:.4rem; margin-bottom:.3rem; display:inline-block; padding:.4rem .7rem;">→ Whoscall</a>';
+      html += '<a href="' + escapeHtml(p.truecaller_url) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="margin-right:.4rem; margin-bottom:.3rem; display:inline-block; padding:.4rem .7rem;">→ TrueCaller</a>';
+      html += '<a href="' + escapeHtml(p.google_phone_url) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="display:inline-block; padding:.4rem .7rem;">→ Google 電話搜尋</a>';
+      html += '</div>';
+    }
+
+    // ── E + F: per-person blocks (Google + FB/IG link-out, Option C collapsible) ──
+    html += '<h2 style="margin-top:1rem;">E + F. 🌐 社群 / Google 搜尋連結</h2>';
+    d.social.people.forEach(function(person, idx) {
+      var isEmployee = (person.role === 'employee');
+      var openAttr = isEmployee ? ' open' : '';
+      var icon = isEmployee ? '👤' : '👥';
+      var label = isEmployee ? '員工本人' : ('關係人 ' + idx);
+      html += '<details' + openAttr + ' class="vet-person-block" style="border:1px solid #e0e0e0; border-radius:6px; padding:.5rem .75rem; margin-bottom:.5rem;">';
+      html += '<summary style="cursor:pointer; font-weight:600;">' + icon + ' ' + escapeHtml(person.name) + '（' + label + '）</summary>';
+      html += '<div style="margin-top:.5rem;">';
+
+      // Google sub-menu (collapsible inside)
+      html += '<details style="margin-bottom:.4rem;">';
+      html += '<summary style="cursor:pointer; color:#0e7490;">🌐 Google 搜尋 ▾</summary>';
+      html += '<div style="margin-top:.3rem; padding-left:.8rem; display:flex; flex-direction:column; gap:.3rem;">';
+      html += '<a href="' + escapeHtml(person.google_general_url) + '" target="_blank" rel="noopener">→ 一般搜尋（含已填條件）</a>';
+      html += '<a href="' + escapeHtml(person.google_company_url) + '" target="_blank" rel="noopener">🏢 公司/採購相關</a>';
+      html += '<a href="' + escapeHtml(person.google_award_url) + '" target="_blank" rel="noopener">🏆 獎項/證照相關</a>';
+      html += '<a href="' + escapeHtml(person.google_negative_url) + '" target="_blank" rel="noopener" style="color:#b91c1c;">🚨 警方/負面相關</a>';
+      html += '</div></details>';
+
+      // FB / IG buttons
+      html += '<div style="display:flex; flex-wrap:wrap; gap:.4rem;">';
+      html += '<a href="' + escapeHtml(person.fb_search_url) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:.4rem .7rem;">📱 FB 搜尋</a>';
+      html += '<a href="' + escapeHtml(person.ig_search_url) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:.4rem .7rem;">📱 IG 搜尋</a>';
+      if (person.conjunction_with_employee_url) {
+        html += '<a href="' + escapeHtml(person.conjunction_with_employee_url) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:.4rem .7rem;">🔗 與員工共同搜尋</a>';
+      }
+      html += '</div>';
+      html += '</div></details>';
+    });
+  }
+
   html += '<div style="margin-top:1rem;"><a href="/vetting/" class="btn btn-secondary">↻ 重新查詢</a></div>';
 
   document.getElementById('step-result').innerHTML = html;
