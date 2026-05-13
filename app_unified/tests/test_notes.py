@@ -110,11 +110,22 @@ def test_store_filter(client, db_session):
         db_session.commit()
 
 
-def test_summarize_requires_admin(logged_in_client):
+def test_summarize_allowed_for_user_role(logged_in_client, monkeypatch):
+    """user role 也能呼叫 /summarize、不再回 403（spec 2026-05-13）。
+
+    擴大 AI 摘要權限：去掉 is_admin() gate、登入即可用。原 test
+    `test_summarize_requires_admin` 被此 test 取代（admin gate 已拆）。
+    """
+    # Avoid scheduling real LLM call inside test
+    monkeypatch.setattr("notes.routes.gevent.spawn", lambda *a, **kw: None)
+
     res = logged_in_client.post('/notes/api', json={'title': 'Summary', 'content': 'body'})
     note_id = res.get_json()['id']
     res = logged_in_client.post(f'/notes/api/{note_id}/summarize')
-    assert res.status_code == 403
+    # Was 403 ('僅限管理員') before spec change. Now should be accepted (or busy=429).
+    assert res.status_code != 403
+    body = res.get_json()
+    assert body.get("status") in ("accepted", "busy")
 
 
 def test_api_response_format(logged_in_client):

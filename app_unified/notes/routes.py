@@ -1172,8 +1172,6 @@ def _build_all_content(store_name=None):
 @notes_bp.route("/api/<int:note_id>/summarize", methods=["POST"])
 @login_required
 def summarize(note_id):
-    if not current_user.is_admin():
-        return jsonify({"status": "error", "message": "僅限管理員"}), 403
     note = Note.query.get_or_404(note_id)
 
     # 收集同店所有筆記合併，一次呼叫 API 做全體分類摘要
