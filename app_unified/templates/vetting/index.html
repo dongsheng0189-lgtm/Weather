@@ -18,29 +18,27 @@
       <input type="text" id="vet-id" maxlength="12"
              style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem; text-transform:uppercase;">
 
-      <details style="margin-bottom:.75rem;">
-        <summary style="cursor:pointer; padding:.4rem 0; color:#555; font-size:.92rem;">▸ 選填：電話 / 關係人 / 其他特徵（增加搜尋準確度）</summary>
+      <div style="color:#888; font-size:.85rem; margin-bottom:.4rem;">— 以下選填，填越多搜尋越準 —</div>
 
-        <label style="display:block; margin:.6rem 0 .4rem;">📞 電話 <span style="color:#888;font-weight:400;font-size:.85rem;">（多種格式都接受）</span></label>
-        <input type="tel" id="vet-phone"
-               placeholder="例：0912-345-678 / +886912345678"
-               style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
+      <label style="display:block; margin-bottom:.4rem;">📞 電話 <span style="color:#888;font-weight:400;font-size:.85rem;">（多種格式都接受）</span></label>
+      <input type="tel" id="vet-phone"
+             placeholder="例：0912-345-678 / +886912345678"
+             style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
 
-        <label style="display:block; margin-bottom:.4rem;">👥 關係人 <span style="color:#888;font-weight:400;font-size:.85rem;">（最多 2 人，純姓名）</span></label>
-        <div id="vet-relatives">
-          <input type="text" class="vet-rel-input" placeholder="關係人 1"
-                 style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.4rem;">
-        </div>
-        <button type="button" id="vet-add-rel"
-                style="background:none; border:1px dashed #888; padding:.4rem .8rem; border-radius:6px; cursor:pointer; font-size:.88rem; margin-bottom:.75rem;">
-          + 新增關係人
-        </button>
+      <label style="display:block; margin-bottom:.4rem;">👥 關係人 <span style="color:#888;font-weight:400;font-size:.85rem;">（最多 2 人，純姓名）</span></label>
+      <div id="vet-relatives">
+        <input type="text" class="vet-rel-input" placeholder="關係人 1"
+               style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.4rem;">
+      </div>
+      <button type="button" id="vet-add-rel"
+              style="background:none; border:1px dashed #888; padding:.4rem .8rem; border-radius:6px; cursor:pointer; font-size:.88rem; margin-bottom:.75rem;">
+        + 新增關係人
+      </button>
 
-        <label style="display:block; margin-bottom:.4rem;">🏷 其他特徵 <span style="color:#888;font-weight:400;font-size:.85rem;">（縣市、公司、學校等）</span></label>
-        <input type="text" id="vet-feature"
-               placeholder="例：新北市 ABC餐廳"
-               style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
-      </details>
+      <label style="display:block; margin-bottom:.4rem;">🏷 其他特徵 <span style="color:#888;font-weight:400;font-size:.85rem;">（縣市、公司、學校等）</span></label>
+      <input type="text" id="vet-feature"
+             placeholder="例：新北市 ABC餐廳"
+             style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
 
       <button type="submit" class="btn btn-primary" style="width:100%; padding:.6rem;">開始查詢</button>
     </form>
@@ -350,15 +348,14 @@ function renderResult(d) {
       html += '<summary style="cursor:pointer; font-weight:600;">' + icon + ' ' + escapeHtml(person.name) + '（' + label + '）</summary>';
       html += '<div style="margin-top:.5rem;">';
 
-      // Google sub-menu (collapsible inside)
-      html += '<details style="margin-bottom:.4rem;">';
-      html += '<summary style="cursor:pointer; color:#0e7490;">🌐 Google 搜尋 ▾</summary>';
-      html += '<div style="margin-top:.3rem; padding-left:.8rem; display:flex; flex-direction:column; gap:.3rem;">';
-      html += '<a href="' + escapeHtml(person.google_general_url) + '" target="_blank" rel="noopener">→ 一般搜尋（含已填條件）</a>';
-      html += '<a href="' + escapeHtml(person.google_company_url) + '" target="_blank" rel="noopener">🏢 公司/採購相關</a>';
-      html += '<a href="' + escapeHtml(person.google_award_url) + '" target="_blank" rel="noopener">🏆 獎項/證照相關</a>';
-      html += '<a href="' + escapeHtml(person.google_negative_url) + '" target="_blank" rel="noopener" style="color:#b91c1c;">🚨 警方/負面相關</a>';
-      html += '</div></details>';
+      // Google 4 link 直接列出（不收進 sub-menu）
+      html += '<div style="margin-bottom:.4rem; display:flex; flex-direction:column; gap:.3rem;">';
+      html += '<div style="font-size:.85rem; color:#0e7490; font-weight:600;">🌐 Google 搜尋</div>';
+      html += '<a href="' + escapeHtml(person.google_general_url) + '" target="_blank" rel="noopener" style="padding-left:.6rem;">→ 一般搜尋（含已填條件）</a>';
+      html += '<a href="' + escapeHtml(person.google_company_url) + '" target="_blank" rel="noopener" style="padding-left:.6rem;">🏢 公司/採購相關</a>';
+      html += '<a href="' + escapeHtml(person.google_award_url) + '" target="_blank" rel="noopener" style="padding-left:.6rem;">🏆 獎項/證照相關</a>';
+      html += '<a href="' + escapeHtml(person.google_negative_url) + '" target="_blank" rel="noopener" style="padding-left:.6rem; color:#b91c1c;">🚨 警方/負面相關</a>';
+      html += '</div>';
 
       // FB / IG buttons
       html += '<div style="display:flex; flex-wrap:wrap; gap:.4rem;">';

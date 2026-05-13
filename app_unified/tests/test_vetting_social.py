@@ -168,9 +168,12 @@ def test_build_url_bundle_with_phone():
     p = bundle["phone"]
     assert p is not None
     assert p["normalized"] == "0912-345-678"  # display format
-    assert p["whoscall_url"].startswith("https://whoscall.com/")
-    assert "886-912-345-678" in p["whoscall_url"]  # Whoscall format: country code + 9 digits (no leading 0)
-    assert "886-0912" not in p["whoscall_url"]  # leading 0 must be stripped
+    # Whoscall 直連公開頁需登入；改走 Google 搜尋抓 Whoscall 該號碼公開頁
+    assert p["whoscall_url"].startswith("https://www.google.com/search?q=")
+    decoded_w = unquote_plus(p["whoscall_url"].split("q=", 1)[1])
+    assert "whoscall" in decoded_w.lower()
+    assert "912-345-678" in decoded_w  # phone (no leading 0) in the query
+    assert "0912" not in decoded_w  # leading 0 must be stripped
     assert p["truecaller_url"].startswith("https://www.truecaller.com/")
     assert p["google_phone_url"].startswith("https://www.google.com/search?q=")
     # employee URLs should also bake in phone as disambiguator

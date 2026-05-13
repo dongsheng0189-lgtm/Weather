@@ -477,8 +477,8 @@ def test_vetting_index_has_new_input_fields(app, client, db_session):
     _login(client, u)
     res = client.get("/vetting/")
     html = res.get_data(as_text=True)
-    # Expand panel summary
-    assert "選填：電話 / 關係人 / 其他特徵" in html
+    # Optional-fields hint (form lists fields inline, no collapse)
+    assert "以下選填，填越多搜尋越準" in html
     # Input field IDs
     assert 'id="vet-phone"' in html
     assert 'class="vet-rel-input"' in html
