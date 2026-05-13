@@ -7,15 +7,41 @@
   <h1>🛡️ 人員查詢</h1>
   <p style="color:#666; font-size:.9rem;">同時查詢司法院刑事判決、調查局通緝/嫌疑人、警政署外逃通緝犯。</p>
 
-  <!-- Step 1: 姓名 + 身分證 -->
+  <!-- Step 1: 姓名 + 身分證 + 選填欄位 -->
   <div id="step-name" style="margin-top:1rem;">
     <form id="vet-name-form">
       <label style="display:block; margin-bottom:.4rem;">姓名</label>
       <input type="text" id="vet-name" required
              style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
-      <label style="display:block; margin-bottom:.4rem;">身分證 / 居留證 <span style="color:#888;font-weight:400;font-size:.85rem;">（選填，警政署系統有填配對較精準）</span></label>
+
+      <label style="display:block; margin-bottom:.4rem;">身分證 / 居留證 <span style="color:#888;font-weight:400;font-size:.85rem;">（選填）</span></label>
       <input type="text" id="vet-id" maxlength="12"
              style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem; text-transform:uppercase;">
+
+      <details style="margin-bottom:.75rem;">
+        <summary style="cursor:pointer; padding:.4rem 0; color:#555; font-size:.92rem;">▸ 選填：電話 / 關係人 / 其他特徵（增加搜尋準確度）</summary>
+
+        <label style="display:block; margin:.6rem 0 .4rem;">📞 電話 <span style="color:#888;font-weight:400;font-size:.85rem;">（多種格式都接受）</span></label>
+        <input type="tel" id="vet-phone"
+               placeholder="例：0912-345-678 / +886912345678"
+               style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
+
+        <label style="display:block; margin-bottom:.4rem;">👥 關係人 <span style="color:#888;font-weight:400;font-size:.85rem;">（最多 2 人，純姓名）</span></label>
+        <div id="vet-relatives">
+          <input type="text" class="vet-rel-input" placeholder="關係人 1"
+                 style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.4rem;">
+        </div>
+        <button type="button" id="vet-add-rel"
+                style="background:none; border:1px dashed #888; padding:.4rem .8rem; border-radius:6px; cursor:pointer; font-size:.88rem; margin-bottom:.75rem;">
+          + 新增關係人
+        </button>
+
+        <label style="display:block; margin-bottom:.4rem;">🏷 其他特徵 <span style="color:#888;font-weight:400;font-size:.85rem;">（縣市、公司、學校等）</span></label>
+        <input type="text" id="vet-feature"
+               placeholder="例：新北市 ABC餐廳"
+               style="width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.75rem;">
+      </details>
+
       <button type="submit" class="btn btn-primary" style="width:100%; padding:.6rem;">開始查詢</button>
     </form>
   </div>
@@ -91,15 +117,45 @@ function vetErrMsg(st, d) {
 }
 var VET_JSON_HEADERS = {'Content-Type': 'application/json', 'Accept': 'application/json'};
 
+// 關係人「+ 新增關係人」progressive UI (max 2 rows, then lock the button)
+document.getElementById('vet-add-rel').addEventListener('click', function() {
+  var container = document.getElementById('vet-relatives');
+  if (container.querySelectorAll('.vet-rel-input').length >= 2) return;
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'vet-rel-input';
+  input.placeholder = '關係人 2';
+  input.style.cssText = 'width:100%; padding:.55rem; border:1px solid #ddd; border-radius:6px; font-size:1rem; margin-bottom:.4rem;';
+  container.appendChild(input);
+  // Lock the button after reaching 2
+  if (container.querySelectorAll('.vet-rel-input').length >= 2) {
+    document.getElementById('vet-add-rel').style.display = 'none';
+  }
+});
+
 document.getElementById('vet-name-form').addEventListener('submit', function(e) {
   e.preventDefault();
   _name = document.getElementById('vet-name').value.trim();
   _id = document.getElementById('vet-id').value.trim().toUpperCase();
   if (!_name) return;
+
+  // Collect new social fields (max 2 relatives, filter empties)
+  var _relatives = Array.from(document.querySelectorAll('.vet-rel-input'))
+    .map(function(i) { return i.value.trim(); })
+    .filter(function(v) { return v !== ''; })
+    .slice(0, 2);
+  var _phone = document.getElementById('vet-phone').value.trim();
+  var _feature = document.getElementById('vet-feature').value.trim();
+  // Stash for reloadCaptcha re-use (same fields on second /start call)
+  window._socialPayload = {phone: _phone, relatives: _relatives, feature: _feature};
+
   startTick('🔍 查詢中：警政署取驗證碼 → 司法院刑事判決 → 法務部通緝');
   fetch('/vetting/start', {
     method: 'POST', headers: VET_JSON_HEADERS,
-    body: JSON.stringify({name: _name, id: _id})
+    body: JSON.stringify({
+      name: _name, id: _id,
+      phone: _phone, relatives: _relatives, feature: _feature
+    })
   }).then(vetParse).then(function(arr){
     stopTick();
     var st = arr[0], d = arr[1];
@@ -118,11 +174,15 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
 
 function reloadCaptcha(reason) {
   var isErr = (reason === 'captcha_error');
+  var sp = window._socialPayload || {phone: '', relatives: [], feature: ''};
   startTick(isErr ? '❌ 驗證碼錯誤，正在換一張新的'
                   : '🔄 重整驗證碼中（會重跑三家查詢）');
   fetch('/vetting/start', {
     method: 'POST', headers: VET_JSON_HEADERS,
-    body: JSON.stringify({name: _name, id: _id})
+    body: JSON.stringify({
+      name: _name, id: _id,
+      phone: sp.phone, relatives: sp.relatives, feature: sp.feature
+    })
   }).then(vetParse).then(function(arr){
     stopTick();
     var st = arr[0], d = arr[1];
