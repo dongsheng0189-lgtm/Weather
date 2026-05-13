@@ -465,3 +465,42 @@ def test_submit_response_shape_unchanged_for_existing_keys(
     # npa entry shape
     assert data["npa"][0]["name"] == "王"
     assert data["npa"][0]["crime"] == "竊盜"
+
+
+# ────────────────────────────────────────────────────────────────
+# DOM-level smoke tests: index.html render logic + new fields
+# ────────────────────────────────────────────────────────────────
+
+def test_vetting_index_has_new_input_fields(app, client, db_session):
+    """GET /vetting/ renders the new optional fields in the form."""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    res = client.get("/vetting/")
+    html = res.get_data(as_text=True)
+    # Expand panel summary
+    assert "選填：電話 / 關係人 / 其他特徵" in html
+    # Input field IDs
+    assert 'id="vet-phone"' in html
+    assert 'class="vet-rel-input"' in html
+    assert 'id="vet-feature"' in html
+    # The + button
+    assert 'id="vet-add-rel"' in html
+
+
+def test_vetting_index_has_social_render_logic(app, client, db_session):
+    """index.html includes the renderResult logic for D/E/F sections."""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    res = client.get("/vetting/")
+    html = res.get_data(as_text=True)
+    # Banner text
+    assert "如何用無痕模式開啟" in html
+    # Section headers (in the JS, will be rendered when social data present)
+    assert "D. 📞 電話標記" in html
+    assert "E + F. 🌐 社群 / Google 搜尋連結" in html
+    # All 5 platform incognito guides present
+    assert "Chrome / Edge" in html
+    assert "Safari（Mac）" in html
+    assert "Firefox" in html
+    assert "Chrome（Android）" in html
+    assert "Safari（iPhone" in html
