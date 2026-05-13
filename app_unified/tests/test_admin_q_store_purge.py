@@ -10,6 +10,13 @@ from models import User, Store, Note, NoteAttachment, UserLog
 from extensions import db
 
 
+def _clean_test_data(db_session):
+    """Clear all Note and NoteAttachment rows to isolate tests."""
+    NoteAttachment.query.delete()
+    Note.query.delete()
+    db_session.commit()
+
+
 def _mk_user(db_session, username=None, role="user", root_admin=False, store="B"):
     target = "admin" if root_admin else (username or f"u_{uuid.uuid4().hex[:6]}")
     existing = User.query.filter_by(username=target).first()
@@ -64,3 +71,76 @@ def test_preview_200_for_root_admin(app, client, db_session):
     assert "attachments_count" in data
     assert isinstance(data["notes_count"], int)
     assert isinstance(data["attachments_count"], int)
+
+
+# ── Preview correctness ─────────────────────────────────────────
+
+
+def test_preview_counts_q_notes_only(app, client, db_session):
+    """3 Q notes + 5 B notes → preview reports notes_count=3."""
+    _clean_test_data(db_session)
+    admin = _mk_user(db_session, root_admin=True)
+    # Need Store rows for FK validity in some setups; create if missing
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    if not Store.query.filter_by(name="B").first():
+        db_session.add(Store(name="B", login_enabled=True))
+    db_session.commit()
+
+    for _ in range(3):
+        db_session.add(Note(store="Q", title="q-note", content="x"))
+    for _ in range(5):
+        db_session.add(Note(store="B", title="b-note", content="x"))
+    db_session.commit()
+
+    _login(client, admin)
+    res = client.get("/admin/q-store/notes-preview")
+    data = res.get_json()
+    assert data["notes_count"] == 3
+    assert data["attachments_count"] == 0
+
+
+def test_preview_counts_q_attachments(app, client, db_session):
+    """2 Q notes, 1 with 2 attachments + 1 with 0 → preview reports 2."""
+    _clean_test_data(db_session)
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+
+    n1 = Note(store="Q", title="with-attach", content="x")
+    n2 = Note(store="Q", title="no-attach", content="x")
+    db_session.add_all([n1, n2])
+    db_session.commit()
+
+    a1 = NoteAttachment(
+        note_id=n1.id, object_key="q-test/1.jpg",
+        filename="1.jpg", content_type="image/jpeg", file_size=100,
+    )
+    a2 = NoteAttachment(
+        note_id=n1.id, object_key="q-test/2.jpg",
+        filename="2.jpg", content_type="image/jpeg", file_size=200,
+    )
+    db_session.add_all([a1, a2])
+    db_session.commit()
+
+    _login(client, admin)
+    res = client.get("/admin/q-store/notes-preview")
+    data = res.get_json()
+    assert data["notes_count"] == 2
+    assert data["attachments_count"] == 2
+
+
+def test_preview_counts_zero_when_no_q_data(app, client, db_session):
+    """No Q notes at all → preview returns {0, 0}."""
+    _clean_test_data(db_session)
+    admin = _mk_user(db_session, root_admin=True)
+    if not Store.query.filter_by(name="Q").first():
+        db_session.add(Store(name="Q", login_enabled=True))
+    db_session.commit()
+
+    _login(client, admin)
+    res = client.get("/admin/q-store/notes-preview")
+    data = res.get_json()
+    assert data["notes_count"] == 0
+    assert data["attachments_count"] == 0
