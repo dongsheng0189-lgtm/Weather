@@ -300,4 +300,5 @@ def submit():
         "judicial": entry["judicial"],
         "mjib": entry["mjib"],
         "npa": npa_results,
+        "social": entry.get("social"),
     })

@@ -170,6 +170,7 @@ def test_submit_endpoint_returns_three_segments(app, client, db_session, monkeyp
     u = _mk_user(db_session, root_admin=True)
     _login(client, u)
     from vetting.routes import _put_state
+    from vetting import social as social_mod
     qid = _put_state({
         "npa_session": MagicMock(),
         "npa_tokens": {"_csrf": "x", "_csrf_header": "h", "_key": "k"},
@@ -180,6 +181,7 @@ def test_submit_endpoint_returns_three_segments(app, client, db_session, monkeyp
                       "keyword_hits": ["詐欺"], "masked_names": []}],
         "mjib": [{"name": "王某", "eng_name": "", "masked_id": "A12***",
                   "birth": "1990", "photo_url": "", "detail_url": ""}],
+        "social": social_mod.build_url_bundle("王"),
     })
     monkeypatch.setattr("vetting.routes.npa.submit_query",
                         lambda *a, **kw: [{"name": "王", "crime": "竊盜", "detail_url": ""}])
@@ -396,3 +398,70 @@ def test_start_relatives_trimmed_to_2(app, client, db_session, monkeypatch):
     from vetting.routes import _take_state
     state = _take_state(res.get_json()["query_id"])
     assert len(state["social"]["people"]) == 3  # 1 + 2 (trimmed)
+
+
+def test_submit_response_includes_social_key(app, client, db_session, monkeypatch):
+    """End-to-end: /submit response must include 'social' alongside judicial/mjib/npa."""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    from vetting.routes import _put_state
+    from vetting import social as social_mod
+    qid = _put_state({
+        "npa_session": MagicMock(),
+        "npa_tokens": {"_csrf": "x", "_csrf_header": "h", "_key": "k"},
+        "npa_jwt": "jwt",
+        "name": "王", "id_no": "",
+        "judicial": [],
+        "mjib": [],
+        "social": social_mod.build_url_bundle(
+            "王", phone="0912345678", relatives=["李"]
+        ),
+    })
+    monkeypatch.setattr("vetting.routes.npa.submit_query", lambda *a, **kw: [])
+
+    res = client.post("/vetting/submit",
+                      json={"query_id": qid, "captcha": "ABCD"})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert "judicial" in data
+    assert "mjib" in data
+    assert "npa" in data
+    assert "social" in data
+    assert data["social"]["phone"] is not None
+    assert len(data["social"]["people"]) == 2  # 1 emp + 1 rel
+
+
+def test_submit_response_shape_unchanged_for_existing_keys(
+        app, client, db_session, monkeypatch):
+    """Regression: existing judicial/mjib/npa shapes are byte-identical to pre-spec."""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    from vetting.routes import _put_state
+    from vetting import social as social_mod
+    qid = _put_state({
+        "npa_session": MagicMock(),
+        "npa_tokens": {"_csrf": "x", "_csrf_header": "h", "_key": "k"},
+        "npa_jwt": "jwt",
+        "name": "王", "id_no": "A123",
+        "judicial": [{"subject": "x", "case_no": "n", "date": "d",
+                      "court": "c", "detail_url": "u",
+                      "keyword_hits": [], "masked_names": []}],
+        "mjib": [{"name": "王", "eng_name": "", "masked_id": "A***",
+                  "birth": "1990", "photo_url": "", "detail_url": ""}],
+        "social": social_mod.build_url_bundle("王"),
+    })
+    monkeypatch.setattr("vetting.routes.npa.submit_query",
+                        lambda *a, **kw: [{"name": "王", "crime": "竊盜", "detail_url": ""}])
+
+    res = client.post("/vetting/submit",
+                      json={"query_id": qid, "captcha": "ABCD"})
+    data = res.get_json()
+    # judicial entry shape
+    assert data["judicial"][0]["subject"] == "x"
+    assert "keyword_hits" in data["judicial"][0]
+    # mjib entry shape
+    assert data["mjib"][0]["name"] == "王"
+    assert "masked_id" in data["mjib"][0]
+    # npa entry shape
+    assert data["npa"][0]["name"] == "王"
+    assert data["npa"][0]["crime"] == "竊盜"
