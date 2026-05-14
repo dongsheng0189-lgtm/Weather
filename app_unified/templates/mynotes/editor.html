@@ -91,7 +91,7 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
   {% endif %}
 
   {% if note_type != 'todo_checklist' %}
-  <textarea class="ed-content" id="content-area" placeholder="{% if note_type == 'meeting' %}會議原文/紀錄...（之後可用 AI 產生摘要）{% else %}內容...{% endif %}">{{ note.content if note else '' }}</textarea>
+  <textarea class="ed-content" id="content-area" placeholder="{% if note_type == 'meeting' %}會議原文/紀錄...（之後可用 AI 產生摘要）{% else %}內容...{% endif %}">{{ note.content if note else default_content }}</textarea>
   {% endif %}
 
   {# ═══ Checklist ═══ #}

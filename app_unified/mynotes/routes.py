@@ -28,6 +28,21 @@ mynotes_bp = Blueprint("mynotes", __name__, url_prefix="/mynotes")
 _TW = timezone(timedelta(hours=8))
 
 
+# 新增 meeting 時自動帶入的分類骨架：4 大分類（順序依 ai_local.DISPLAY_ORDER）+ 人員下 4 小類。
+# 大分類間 3 空行、人員下 4 小類各縮排 4 格、小類間 2 空行；尾端不加空行。
+# user 可在每個 header 下方直接打字、parser 既有 _split_sections 認得這個格式。
+MEETING_TEMPLATE = (
+    "代理商:\n\n\n\n"
+    "追蹤部份:\n\n\n\n"
+    "店務:\n\n\n\n"
+    "人員:\n"
+    "    離職:\n\n\n"
+    "    資遣:\n\n\n"
+    "    調整:\n\n\n"
+    "    其他:"
+)
+
+
 @mynotes_bp.before_request
 def _gate_mynotes_feature():
     if current_user.is_authenticated and not user_has_feature(current_user, "mynotes"):
@@ -112,8 +127,10 @@ def new_note():
     type_label = {"meeting": "會議", "todo_note": "筆記", "todo_checklist": "清單"}.get(note_type, "筆記")
     today_tw = datetime.now(_TW)
     default_title = f"{today_tw.month}/{today_tw.day} {type_label}"
+    default_content = MEETING_TEMPLATE if note_type == "meeting" else ""
     return render_template("mynotes/editor.html", note=None, note_type=note_type,
-                           default_title=default_title, idle_limit_ms=_idle_limit_ms())
+                           default_title=default_title, default_content=default_content,
+                           idle_limit_ms=_idle_limit_ms())
 
 
 @mynotes_bp.route("/<int:note_id>")
@@ -121,7 +138,7 @@ def new_note():
 def view_note(note_id):
     note = _get_my_note(note_id)
     return render_template("mynotes/editor.html", note=note, note_type=note.note_type,
-                           default_title="", idle_limit_ms=_idle_limit_ms())
+                           default_title="", default_content="", idle_limit_ms=_idle_limit_ms())
 
 
 # ═══ 筆記 CRUD ═════════════════════════════════════════
