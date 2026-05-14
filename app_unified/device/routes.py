@@ -50,6 +50,12 @@ def is_device_authorized(fp, uid=None):
     1. 有 client_uid → 用 uid 查
     2. 沒有 uid → fallback 用 fingerprint 查
     """
+    # Dev shortcut：本機開發跳過真實 device 授權（seed 的 trusted_devices
+    # 多為 pending、實測 face login 流程不該被卡）。prod 永不會跑這。
+    import os as _os
+    if _os.getenv("FLASK_DEV_MODE") == "1":
+        return True
+
     device = None
     if uid:
         device = TrustedDevice.query.filter_by(client_uid=uid).first()
