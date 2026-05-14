@@ -747,7 +747,7 @@ EditKeepalive.init();
   }
 })();
 
-// Tab 鍵插 4 空白（不跳焦），方便會議紀錄縮排對齊店務/人員小類
+// Tab 鍵插 4 空白（不跳焦）；多行選取則對選取範圍內每一行各補 4 空白行首
 (function setupContentTabHandler() {
   var ta = document.getElementById('content-area');
   if (!ta) return;
@@ -757,8 +757,25 @@ EditKeepalive.init();
     var start = ta.selectionStart;
     var end = ta.selectionEnd;
     var value = ta.value;
-    ta.value = value.slice(0, start) + '    ' + value.slice(end);
-    ta.selectionStart = ta.selectionEnd = start + 4;
+    var selected = value.slice(start, end);
+
+    if (!selected.includes('\n')) {
+      // 單行（或無選取）：caret 處插 4 空白；有單行選取會替換成 4 空白（既有行為）
+      ta.value = value.slice(0, start) + '    ' + value.slice(end);
+      ta.selectionStart = ta.selectionEnd = start + 4;
+    } else {
+      // 多行：從 selection 起始所在行的行首開始、對每行行首補 4 空白
+      var lineStart = value.lastIndexOf('\n', start - 1) + 1;
+      var block = value.slice(lineStart, end);
+      // selection 結尾若正好在某行行首（前一字元為 \n），那行尚無內容、不縮排
+      var trailingNL = block.endsWith('\n');
+      var bodyLines = (trailingNL ? block.slice(0, -1) : block).split('\n');
+      var indented = bodyLines.map(function (l) { return '    ' + l; }).join('\n') + (trailingNL ? '\n' : '');
+      ta.value = value.slice(0, lineStart) + indented + value.slice(end);
+      ta.selectionStart = start + 4;
+      ta.selectionEnd = end + 4 * bodyLines.length;
+    }
+
     // 觸發 input 事件讓 auto-save / keepalive 之類的 listener 收到
     ta.dispatchEvent(new Event('input', { bubbles: true }));
   });
