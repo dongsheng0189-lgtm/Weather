@@ -115,8 +115,16 @@ _TAB_CONCLUSION_PREFIX_RE = re.compile(r"^結論\s*[:：]\s*(.*)$")
 # encodes both halves into a single item string using `_EXT_DELIM` as the
 # delimiter, and the renderer outputs them on continuation lines under the
 # primary `1. xxx → conc` pair.
+#
+# v8 (2026-05-14): "補充:" — parallel marker。語義跟 延伸議題 一致（保持
+# 當前 item 不 flush、後續內容 + 結論進 supplement 半邊），但編碼用獨立
+# _SUP_DELIM 分隔、renderer 輸出 user 實際打的關鍵字（補充：xxx）。兩個
+# marker 走平行 path、互不干擾；單一 item 同時出現兩種時、後者覆寫前者。
 _TAB_EXTENSION_PREFIX_RE = re.compile(r"^延伸(?:議題)?\s*[:：]\s*(.*)$")
+_TAB_SUPPLEMENT_PREFIX_RE = re.compile(r"^補充\s*[:：]\s*(.*)$")
 _EXT_DELIM = "\x1fEXT\x1f"
+_SUP_DELIM = "\x1fSUP\x1f"
+_EXT_LABELS = {_EXT_DELIM: "延伸議題", _SUP_DELIM: "補充"}
 
 # Sub-category prefix encoding: items belonging to a sub-category get prefixed
 # with `[xxx] ` in the items list. The renderer strips this back out and emits
@@ -193,30 +201,33 @@ def _split_items(section_body: str) -> list[str]:
     current_issue: str | None = None
     current_conclusion: str | None = None
     just_saw_conclusion: bool = False  # 結論 line is end-of-item marker
-    # Extension state (v7): triggered by `延伸議題:` line. While true, content
-    # lines APPEND to ext_issue and 結論 lines set ext_conclusion.
+    # Extension state (v7 + v8): 由 `延伸議題:` / `補充:` 觸發。ext_delim
+    # 指向當前該用哪個 delimiter（_EXT_DELIM or _SUP_DELIM）；flush 編碼時
+    # 用它做分隔、renderer 反查 _EXT_LABELS 拿回 label。
     in_extension: bool = False
+    ext_delim: str | None = None
     ext_issue: str | None = None
     ext_conclusion: str | None = None
 
     def flush() -> None:
         nonlocal current_issue, current_conclusion, just_saw_conclusion
-        nonlocal in_extension, ext_issue, ext_conclusion
+        nonlocal in_extension, ext_delim, ext_issue, ext_conclusion
         if current_issue is None:
             return
         head = f"[{current_sub}] {current_issue}" if current_sub else current_issue
         if current_conclusion is not None:
             head = f"{head}\n結論：{current_conclusion}"
-        if in_extension and ext_issue is not None:
+        if in_extension and ext_issue is not None and ext_delim is not None:
             ext_block = ext_issue
             if ext_conclusion is not None:
                 ext_block = f"{ext_block}\n結論：{ext_conclusion}"
-            head = f"{head}{_EXT_DELIM}{ext_block}"
+            head = f"{head}{ext_delim}{ext_block}"
         items.append(head)
         current_issue = None
         current_conclusion = None
         just_saw_conclusion = False
         in_extension = False
+        ext_delim = None
         ext_issue = None
         ext_conclusion = None
 
@@ -241,18 +252,22 @@ def _split_items(section_body: str) -> list[str]:
 
         # bullet or indent kinds carry content.
 
-        # Extension marker (v7) — must come BEFORE conclusion check because
-        # the regex is more specific. `延伸議題:` / `延伸:` line: keep the
-        # current item alive, enter extension mode so subsequent content
-        # + 結論 attach to ext_issue / ext_conclusion instead of replacing.
+        # Extension marker (v7 + v8) — must come BEFORE conclusion check
+        # because both regexes are more specific. `延伸議題:` / `延伸:` /
+        # `補充:` line: keep the current item alive, enter extension mode
+        # so subsequent content + 結論 attach to ext_issue / ext_conclusion
+        # instead of replacing. ext_delim 紀錄哪個 marker 觸發、決定編碼跟
+        # render label。同 item 內出現兩個 marker → 後者覆寫前者（少見、
+        # user 不該這樣寫）。
         m_ext = _TAB_EXTENSION_PREFIX_RE.match(content)
-        if m_ext and current_issue is not None:
+        m_sup = _TAB_SUPPLEMENT_PREFIX_RE.match(content)
+        if (m_ext or m_sup) and current_issue is not None:
             in_extension = True
-            inline = m_ext.group(1).strip()
-            # If the 延伸議題: line has inline content (rare — user might
-            # write `延伸: xxx`), seed ext_issue with it.
-            if inline:
-                ext_issue = inline
+            ext_delim = _EXT_DELIM if m_ext else _SUP_DELIM
+            inline = (m_ext or m_sup).group(1).strip()
+            # 偶爾 user 會 inline 寫『補充: xxx』；seed ext_issue 帶上。
+            ext_issue = inline if inline else None
+            ext_conclusion = None
             just_saw_conclusion = False
             continue
 
@@ -406,33 +421,35 @@ def _decode_sub_cat(item: str) -> tuple[str | None, str]:
     return None, item
 
 
-def _split_extension(body: str) -> tuple[str, str | None]:
+def _split_extension(body: str) -> tuple[str, str | None, str | None]:
     """從 item body 中拆出 primary 部分跟 extension 部分。
 
-    body 用 `_EXT_DELIM` 分隔 primary 與 extension（v7 encoding）。沒
-    delimiter 就 (body, None)。
+    body 用 `_EXT_DELIM`（延伸議題）或 `_SUP_DELIM`（補充）分隔 primary 與
+    extension。回傳 (primary, label, ext_body)；沒 delimiter 回 (body, None, None)。
     """
-    if _EXT_DELIM in body:
-        primary, ext = body.split(_EXT_DELIM, 1)
-        return primary, ext
-    return body, None
+    for delim in (_EXT_DELIM, _SUP_DELIM):
+        if delim in body:
+            primary, ext = body.split(delim, 1)
+            return primary, _EXT_LABELS[delim], ext
+    return body, None, None
 
 
 def _render_item_lines(counter: int, body: str) -> list[str]:
     """單一 item 的渲染（不論 section 走哪條 renderer 都共用）。
 
     處理：sub-cat decode → extension split → primary `1. issue + → conc` →
-    若有 extension 加 `延伸議題：ext_issue + → ext_conc` 縮排在同 item 下。
+    若有 extension 加 `{label}：ext_issue + → ext_conc` 縮排在同 item 下；
+    label 由觸發 marker 決定（延伸議題 / 補充）。
     """
-    primary, ext = _split_extension(body)
+    primary, label, ext = _split_extension(body)
     issue, conclusion = _extract_conclusion(primary)
     out = _render_issue_lines(counter, issue)
     if conclusion:
         out.append(f"{_CONCLUSION_PREFIX}{conclusion}")
-    if ext is not None:
+    if ext is not None and label is not None:
         ext_issue, ext_conclusion = _extract_conclusion(ext)
         ext_lines = ext_issue.split("\n")
-        out.append(f"{_ISSUE_CONT_PREFIX}延伸議題：{ext_lines[0]}")
+        out.append(f"{_ISSUE_CONT_PREFIX}{label}：{ext_lines[0]}")
         for cont in ext_lines[1:]:
             if cont.strip():
                 out.append(f"{_ISSUE_CONT_PREFIX}{cont}")
