@@ -807,3 +807,88 @@ def test_summarize_meeting_duplicate_sections_sub_cat_scope_does_not_leak():
     assert "   → no sub-cat for me" in out
     # No spurious "宣傳" tag inside yyy item text
     assert "[宣傳] yyy" not in out
+
+
+# ── 補充 marker (parallel to 延伸議題, 2026-05-14) ─────────────────────
+
+def test_summarize_meeting_supplement_keeps_block_inline_under_topic():
+    """`補充:` 跟 延伸議題 同一條路徑：保持當前 item 不 flush、後續內容
+    + 結論 進 supplement 半邊、渲染成 `補充：xxx` 縮排在同 item 下。"""
+    text = """店務:
+    代理商:
+         點餐系統:
+         結論:J/JJ/Q/S/KDF先裝
+         補充:
+         山上提供了一份報表的範例
+         結論:會比照優化
+"""
+    out = summarize_meeting(title="x", content=text)
+    assert "1. 點餐系統" in out
+    assert "   → J/JJ/Q/S/KDF先裝" in out
+    assert "   補充：山上提供了一份報表的範例" in out
+    assert "   → 會比照優化" in out
+    # 補充 不該變成獨立的 item「2. xxx」
+    assert "2. 山上" not in out
+
+
+def test_split_items_supplement_encoded_with_sup_delim():
+    """`補充:` 用獨立的 _SUP_DELIM 分隔、跟 _EXT_DELIM 不互搶（兩種 marker
+    走平行 path、不會誤判）。"""
+    from mynotes.ai_local import _SUP_DELIM, _EXT_DELIM
+    body = (
+        "         點餐系統:\n         結論:J/JJ\n"
+        "         補充:\n         山上補資料\n         結論:OK\n"
+    )
+    items = _split_items(body)
+    assert len(items) == 1
+    assert _SUP_DELIM in items[0]
+    assert _EXT_DELIM not in items[0]
+    primary, ext = items[0].split(_SUP_DELIM, 1)
+    assert "點餐系統" in primary
+    assert "結論：J/JJ" in primary
+    assert "山上補資料" in ext
+    assert "結論：OK" in ext
+
+
+def test_summarize_meeting_supplement_without_conclusion():
+    """補充半邊沒結論 → 只出現 `補充：xxx` 一行、不加箭頭結論。"""
+    text = """店務:
+    代理商:
+         議題A
+         結論:先暫緩
+         補充:
+         對方還想加碼
+"""
+    out = summarize_meeting(title="x", content=text)
+    assert "1. 議題A" in out
+    assert "   → 先暫緩" in out
+    assert "   補充：對方還想加碼" in out
+    # 沒結論就不該再產生第二個 `→`
+    arrow_count = out.count("→")
+    assert arrow_count == 1, f"expected 1 → (primary only), got {arrow_count}"
+
+
+def test_summarize_meeting_extension_and_supplement_dont_collide():
+    """延伸議題 跟 補充 在不同 item 各自獨立、不會互相覆蓋。"""
+    text = """店務:
+    代理商:
+         議題A
+         結論:Ya
+         延伸議題:
+         延伸a
+         結論:Za
+
+         議題B
+         結論:Yb
+         補充:
+         補充b
+         結論:Zb
+"""
+    out = summarize_meeting(title="x", content=text)
+    # 議題A: 延伸議題, 議題B: 補充
+    assert "1. 議題A" in out
+    assert "   延伸議題：延伸a" in out
+    assert "   → Za" in out
+    assert "2. 議題B" in out
+    assert "   補充：補充b" in out
+    assert "   → Zb" in out
