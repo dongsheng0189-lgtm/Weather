@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block extra_head %}
+<script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=4"></script>
+{% endblock %}
 {% block content %}
 <div style="max-width:680px; margin:1rem auto; padding:0 .75rem;">
   <h1>🛡️ 人員查詢</h1>
@@ -234,5 +237,9 @@ function renderResult(d) {
 
   document.getElementById('step-result').innerHTML = html;
 }
+
+// 查詢頁刷新 session、配合 app._enforce_session_idle 的 vetting 15 分鐘 grace。
+// 使用者讀判例 / 等 captcha 圖 / 思考時都可能 > 5 分鐘但 < 15 分鐘。
+EditKeepalive.init();
 </script>
 {% endblock %}
