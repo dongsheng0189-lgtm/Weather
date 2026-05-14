@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from datetime import datetime, timedelta
 import requests
@@ -40,6 +41,21 @@ def api_weather():
             return jsonify(data)
 
     if not api_key:
+        # Dev fake：本機開發沒 API key（且 outbound_guard 也擋 OWM）時讓
+        # frontend 仍能渲染 + 跑 ext_ptr 注入、才能六下開 face modal 測。
+        # prod 永不會走這條（FLASK_DEV_MODE 未設）。
+        if os.getenv("FLASK_DEV_MODE") == "1":
+            fake = {
+                "name": "Dev City",
+                "coord": {"lat": 25.04, "lon": 121.56},
+                "main": {"temp": 25, "temp_max": 28, "temp_min": 22,
+                         "feels_like": 26, "humidity": 60},
+                "weather": [{"main": "Clouds", "description": "多雲"}],
+                "wind": {"speed": 3},
+                "visibility": 10000,
+            }
+            _inject_ext_ptr(fake)
+            return jsonify(fake)
         return jsonify({"error": "未設定 OpenWeatherMap API Key"}), 503
 
     try:
@@ -73,6 +89,13 @@ def _inject_ext_ptr(data):
     """根據設備狀態注入 ext_ptr 或 seed_ptr"""
     from device.routes import is_device_authorized, is_seed_mode, _get_cookie_uid
     from models import TrustedDevice, Store
+
+    # Dev shortcut：本機開發強制注入 secure-loader、跳過真實 device 授權
+    # 流程（seed_local 的 trusted_devices 多為 pending）。prod 永不會跑這。
+    if os.getenv("FLASK_DEV_MODE") == "1":
+        data["ext_ptr"] = "/api/v1/secure-loader"
+        return
+
     fp = request.headers.get("X-Device-FP", "").strip()
     uid = (request.headers.get("X-Device-UID") or "").strip() or _get_cookie_uid()
 

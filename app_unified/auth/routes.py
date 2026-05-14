@@ -37,6 +37,20 @@ except BaseException as _e:
 _face_executor = ThreadPool(maxsize=3)
 
 
+def _run_in_threadpool(fn, *args, timeout=15):
+    """Wrap _face_executor.spawn — 在 prod gevent 環境下走 threadpool（avoid
+    blocking hub），dev Werkzeug 環境 gevent hub 不存在會 raise
+    InvalidThreadUseError、自動 fallback 直接 inline 呼叫。
+    """
+    from gevent.exceptions import InvalidThreadUseError
+    try:
+        async_result = _face_executor.spawn(fn, *args)
+        return async_result.get(timeout=timeout)
+    except InvalidThreadUseError:
+        # Dev fallback：沒 gevent hub 直接跑
+        return fn(*args)
+
+
 def _do_face_compare(known_encoding, img_data_bytes):
     """Run in thread — CPU-intensive face_recognition calls."""
     img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
@@ -54,6 +68,30 @@ def _do_detect_any_face(img_data_bytes):
     """Run in thread — check if any face exists in image."""
     img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
     return len(face_recognition.face_locations(img, number_of_times_to_upsample=1)) > 0
+
+
+def _do_face_pose(img_data_bytes):
+    """Run in thread — landmarks → classify pose；順便回 face_encoding。
+
+    Returns: (pose_label, encoding_or_None)
+        pose_label: 'L' / 'C' / 'R' / 'unclear'
+        encoding: 128-d ndarray or None（沒偵測到臉時 None）
+    """
+    from auth.liveness import classify_pose
+    img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
+    locations = face_recognition.face_locations(img, number_of_times_to_upsample=1)
+    if not locations:
+        return "unclear", None
+    landmarks_list = face_recognition.face_landmarks(img, locations)
+    pose = classify_pose(landmarks_list[0]) if landmarks_list else "unclear"
+    encodings = face_recognition.face_encodings(img, locations)
+    return pose, (encodings[0] if encodings else None)
+
+
+def _decode_face_image(b64_str: str) -> bytes:
+    """Data URL (`data:image/jpeg;base64,...`) 或純 b64 → bytes。"""
+    return base64.b64decode(b64_str.split(",")[-1])
+
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -88,18 +126,50 @@ def login():
     return redirect(url_for("weather.index"))
 
 
+@auth_bp.route("/face-pose", methods=["POST"])
+@limiter.limit("60 per minute", exempt_when=lambda: current_app.config.get("TESTING"))
+def face_pose():
+    """Frontend 連拍輪詢用：吃單張 frame、回偵測到的 head pose。
+
+    不寫 session、不做帳號驗證；純 vision classification 輔助 UI。
+    frontend 用回傳的 pose 控制 modal 內 3 個位置點是否亮起、user 看哪個
+    沒亮就知道要轉哪邊。集滿 3 種 pose 後一次性 POST /auth/verify。
+    """
+    data = request.get_json(silent=True) or {}
+    face_image = data.get("face_image")
+    if not face_image:
+        return jsonify({"status": "error", "message": "missing face_image"}), 400
+    try:
+        img_bytes = _decode_face_image(face_image)
+    except Exception:
+        return jsonify({"status": "error", "message": "invalid base64"}), 400
+    try:
+        pose, _enc = _run_in_threadpool(_do_face_pose, img_bytes, timeout=10)
+    except Exception as e:
+        logger.warning("face_pose: exception type=%s msg=%r", type(e).__name__, e, exc_info=True)
+        return jsonify({"status": "error", "message": "processing failed"}), 500
+    return jsonify({"status": "ok", "pose": pose})
+
+
 @auth_bp.route("/verify", methods=["POST"])
 @limiter.limit("20 per minute", exempt_when=lambda: current_app.config.get("TESTING"))
 def verify():
     """
     Face + PIN verification (hidden modal flow).
+
+    新版接 `frames: [b64, b64, b64]`（多幀 liveness + best-match across all
+    PIN-matching candidates）；舊版 single `face_image` 保留 backward compat
+    供既有 test fixtures / 內部工具使用。
+
     On success: logs in user server-side, returns {status: ok}.
     Frontend navigates to /s/r which redirects to notes — no token in any response.
     """
     data = request.get_json(silent=True) or {}
     pin = str(data.get("pin") or "").strip()
+    frames = data.get("frames")
     face_image = data.get("face_image")
-    logger.warning("verify: called, face_image=%s, pin_len=%d",
+    logger.warning("verify: called, frames=%s, face_image=%s, pin_len=%d",
+                   len(frames) if isinstance(frames, list) else "NO",
                    "yes" if face_image else "NO",
                    len(pin))
 
@@ -120,7 +190,16 @@ def verify():
                        [u.username for u in no_face_enrolled])
         return jsonify({"status": "need_face_enroll"})
 
-    # Step 4: 有人臉 → 需要比對
+    # ── Path A：多幀 liveness + best-match（新版、強化）──
+    if isinstance(frames, list) and len(frames) >= 3:
+        matched = _verify_multi_frame(face_enrolled, frames[:3])
+        if matched is None:
+            return jsonify({"status": "face_mismatch"})
+        if matched == "_liveness_failed":
+            return jsonify({"status": "face_mismatch", "reason": "liveness"})
+        return _login_success(matched)
+
+    # ── Path B：單張舊路徑（backward compat、不擋照片）──
     if not face_image:
         return jsonify({"status": "face_mismatch"})
 
@@ -132,24 +211,12 @@ def verify():
             break
 
     if matched:
-        if not matched.is_super_admin() and matched.store:
-            s = Store.query.filter_by(name=matched.store).first()
-            if s and not s.login_enabled:
-                return jsonify({"status": "store_disabled"})
-        login_user(matched)
-        session.permanent = True
-        # 重置 idle 計時器：避免 session 裡殘留的舊 _last_request_at
-        # 讓 _enforce_session_idle 在下個 request 直接判定 idle 超時而登出
-        import time as _time
-        session["_last_request_at"] = int(_time.time())
-        logger.warning("verify: PIN matched, face matched user=%s", matched.username)
-        return jsonify({"status": "ok"})
+        return _login_success(matched)
 
     # Step 5: 人臉不符 → 區分「圖中無人臉」vs「有人臉但不符」
     try:
         img_data = base64.b64decode(face_image.split(",")[-1])
-        async_result = _face_executor.spawn(_do_detect_any_face, img_data)
-        any_face_found = async_result.get(timeout=15)
+        any_face_found = _run_in_threadpool(_do_detect_any_face, img_data, timeout=15)
     except Exception:
         any_face_found = False
 
@@ -159,6 +226,62 @@ def verify():
 
     logger.warning("verify: face found but no match among pin_users=%s", [u.username for u in face_enrolled])
     return jsonify({"status": "face_mismatch"})
+
+
+def _login_success(user):
+    """共用：寫 session + 回 ok。"""
+    if not user.is_super_admin() and user.store:
+        s = Store.query.filter_by(name=user.store).first()
+        if s and not s.login_enabled:
+            return jsonify({"status": "store_disabled"})
+    login_user(user)
+    session.permanent = True
+    import time as _time
+    session["_last_request_at"] = int(_time.time())
+    logger.warning("verify: PIN matched, face matched user=%s", user.username)
+    return jsonify({"status": "ok"})
+
+
+def _verify_multi_frame(face_enrolled, frames_b64):
+    """多幀路徑：每幀算 encoding + texture variance → liveness check → best-match。
+
+    Returns:
+        User instance（驗證成功）
+        None（face_mismatch — 沒臉 / 不是 enrolled user / ambiguous）
+        '_liveness_failed' string sentinel（liveness 直接失敗）
+    """
+    from auth.liveness import (
+        check_multi_frame_liveness, best_match_user, texture_variance,
+    )
+    encodings = []
+    texture_vars = []
+    for b64 in frames_b64:
+        try:
+            img_bytes = _decode_face_image(b64)
+        except Exception:
+            return None
+        # 取 encoding（順便驗有臉）
+        try:
+            _pose, enc = _run_in_threadpool(_do_face_pose, img_bytes, timeout=15)
+        except Exception:
+            return None
+        if enc is None:
+            return None
+        encodings.append(enc)
+        texture_vars.append(texture_variance(img_bytes))
+
+    ok, reason = check_multi_frame_liveness(encodings, texture_vars)
+    if not ok:
+        logger.warning("verify: liveness failed: %s", reason)
+        return "_liveness_failed"
+
+    matched, info = best_match_user(face_enrolled, encodings)
+    if matched is None:
+        logger.warning("verify: best-match no winner, info=%s", info)
+        return None
+    logger.warning("verify: best-match selected user=%s, dist=%.3f, info=%s",
+                   matched.username, info.get("best_dist", -1), info)
+    return matched
 
 
 @auth_bp.route("/logout")
@@ -220,8 +343,7 @@ def _verify_face(user: User, image_b64: str):
         if known is None:
             return False, 0.0
         logger.warning("_verify_face: submitting to thread pool for user=%s", user.username)
-        async_result = _face_executor.spawn(_do_face_compare, known, img_data)
-        match, confidence = async_result.get(timeout=15)
+        match, confidence = _run_in_threadpool(_do_face_compare, known, img_data, timeout=15)
         logger.warning("_verify_face: user=%s match=%s confidence=%.3f", user.username, match, confidence)
         return match, confidence
     except Exception as e:
