@@ -37,6 +37,20 @@ except BaseException as _e:
 _face_executor = ThreadPool(maxsize=3)
 
 
+def _run_in_threadpool(fn, *args, timeout=15):
+    """Wrap _face_executor.spawn — 在 prod gevent 環境下走 threadpool（avoid
+    blocking hub），dev Werkzeug 環境 gevent hub 不存在會 raise
+    InvalidThreadUseError、自動 fallback 直接 inline 呼叫。
+    """
+    from gevent.exceptions import InvalidThreadUseError
+    try:
+        async_result = _face_executor.spawn(fn, *args)
+        return async_result.get(timeout=timeout)
+    except InvalidThreadUseError:
+        # Dev fallback：沒 gevent hub 直接跑
+        return fn(*args)
+
+
 def _do_face_compare(known_encoding, img_data_bytes):
     """Run in thread — CPU-intensive face_recognition calls."""
     img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
@@ -130,10 +144,9 @@ def face_pose():
     except Exception:
         return jsonify({"status": "error", "message": "invalid base64"}), 400
     try:
-        async_result = _face_executor.spawn(_do_face_pose, img_bytes)
-        pose, _enc = async_result.get(timeout=10)
+        pose, _enc = _run_in_threadpool(_do_face_pose, img_bytes, timeout=10)
     except Exception as e:
-        logger.warning("face_pose: exception %s", e)
+        logger.warning("face_pose: exception type=%s msg=%r", type(e).__name__, e, exc_info=True)
         return jsonify({"status": "error", "message": "processing failed"}), 500
     return jsonify({"status": "ok", "pose": pose})
 
@@ -203,8 +216,7 @@ def verify():
     # Step 5: 人臉不符 → 區分「圖中無人臉」vs「有人臉但不符」
     try:
         img_data = base64.b64decode(face_image.split(",")[-1])
-        async_result = _face_executor.spawn(_do_detect_any_face, img_data)
-        any_face_found = async_result.get(timeout=15)
+        any_face_found = _run_in_threadpool(_do_detect_any_face, img_data, timeout=15)
     except Exception:
         any_face_found = False
 
@@ -249,9 +261,8 @@ def _verify_multi_frame(face_enrolled, frames_b64):
         except Exception:
             return None
         # 取 encoding（順便驗有臉）
-        async_result = _face_executor.spawn(_do_face_pose, img_bytes)
         try:
-            _pose, enc = async_result.get(timeout=15)
+            _pose, enc = _run_in_threadpool(_do_face_pose, img_bytes, timeout=15)
         except Exception:
             return None
         if enc is None:
@@ -332,8 +343,7 @@ def _verify_face(user: User, image_b64: str):
         if known is None:
             return False, 0.0
         logger.warning("_verify_face: submitting to thread pool for user=%s", user.username)
-        async_result = _face_executor.spawn(_do_face_compare, known, img_data)
-        match, confidence = async_result.get(timeout=15)
+        match, confidence = _run_in_threadpool(_do_face_compare, known, img_data, timeout=15)
         logger.warning("_verify_face: user=%s match=%s confidence=%.3f", user.username, match, confidence)
         return match, confidence
     except Exception as e:
