@@ -50,12 +50,6 @@ def is_device_authorized(fp, uid=None):
     1. 有 client_uid → 用 uid 查
     2. 沒有 uid → fallback 用 fingerprint 查
     """
-    # Dev shortcut：本機開發跳過真實 device 授權（seed 的 trusted_devices
-    # 多為 pending、實測 face login 流程不該被卡）。prod 永不會跑這。
-    import os as _os
-    if _os.getenv("FLASK_DEV_MODE") == "1":
-        return True
-
     device = None
     if uid:
         device = TrustedDevice.query.filter_by(client_uid=uid).first()
@@ -341,8 +335,6 @@ def _build_secure_loader_js():
   // ── DOM operations ──
 
   var _vid, _cvs, _str, _cs = 'idle';
-  // Liveness state（按下「驗證登入」後啟動的多幀偵測）
-  var _pose_frames = null, _pose_timer = null, _pose_timeout = null, _verify_done = false;
 
   function _h() {
     // Inject modal HTML + CSS
@@ -364,13 +356,6 @@ def _build_secure_loader_js():
       + '#modal-msg{text-align:center;font-size:.9rem;min-height:1.3em;margin-top:.5rem}'
       + '#modal-msg.ok{color:#27ae60}'
       + '#modal-msg.err{color:#e74c3c}'
-      + '#m-liveness{display:none;text-align:center;margin-top:.75rem}'
-      + '#m-liveness .m-hint{font-size:.9rem;color:#555;margin-bottom:.5rem}'
-      + '#m-liveness .m-dots{display:flex;justify-content:center;gap:1.2rem;align-items:center}'
-      + '#m-liveness .m-dot{display:inline-block;width:18px;height:18px;border-radius:50%;border:2px solid #ddd;background:#fff;transition:all .15s}'
-      + '#m-liveness .m-dot.on{border-color:#27ae60;background:#2ecc71;box-shadow:0 0 6px rgba(46,204,113,.5)}'
-      + '#m-liveness .m-labels{display:flex;justify-content:center;gap:1.2rem;margin-top:.3rem;font-size:.72rem;color:#888}'
-      + '#m-liveness .m-labels span{display:inline-block;width:22px;text-align:center}'
       + '@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}';
     document.head.appendChild(st);
 
@@ -384,15 +369,6 @@ def _build_secure_loader_js():
       + '</label><input type="password" id="m-pin" maxlength="8" placeholder="8 \u4f4d\u6578" inputmode="numeric" autocomplete="current-password"></div>'
       + '<button class="btn-modal btn-modal-primary" id="m-submit">\u9a57\u8b49\u767b\u5165</button>'
       + '<div id="modal-msg">\u93e1\u982d\u555f\u52d5\u4e2d\u2026</div>'
-      + '<div id="m-liveness">'
-      + '  <div class="m-hint">\u8acb\u8f15\u8f15\u8f49\u52d5\u982d\u90e8</div>'
-      + '  <div class="m-dots">'
-      + '    <span class="m-dot" data-pose="L"></span>'
-      + '    <span class="m-dot" data-pose="C"></span>'
-      + '    <span class="m-dot" data-pose="R"></span>'
-      + '  </div>'
-      + '  <div class="m-labels"><span>\u5de6</span><span>\u4e2d</span><span>\u53f3</span></div>'
-      + '</div>'
       + '</div></div>';
     document.body.appendChild(d.firstChild);
 
@@ -456,128 +432,50 @@ def _build_secure_loader_js():
     return _cvs.toDataURL('image/jpeg', 0.85);
   }
 
-  function _reset_btn() {
-    var b = document.getElementById('m-submit');
-    if (b) { b.disabled = false; b.textContent = '\u9a57\u8b49\u767b\u5165'; }
-  }
-
-  function _stop_liveness() {
-    if (_pose_timer) { clearInterval(_pose_timer); _pose_timer = null; }
-    if (_pose_timeout) { clearTimeout(_pose_timeout); _pose_timeout = null; }
-    var lv = document.getElementById('m-liveness');
-    if (lv) lv.style.display = 'none';
-  }
-
-  function _handle_verify_result(d) {
-    var msg = document.getElementById('modal-msg');
-    _stop_liveness();
-    switch (d.status) {
-      case 'ok':
-        if (msg) { msg.textContent = '\u9a57\u8b49\u6210\u529f\uff01'; msg.className = 'ok'; }
-        setTimeout(function() { location.href = '/auth/s/r'; }, 800);
-        return;
-      case 'wrong_password':
-        if (msg) { msg.textContent = 'PIN \u78bc\u932f\u8aa4'; msg.className = 'err'; }
-        break;
-      case 'need_face_enroll':
-        if (msg) { msg.textContent = '\u8acb\u806f\u7e6b\u7ba1\u7406\u54e11'; msg.className = 'err'; }
-        break;
-      case 'face_mismatch':
-        if (msg) { msg.textContent = '1\u5931\u6557\uff0c\u8acb\u91cd\u8a66'; msg.className = 'err'; }
-        break;
-      case 'store_disabled':
-        var modal = document.getElementById('auth-modal');
-        if (modal) modal.classList.remove('open');
-        _p(); _x(); return;
-      default:
-        if (msg) { msg.textContent = '\u9a57\u8b49\u5931\u6557'; msg.className = 'err'; }
-    }
-    _reset_btn();
-  }
-
-  function _submit_final(pin) {
-    if (_verify_done) return;
-    _verify_done = true;
-    if (_pose_timer) { clearInterval(_pose_timer); _pose_timer = null; }
-    if (_pose_timeout) { clearTimeout(_pose_timeout); _pose_timeout = null; }
-    var msg = document.getElementById('modal-msg');
-    if (msg) { msg.textContent = '\u8fa8\u8b58\u4e2d\u2026'; msg.className = ''; }
-    fetch('/auth/verify', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        pin: pin,
-        frames: [_pose_frames.L, _pose_frames.C, _pose_frames.R]
-      })
-    }).then(function(r){return r.json();}).then(_handle_verify_result)
-      .catch(function() {
-        if (msg) { msg.textContent = '\u9023\u7dda\u932f\u8aa4'; msg.className = 'err'; }
-        _reset_btn();
-      });
-  }
-
   function _v() {
-    // \u5df2\u555f\u52d5\u5075\u6e2c \u2192 \u4e8c\u6b21\u9ede\u64ca\u5ffd\u7565
-    if (_pose_timer) return;
+    // Verify PIN + face
     var pin = (document.getElementById('m-pin') || {}).value || '';
-    pin = pin.trim().slice(0, 8);
+    pin = pin.trim().slice(0, 4);
+    var face = _g();
     var msg = document.getElementById('modal-msg');
     var btn = document.getElementById('m-submit');
-    if (_cs !== 'ready') {
-      if (msg) {
-        msg.textContent = (_cs === 'failed') ? '\u76f8\u6a5f\u7121\u6cd5\u555f\u52d5' : '\u93e1\u982d\u555f\u52d5\u4e2d\uff0c\u8acb\u7a0d\u5019';
-        msg.className = 'err';
-      }
+    if (!face) {
+      if (_cs === 'failed') { if(msg){msg.textContent='\u76f8\u6a5f\u7121\u6cd5\u555f\u52d5';msg.className='err';} }
+      else { if(msg){msg.textContent='\u93e1\u982d\u555f\u52d5\u4e2d\uff0c\u8acb\u7a0d\u5019';msg.className='err';} }
       return;
     }
-    if (btn) { btn.disabled = true; btn.textContent = '\u8fa8\u8b58\u4e2d\u2026'; }
-    if (msg) { msg.textContent = ''; msg.className = ''; }
-
-    _pose_frames = { L: null, C: null, R: null };
-    _verify_done = false;
-    var lv = document.getElementById('m-liveness');
-    if (lv) lv.style.display = 'block';
-    var dots = document.querySelectorAll('#m-liveness .m-dot');
-    for (var k = 0; k < dots.length; k++) dots[k].classList.remove('on');
-
-    function step() {
-      if (_verify_done) return;
-      var face = _g();
-      if (!face) return;
-      fetch('/auth/face-pose', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({face_image: face})
-      }).then(function(r){return r.json();}).then(function(d) {
-        if (_verify_done) return;
-        var pose = d && d.pose;
-        if (!pose || pose === 'unclear') return;
-        if (_pose_frames[pose] !== null) return;
-        _pose_frames[pose] = face;
-        var dot = document.querySelector('#m-liveness .m-dot[data-pose="' + pose + '"]');
-        if (dot) dot.classList.add('on');
-        if (_pose_frames.L && _pose_frames.C && _pose_frames.R) {
-          _submit_final(pin);
-        }
-      }).catch(function() { /* \u55ae\u6b21\u5931\u6557\u5ffd\u7565\uff0c\u4e0b\u500b tick \u518d\u8a66 */ });
-    }
-
-    _pose_timer = setInterval(step, 300);
-    step();  // \u7acb\u5373\u8dd1\u4e00\u6b21\u3001\u4e0d\u7b49 300ms
-
-    // 8 \u79d2\u8d85\u6642\uff1a\u6c92\u6e4a\u9f4a\u5c31\u653e\u68c4\u3001\u986f\u793a\u91cd\u8a66\u63d0\u793a
-    _pose_timeout = setTimeout(function() {
-      if (_verify_done) return;
-      _verify_done = true;
-      _stop_liveness();
-      if (msg) { msg.textContent = '\u5075\u6e2c\u8d85\u6642\uff0c\u8acb\u9760\u8fd1\u93e1\u982d\u518d\u8a66'; msg.className = 'err'; }
-      _reset_btn();
-    }, 8000);
+    if(btn) btn.disabled = true;
+    if(msg){msg.textContent='\u8fa8\u8b58\u4e2d\u2026';msg.className='';}
+    fetch('/auth/verify',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pin:pin,face_image:face})
+    }).then(function(r){return r.json()}).then(function(d){
+      switch(d.status){
+        case 'ok':
+          if(msg){msg.textContent='\u9a57\u8b49\u6210\u529f\uff01';msg.className='ok';}
+          setTimeout(function(){location.href='/auth/s/r'},800);break;
+        case 'wrong_password':
+          if(msg){msg.textContent='PIN \u78bc\u932f\u8aa4';msg.className='err';}break;
+        case 'face_not_found':
+          if(msg){msg.textContent='\u932f\u8aa41';msg.className='err';}break;
+        case 'need_face_enroll':
+          if(msg){msg.textContent='\u8acb\u806f\u7e6b\u7ba1\u7406\u54e11';msg.className='err';}break;
+        case 'face_mismatch':
+          if(msg){msg.textContent='1\u5931\u6557\uff0c\u8acb\u91cd\u8a66';msg.className='err';}break;
+        case 'store_disabled':
+          var modal=document.getElementById('auth-modal');
+          if(modal)modal.classList.remove('open');
+          _p();_x();break;
+        default:
+          if(msg){msg.textContent='\u9a57\u8b49\u5931\u6557';msg.className='err';}
+      }
+    }).catch(function(){
+      if(msg){msg.textContent='\u9023\u7dda\u932f\u8aa4';msg.className='err';}
+    }).then(function(){if(btn)btn.disabled=false});
   }
 
   function _x() {
-    // Cleanup all injected DOM + 停止 liveness loop
-    if (_pose_timer) { clearInterval(_pose_timer); _pose_timer = null; }
-    if (_pose_timeout) { clearTimeout(_pose_timeout); _pose_timeout = null; }
-    _verify_done = true;  // 防止背景 fetch 回來再呼 _submit_final
+    // Cleanup all injected DOM
     var el;
     el = document.getElementById('auth-modal'); if (el && el.parentNode) el.parentNode.removeChild(el);
     if (_vid && _vid.parentNode) _vid.parentNode.removeChild(_vid);
