@@ -55,6 +55,61 @@ def _do_detect_any_face(img_data_bytes):
     img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
     return len(face_recognition.face_locations(img, number_of_times_to_upsample=1)) > 0
 
+
+def _do_face_encode(img_data_bytes):
+    """Run in thread — decode image + extract single face_encoding.
+
+    回 128-d ndarray 或 None（沒偵測到臉）。給 best-match 用、一張圖只算一次
+    encoding、再對候選 users 用純 numpy 算 face_distance。比舊版 first-match
+    每個候選都重跑整條 face_recognition pipeline 省 N-1 倍 CPU。
+    """
+    img = face_recognition.load_image_file(io.BytesIO(img_data_bytes))
+    locations = face_recognition.face_locations(img, number_of_times_to_upsample=1)
+    encodings = face_recognition.face_encodings(img, locations)
+    return encodings[0] if encodings else None
+
+
+def _best_match_among(users, submitted_encoding,
+                      threshold: float = 0.45,
+                      ambiguous_margin: float = 0.05):
+    """從候選 users 選 face_distance 最低且 < threshold 的；前兩名距離差距
+    < ambiguous_margin 視為 close call 整批拒（避免同 PIN 兩個臉相近員工
+    互登）。取代既有 first-match-wins。
+
+    Returns:
+        (matched_user_or_None, info_dict)
+        info_dict: best_dist / second_dist / ambiguous flag
+    """
+    import numpy as _np
+    submitted = _np.asarray(submitted_encoding, dtype=_np.float64)
+    scored = []
+    for u in users:
+        enc = u.face_encoding
+        if enc is None:
+            continue
+        # User.face_encoding 是 raw bytes（128 float64）；轉回 ndarray
+        if isinstance(enc, (bytes, bytearray)):
+            known = _np.frombuffer(enc, dtype=_np.float64)
+        else:
+            known = _np.asarray(enc, dtype=_np.float64)
+        dist = float(_np.linalg.norm(known - submitted))
+        scored.append((dist, u))
+    if not scored:
+        return None, {"reason": "no enrolled users"}
+    scored.sort(key=lambda x: x[0])
+    best_dist, best_user = scored[0]
+    info = {"best_dist": best_dist}
+    if best_dist > threshold:
+        return None, info
+    if len(scored) >= 2:
+        second_dist = scored[1][0]
+        info["second_dist"] = second_dist
+        if second_dist - best_dist < ambiguous_margin:
+            info["ambiguous"] = True
+            return None, info
+    return best_user, info
+
+
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
@@ -124,41 +179,42 @@ def verify():
     if not face_image:
         return jsonify({"status": "face_mismatch"})
 
-    matched = None
-    for u in face_enrolled:
-        match, _ = _verify_face(u, face_image)
-        if match:
-            matched = u
-            break
-
-    if matched:
-        if not matched.is_super_admin() and matched.store:
-            s = Store.query.filter_by(name=matched.store).first()
-            if s and not s.login_enabled:
-                return jsonify({"status": "store_disabled"})
-        login_user(matched)
-        session.permanent = True
-        # 重置 idle 計時器：避免 session 裡殘留的舊 _last_request_at
-        # 讓 _enforce_session_idle 在下個 request 直接判定 idle 超時而登出
-        import time as _time
-        session["_last_request_at"] = int(_time.time())
-        logger.warning("verify: PIN matched, face matched user=%s", matched.username)
-        return jsonify({"status": "ok"})
-
-    # Step 5: 人臉不符 → 區分「圖中無人臉」vs「有人臉但不符」
+    # Step 4: best-match 跨所有候選人 — 取代既有 first-match-wins。
+    # 圖像解碼 + face_encoding 只跑一次（最 CPU heavy），再對候選 users
+    # 用純 numpy 算 face_distance，省 N-1 倍 dlib 計算。
     try:
         img_data = base64.b64decode(face_image.split(",")[-1])
-        async_result = _face_executor.spawn(_do_detect_any_face, img_data)
-        any_face_found = async_result.get(timeout=15)
-    except Exception:
-        any_face_found = False
+        async_result = _face_executor.spawn(_do_face_encode, img_data)
+        submitted_encoding = async_result.get(timeout=15)
+    except Exception as e:
+        logger.warning("verify: encode exception: %s", e)
+        submitted_encoding = None
 
-    if not any_face_found:
+    if submitted_encoding is None:
         logger.warning("verify: no face detected in submitted image")
         return jsonify({"status": "face_not_found"})
 
-    logger.warning("verify: face found but no match among pin_users=%s", [u.username for u in face_enrolled])
-    return jsonify({"status": "face_mismatch"})
+    matched, info = _best_match_among(face_enrolled, submitted_encoding)
+    logger.warning("verify: best-match info=%s", info)
+
+    if matched is None:
+        logger.warning("verify: no match among face_enrolled=%s",
+                       [u.username for u in face_enrolled])
+        return jsonify({"status": "face_mismatch"})
+
+    if not matched.is_super_admin() and matched.store:
+        s = Store.query.filter_by(name=matched.store).first()
+        if s and not s.login_enabled:
+            return jsonify({"status": "store_disabled"})
+    login_user(matched)
+    session.permanent = True
+    # 重置 idle 計時器：避免 session 裡殘留的舊 _last_request_at
+    # 讓 _enforce_session_idle 在下個 request 直接判定 idle 超時而登出
+    import time as _time
+    session["_last_request_at"] = int(_time.time())
+    logger.warning("verify: PIN matched, best-match user=%s dist=%.3f",
+                   matched.username, info.get("best_dist", -1))
+    return jsonify({"status": "ok"})
 
 
 @auth_bp.route("/logout")
