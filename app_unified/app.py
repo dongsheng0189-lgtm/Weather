@@ -367,13 +367,16 @@ def create_app():
     @app.before_request
     def _enforce_session_idle():
         """伺服器端閒置強制登出。
-        max idle：
-        - 桌機（非 mobile UA）且最近 30 分鐘內曾請求 /mynotes/* → 30 分鐘
+        max idle 依使用者最近活動路徑動態調整：
+        - 桌機（非 mobile UA）且最近曾請求 /mynotes/* → 30 分鐘
+          （私人筆記內容長停留輸入；mobile 不享 grace、保守 5 分鐘）
+        - 最近曾請求 /vetting/* → 15 分鐘
+          （判例 / 社群搜尋閱讀緩衝；mobile/桌機都享、user 明確指定不分裝置）
         - 其他 → 5 分鐘
 
-        以「mynotes grace」追蹤：每次 /mynotes/* 桌機請求把 grace 推到 now+30min，
-        grace 期間任何路徑（含 /auth/ping、跨頁切到 /weather）都享 30 分鐘 idle，
-        避免使用者離開 mynotes 後第一個請求就被 5 分鐘規則踢出。
+        各功能 grace 由對應路徑請求推進；grace 期間任何路徑（含 /auth/ping、
+        跨頁切到 /weather）都享延長 idle，避免離開該功能後第一個請求就被
+        5 分鐘規則踢出。多 grace 同時有效時取最長者。
 
         僅對已登入使用者作用；靜態資源、SW、登出端點略過。
         """
@@ -387,12 +390,21 @@ def create_app():
         ua = (request.headers.get("User-Agent") or "").lower()
         is_mobile = any(k in ua for k in ("iphone", "ipad", "ipod", "android"))
         on_mynotes = (p == "/mynotes" or p.startswith("/mynotes/"))
+        on_vetting = (p == "/vetting" or p.startswith("/vetting/"))
         import time
         now = int(time.time())
         if on_mynotes and not is_mobile:
             session["_mynotes_grace_until"] = now + 30 * 60
+        if on_vetting:
+            session["_vetting_grace_until"] = now + 15 * 60
         in_mynotes_grace = (not is_mobile) and now < session.get("_mynotes_grace_until", 0)
-        max_idle = 30 * 60 if in_mynotes_grace else 5 * 60
+        in_vetting_grace = now < session.get("_vetting_grace_until", 0)
+        if in_mynotes_grace:
+            max_idle = 30 * 60
+        elif in_vetting_grace:
+            max_idle = 15 * 60
+        else:
+            max_idle = 5 * 60
         last = session.get("_last_request_at")
         if last is not None and now - last > max_idle:
             logout_user()

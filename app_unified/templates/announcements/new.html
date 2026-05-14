@@ -3,6 +3,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/announcements.css') }}">
+<script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=4"></script>
 {% endblock %}
 
 {% block content %}
@@ -80,5 +81,8 @@ function submitAnnouncement(e) {
     });
   return false;
 }
+
+// 編輯時刷新 session、避免 5 分鐘 idle 被 _enforce_session_idle 踢出
+EditKeepalive.init();
 </script>
 {% endblock %}
