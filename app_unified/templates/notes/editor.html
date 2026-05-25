@@ -57,6 +57,25 @@
 .att-item video { display: block; max-width: 280px; max-height: 200px; border-radius: 8px; }
 .att-item .att-info { padding: .3rem .5rem; font-size: .75rem; color: #888; }
 .att-item .att-delete { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; font-size: 0.875rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+/* F2 item-level lock 視覺 */
+.cl-item.locked-by-other { opacity: 0.5; cursor: not-allowed; position: relative; }
+.cl-item.locked-by-other > * { pointer-events: none; }
+.cl-item.locked-by-other::after {
+  content: "🔒 " attr(data-locked-by) " 編輯中";
+  position: absolute; top: 4px; right: 8px;
+  font-size: 0.75rem; color: #fff;
+  background: rgba(150, 50, 50, 0.85);
+  padding: 2px 8px; border-radius: 12px;
+  pointer-events: none;
+}
+.cl-toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: rgba(50,50,50,.95); color: #fff;
+  padding: .7rem 1.2rem; border-radius: 8px;
+  z-index: 10000; font-size: .95rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
 </style>
 {% endblock %}
 {% block content %}
@@ -934,6 +953,15 @@ function _applyCompletionPartition(items) {
   return matched.concat(rest);
 }
 
+// F2: minimal toast for item lock 提示
+function showToast(msg) {
+  var t = document.createElement('div');
+  t.className = 'cl-toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 3000);
+}
+
 function _renderChecklistItemsFromCache() {
   var wrap = document.getElementById('checklist-items');
   if (!wrap) return;
@@ -984,8 +1012,19 @@ function loadChecklistItems() {
 
 function renderChecklistItem(item) {
   var row = document.createElement('div');
+  row.className = 'cl-item';
   row.style.cssText = 'display:flex;gap:.6rem;padding:.75rem;border:1px solid #e0e0e0;border-radius:8px;margin-bottom:.5rem;background:#fafafa;';
   row.dataset.itemId = item.id;
+  // F2: lock 視覺
+  if (item.locked_by_username) {
+    row.classList.add('locked-by-other');
+    row.dataset.lockedBy = item.locked_by_username;
+    row.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      showToast(item.locked_by_username + ' 編輯中、5 分鐘無動作後可接手');
+    }, true);  // capture phase
+  }
 
   // checkbox
   var cb = document.createElement('input');
