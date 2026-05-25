@@ -752,8 +752,8 @@ def delete_note(note_id):
             "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"
         }), 409
 
-    for att in note.attachments:
-        r2_delete(att.object_key)
+    # F1: soft delete、R2 attachment 不在這刪（24h cleanup 才刪）
+    soft_delete_note(note, current_user.id)
 
     log = NoteLog(
         note_id=note.id,
@@ -762,7 +762,6 @@ def delete_note(note_id):
         action="delete",
     )
     db.session.add(log)
-    db.session.delete(note)
     db.session.commit()
     return jsonify({"status": "ok"})
 
@@ -1584,16 +1583,10 @@ def delete_checklist_item(item_id):
         db.session.rollback()
         return jsonify({"status": "error",
                         "message": f"{locker.username if locker else '他人'} 編輯中、無法刪除"}), 409
-    # 刪 R2 上的附件
-    for a in list(item.attachments):
-        try:
-            delete_attachment(a.object_key)
-        except Exception:
-            pass
-    # F2: 抓 id 給 broadcast 用（commit 後 item 已 detach）
+    # F1: soft delete、R2 attachment 不在這刪（24h cleanup 才刪）
     item_id_for_broadcast = item.id
     note_id_for_broadcast = item.note_id
-    db.session.delete(item)
+    soft_delete_item(item, current_user.id)
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id
     db.session.commit()
