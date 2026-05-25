@@ -3,6 +3,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/announcements.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/fullscreen_viewer.css') }}">
 <script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=4"></script>
 {% endblock %}
 
@@ -52,6 +53,7 @@
 window.ANN_ID = null;
 window.ANN_PENDING_FILES = [];
 </script>
+<script src="{{ url_for('static', filename='js/fullscreen_viewer.js') }}"></script>
 <script src="{{ url_for('static', filename='js/announcement_attachments.js') }}"></script>
 <script>
 function submitAnnouncement(e) {
