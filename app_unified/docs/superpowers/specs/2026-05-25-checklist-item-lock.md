@@ -252,6 +252,60 @@ if (item.locked_by_username) {
 }
 ```
 
+### 11. WebSocket broadcast: lock change 即時同步
+
+既有 `notes/ws.py` + `window._ws` (socket.io client in base.html) 已實作 note-level `lr` (lock release) / `la` (lock acquire) broadcast、editor 進頁 `op: 'jn'` 加入 `note-<id>` room。沿用同 pattern 加 item-level event：
+
+**新 op code**：`il` (item lock changed)
+
+```python
+# notes/routes.py 內所有改變 item lock 狀態的地方都廣播
+from extensions import socketio
+
+def _broadcast_item_lock(item, locked_by_user=None):
+    """廣播 item lock 狀態變更給 note room 內其他 client (排除自己)。
+    locked_by_user=None 代表解鎖。"""
+    socketio.emit('r', {
+        'op': 'il',
+        'note_id': item.note_id,
+        'item_id': item.id,
+        'locked_by_id': locked_by_user.id if locked_by_user else None,
+        'locked_by_username': locked_by_user.username if locked_by_user else None,
+    }, to=f'note-{item.note_id}', include_self=False)
+```
+
+**觸發點**：
+- `POST /api/items/<id>/lock/heartbeat` 第一次 acquire（從 NULL → 有 locker）→ broadcast(locked_by_user=current_user)
+- `POST /api/items/<id>/lock/heartbeat` refresh（自己持鎖）→ **不**廣播（沒變動）
+- `POST /api/items/<id>/lock/release` 自己 release → broadcast(locked_by_user=None)
+- `PUT /api/items/<id>` 成功儲存後（同步釋放 lock）→ broadcast(locked_by_user=None)
+- `DELETE /api/items/<id>` 成功 → broadcast(locked_by_user=None, also include `'deleted': True` 讓 client 移除整個 item DOM)
+
+**Frontend handler**（在 editor.html 既有 `sock.on('r', ...)` 內加 case）：
+
+```javascript
+} else if (msg.op === 'il') {
+  // item lock 狀態變更（別人 acquire / release / save 完）
+  var itemDiv = document.querySelector('#checklist-items > div[data-item-id="' + msg.item_id + '"]');
+  if (!itemDiv) return;
+  if (msg.deleted) {
+    itemDiv.remove();
+    return;
+  }
+  if (msg.locked_by_username) {
+    itemDiv.classList.add('locked-by-other');
+    itemDiv.dataset.lockedBy = msg.locked_by_username;
+  } else {
+    itemDiv.classList.remove('locked-by-other');
+    delete itemDiv.dataset.lockedBy;
+  }
+}
+```
+
+**即時度**：A unlock → server emit → B 收到 'il' → B 視覺更新 = **< 1 秒**
+
+**容錯**：socket 斷線 / 重連時、user reload list 仍會走 HTTP `/api/<note_id>/items` 拿到正確 lock 狀態（既有 `_checklist_item_json` 已含 locked_by_username）→ WebSocket 是 enhancement、非必要、failure mode = degrade 到 stale 視覺直到下次 reload。
+
 ## 邊界情境
 
 | 情境 | 處理 |
@@ -265,6 +319,8 @@ if (item.locked_by_username) {
 | User A 編 item、user B 同時新增 item | 兩個都成功（新增是 atomic create、無 conflict） |
 | 既有 ChecklistItem row（無 lock 欄位）| Migration 後新欄位 NULL、`_item_lock_status` 拿到 None 自動視為未鎖 |
 | Toggle is_checked（勾完成）| 不走 lock check（即使別人在編、勾選仍 OK；既有行為） |
+| A unlock 後 B 即時看到 | WebSocket broadcast 'il' op、B < 1s 內視覺更新（chip 消失） |
+| Socket 斷線時 lock 狀態同步 | Degrade 模式：reload 走 HTTP API 拿正確狀態、WS 是 enhancement |
 
 ## Capacity
 
