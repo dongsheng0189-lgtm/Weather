@@ -1,23 +1,14 @@
-/* 公告附件 UI — 複製 notes/editor.html 的 createAttItem / openFullscreen pattern。
+/* 公告附件 UI — createAttItem / renderAttView / file upload.
+ * 圖片 fullscreen viewer 走 shared window.openFullscreen
+ * (static/js/fullscreen_viewer.js)、template 一定要先引入該檔。
+ *
  * 提供：
  *   - createAnnAttItem(att) : 編輯/建立頁的附件 item（含刪除 ×）
  *   - renderAnnAttView(att) : index 卡片唯讀展示（無刪除 ×）
  *   - handleAnnFileUpload(input) : 編輯/建立頁 file input change handler
  *   - uploadAnnPendingFiles(annId, cb) : submit 後逐檔上傳
- *   - openFullscreen(url)
  * 依賴 window.ANN_ID（編輯頁 = id；建立頁 = null）+ window.ANN_PENDING_FILES。
  */
-
-function openFullscreen(url) {
-  var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.92);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
-  var img = document.createElement('img');
-  img.src = url;
-  img.style.cssText = 'max-width:95vw;max-height:95vh;';
-  overlay.appendChild(img);
-  overlay.onclick = function() { document.body.removeChild(overlay); };
-  document.body.appendChild(overlay);
-}
 
 function _formatSize(bytes) {
   if (bytes > 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
