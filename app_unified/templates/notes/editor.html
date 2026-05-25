@@ -1190,6 +1190,10 @@ function deleteChecklistItem(itemId) {
     });
 }
 
+// F2: item-level lock state
+var _currentEditItemId = null;
+var _itemLockHeartbeatTimer = null;
+
 function openAddItemDialog() {
   document.getElementById('item-modal-id').value = '';
   document.getElementById('item-modal-title').textContent = '新增項目';
@@ -1203,22 +1207,64 @@ function openAddItemDialog() {
 }
 
 function openEditItemDialog(item) {
-  document.getElementById('item-modal-id').value = item.id;
-  document.getElementById('item-modal-title').textContent = '編輯項目';
-  document.getElementById('item-modal-text').value = item.text || '';
-  document.getElementById('item-upload-status').textContent = '';
-  document.getElementById('item-modal-msg').textContent = '';
-  _itemAttachmentsPending = [];
-  _itemAttachmentsSaved = (item.attachments || []).slice();
-  renderItemAttachmentList();
-  document.getElementById('item-modal').style.display = 'flex';
+  // F2: 先 acquire item lock 才開 dialog
+  fetch('/notes/api/items/' + item.id + '/lock/heartbeat', { method: 'POST' })
+    .then(function(r) {
+      if (r.status === 409) {
+        return r.json().then(function(data) {
+          showToast((data.locker || '他人') + ' 編輯中、5 分鐘無動作後可接手');
+          throw new Error('locked');
+        });
+      }
+      if (!r.ok) {
+        showToast('開啟編輯失敗、請重試');
+        throw new Error('http ' + r.status);
+      }
+      return r.json();
+    })
+    .then(function() {
+      // acquire 成功才真的開 dialog
+      document.getElementById('item-modal-id').value = item.id;
+      document.getElementById('item-modal-title').textContent = '編輯項目';
+      document.getElementById('item-modal-text').value = item.text || '';
+      document.getElementById('item-upload-status').textContent = '';
+      document.getElementById('item-modal-msg').textContent = '';
+      _itemAttachmentsPending = [];
+      _itemAttachmentsSaved = (item.attachments || []).slice();
+      renderItemAttachmentList();
+      document.getElementById('item-modal').style.display = 'flex';
+      _currentEditItemId = item.id;
+      _itemLockHeartbeatTimer = setInterval(function() {
+        fetch('/notes/api/items/' + item.id + '/lock/heartbeat', { method: 'POST' }).catch(function() {});
+      }, 60000);
+    })
+    .catch(function() {});  // 已 toast、不擴散
 }
 
 function closeItemDialog() {
+  // F2: 釋放 item lock
+  if (_itemLockHeartbeatTimer) {
+    clearInterval(_itemLockHeartbeatTimer);
+    _itemLockHeartbeatTimer = null;
+  }
+  if (_currentEditItemId) {
+    fetch('/notes/api/items/' + _currentEditItemId + '/lock/release', { method: 'POST' }).catch(function() {});
+    _currentEditItemId = null;
+  }
   document.getElementById('item-modal').style.display = 'none';
   _itemAttachmentsPending = [];
   _itemAttachmentsSaved = [];
 }
+
+window.addEventListener('beforeunload', function() {
+  // F2: sendBeacon release item lock 避免關 tab 後 lock 卡 5min
+  if (_currentEditItemId && navigator.sendBeacon) {
+    navigator.sendBeacon(
+      '/notes/api/items/' + _currentEditItemId + '/lock/release',
+      new Blob(['{}'], { type: 'application/json' })
+    );
+  }
+});
 
 function renderItemAttachmentList() {
   var list = document.getElementById('item-attachment-list');
