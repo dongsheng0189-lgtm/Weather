@@ -578,7 +578,7 @@
       navigator.geolocation.getCurrentPosition(
         function(pos) { loadWeatherByCoords(pos.coords.latitude, pos.coords.longitude); },
         function() { fallbackToIP(); },
-        { timeout: 8000, maximumAge: 300000 }
+        { timeout: 3000, maximumAge: 300000 }
       );
     } else {
       fallbackToIP();
