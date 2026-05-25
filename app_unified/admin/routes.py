@@ -860,6 +860,10 @@ def list_deleted():
         item_q = item_q.filter(Note.store == current_user.store)
     deleted_items = item_q.order_by(ChecklistItem.deleted_at.desc()).all()
 
+    def _fmt_tw(dt):
+        """UTC datetime → 台灣時間字串、跟既有 admin log 顯示 pattern 對齊。"""
+        return dt.replace(tzinfo=timezone.utc).astimezone(TW_TZ).strftime("%Y-%m-%d %H:%M")
+
     def _note_dict(n):
         deleter = User.query.get(n.deleted_by) if n.deleted_by else None
         hours_remaining = round(24 - (now - n.deleted_at).total_seconds() / 3600, 1)
@@ -868,7 +872,7 @@ def list_deleted():
             "title": n.title or "(無標題)",
             "store": n.store or "",
             "note_type": n.note_type,
-            "deleted_at": n.deleted_at.strftime("%Y-%m-%d %H:%M"),
+            "deleted_at": _fmt_tw(n.deleted_at),
             "deleted_by_name": deleter.username if deleter else "(unknown)",
             "hours_remaining": hours_remaining,
         }
@@ -881,7 +885,7 @@ def list_deleted():
             "text": (item.text or "")[:60],
             "note_id": item.note_id,
             "note_title": (item.note.title if item.note else "(unknown)"),
-            "deleted_at": item.deleted_at.strftime("%Y-%m-%d %H:%M"),
+            "deleted_at": _fmt_tw(item.deleted_at),
             "deleted_by_name": deleter.username if deleter else "(unknown)",
             "hours_remaining": hours_remaining,
         }
