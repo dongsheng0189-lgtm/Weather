@@ -1278,9 +1278,23 @@ function closeItemDialog() {
   }
   if (_currentEditItemId) {
     var releasedId = _currentEditItemId;
-    fetch('/notes/api/items/' + releasedId + '/lock/release', { method: 'POST' }).catch(function() {});
-    // F2 fix: optimistic local DOM update — 不依賴 WS roundtrip
-    // 避免 WS 斷線時 chip 卡住、user 看自己還在編
+    // F2 fix: sendBeacon 比 fetch().catch() 可靠、瀏覽器保證送出即使 modal 立刻關閉。
+    // 之前 ✕ 退出時 fetch 可能被低優先級延遲、server 沒收到 → B 看到 chip 卡住。
+    var sent = false;
+    if (navigator.sendBeacon) {
+      try {
+        sent = navigator.sendBeacon(
+          '/notes/api/items/' + releasedId + '/lock/release',
+          new Blob(['{}'], { type: 'application/json' })
+        );
+      } catch (e) { sent = false; }
+    }
+    if (!sent) {
+      // fallback: keepalive 允許 fetch 在 page 狀態變動下繼續完成
+      fetch('/notes/api/items/' + releasedId + '/lock/release',
+            { method: 'POST', keepalive: true }).catch(function() {});
+    }
+    // optimistic local DOM update — 不依賴 WS roundtrip
     var itemDiv = document.querySelector('#checklist-items > div[data-item-id="' + releasedId + '"]');
     if (itemDiv) {
       itemDiv.classList.remove('locked-by-other');
