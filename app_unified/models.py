@@ -113,12 +113,20 @@ class Note(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     resolved_at = db.Column(db.DateTime, nullable=True)
+    deleted_at = db.Column(db.DateTime, nullable=True, index=True)
+    deleted_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     locker = db.relationship("User", foreign_keys=[locked_by])
+    deleter = db.relationship("User", foreign_keys=[deleted_by])
 
     logs = db.relationship("NoteLog", backref="note", lazy=True,
                            foreign_keys="NoteLog.note_id",
                            primaryjoin="Note.id == NoteLog.note_id")
+
+    @classmethod
+    def active(cls):
+        """Query builder filter 出未軟刪的 notes (F1 soft delete)。"""
+        return cls.query.filter(cls.deleted_at.is_(None))
 
     @property
     def display_author(self):
@@ -176,6 +184,8 @@ class ChecklistItem(db.Model):
     checked_by_name = db.Column(EncryptedText, nullable=True)  # 快照
     locked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at = db.Column(db.DateTime, nullable=True)
+    deleted_at = db.Column(db.DateTime, nullable=True, index=True)
+    deleted_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)  # 排序用：新增/編輯/附件變更時 bump
 
@@ -184,6 +194,12 @@ class ChecklistItem(db.Model):
         order_by="ChecklistItem.updated_at.desc()"))
     checker = db.relationship("User", foreign_keys=[checked_by])
     locker = db.relationship("User", foreign_keys=[locked_by])
+    deleter = db.relationship("User", foreign_keys=[deleted_by])
+
+    @classmethod
+    def active(cls):
+        """Query builder filter 出未軟刪的 items (F1 soft delete)。"""
+        return cls.query.filter(cls.deleted_at.is_(None))
 
 
 class NoteAttachment(db.Model):
