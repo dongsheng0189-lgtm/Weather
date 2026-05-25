@@ -306,6 +306,27 @@ def _broadcast_item_lock(item, locked_by_user=None):
 
 **容錯**：socket 斷線 / 重連時、user reload list 仍會走 HTTP `/api/<note_id>/items` 拿到正確 lock 狀態（既有 `_checklist_item_json` 已含 locked_by_username）→ WebSocket 是 enhancement、非必要、failure mode = degrade 到 stale 視覺直到下次 reload。
 
+### 12. Lock-banner / 強制釋放鎖按鈕在 checklist mode
+
+既有 editor.html line 88-93 的 lock-banner 含「強制釋放鎖」按鈕（`btn-force-release`、`current_user.is_admin()` only），是 note-level lock 卡住時的 admin escape hatch。
+
+F2 後行為：
+- **checklist mode**：editor 進頁不 acquire note lock → server `is_readonly` 永遠 false（除非 a 已 mutation 觸發 note lock、但下一個 mutation 才 acquire；新 user 進頁仍 false）→ lock-banner CSS `display: none` → 強制釋放按鈕**自然不顯示**
+- **general note**（`note_type='note'`）：行為**完全不變**、lock-banner + 強制釋放按鈕仍 work
+
+額外保險：editor.html template 加 conditional 確保 checklist mode 完全不渲染 lock-banner（即使 server 因某種原因 set is_readonly=true）：
+
+```html
+<!-- editor.html line 88 附近 -->
+{% if editor_type != 'checklist' %}
+<div id="lock-banner" ...>
+  ...強制釋放按鈕...
+</div>
+{% endif %}
+```
+
+跟 §6 的 conditional heartbeat 對齊：checklist mode 完全不參與 note-level lock UI。
+
 ## 邊界情境
 
 | 情境 | 處理 |
