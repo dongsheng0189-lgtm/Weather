@@ -162,7 +162,7 @@
 
   <!-- 載入中 -->
   <div id="loading-block">
-    <div class="loading"><span id="loading-text">載入天氣資料中…</span></div>
+    <div class="loading">載入天氣資料中…</div>
   </div>
 
   <!-- 錯誤 -->
@@ -532,37 +532,7 @@
       if (chineseName) weather.name = chineseName;
       renderWeatherCard(weather);
       if (aqiData && aqiData.list && aqiData.list[0]) renderAQI(aqiData.list[0]);
-      saveCache(lat, lon, weather, aqiData);
-      renderStalenessChip(null);
       registerDevice();
-    });
-  }
-
-  function refreshFromCachedLocation(cache) {
-    var weatherPromise = fetchWithTimeout('/weather/api/weather?lat=' + cache.lat + '&lon=' + cache.lon, {
-      headers: {
-        'X-Device-FP': window.__deviceFP || '',
-        'X-Device-UID': window.__deviceUID || ''
-      }
-    }, 10000).then(function(r) { return r.json(); });
-
-    var aqiPromise = fetchWithTimeout('/weather/api/air_quality?lat=' + cache.lat + '&lon=' + cache.lon, {}, 6000)
-      .then(function(r) { return r.json(); })
-      .catch(function() { return null; });
-
-    return Promise.all([weatherPromise, aqiPromise]).then(function(results) {
-      var weather = results[0];
-      var aqi = results[1];
-      if (!weather || weather.error) {
-        renderStalenessChip(Date.now() - cache.cachedAt, true);
-        return;
-      }
-      renderWeatherCard(weather);
-      if (aqi && aqi.list && aqi.list[0]) renderAQI(aqi.list[0]);
-      renderStalenessChip(null);
-      saveCache(cache.lat, cache.lon, weather, aqi);
-    }).catch(function() {
-      renderStalenessChip(Date.now() - cache.cachedAt, true);
     });
   }
 
@@ -604,52 +574,13 @@
   }
 
   waitForFP(function() {
-    var cache = loadCache();
-
-    if (cache) {
-      // 1. 立刻 render cache (instant UI)
-      loadingBlock.style.display = 'none';
-      renderWeatherCard(cache.weatherData);
-      if (cache.aqiData && cache.aqiData.list && cache.aqiData.list[0]) {
-        renderAQI(cache.aqiData.list[0]);
-      }
-      renderStalenessChip(Date.now() - cache.cachedAt, false);
-
-      // 2. 背景 refresh + GPS 並行
-      refreshFromCachedLocation(cache);
-
-      if ('geolocation' in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          function(pos) {
-            if (isFarFromCache(pos.coords.latitude, pos.coords.longitude, cache.lat, cache.lon)) {
-              // 跨城市 → 用新位置重 fetch（saveCache 會被 loadWeatherByCoords 末段呼叫）
-              loadWeatherByCoords(pos.coords.latitude, pos.coords.longitude);
-            }
-            // else: cache 位置夠近、refreshFromCachedLocation 已涵蓋
-          },
-          function() {},  // GPS 失敗：cache 已用、refreshFromCachedLocation 已用 cache lat/lon
-          { timeout: 3000, maximumAge: 300000 }
-        );
-      }
-      return;
-    }
-
-    // 無 cache → 走原 flow（progressive text + timeout 3s）
     if ('geolocation' in navigator) {
-      setLoadingText('正在抓取位置…');
       navigator.geolocation.getCurrentPosition(
-        function(pos) {
-          setLoadingText('正在抓取天氣…');
-          loadWeatherByCoords(pos.coords.latitude, pos.coords.longitude);
-        },
-        function() {
-          setLoadingText('正在抓取天氣…');
-          fallbackToIP();
-        },
+        function(pos) { loadWeatherByCoords(pos.coords.latitude, pos.coords.longitude); },
+        function() { fallbackToIP(); },
         { timeout: 3000, maximumAge: 300000 }
       );
     } else {
-      setLoadingText('正在抓取天氣…');
       fallbackToIP();
     }
   });
