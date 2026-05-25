@@ -334,6 +334,62 @@ def create_app():
                     """))
                 except Exception:
                     pass
+
+                # F2 (2026-05-25): checklist_items 加 item-level lock (locked_by + locked_at)
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS locked_by INTEGER "
+                        "REFERENCES users(id) ON DELETE SET NULL"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP"
+                    ))
+                except Exception:
+                    pass
+
+                # F1 (2026-05-25): notes + checklist_items 加 soft delete (deleted_at + deleted_by)
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
+                        "REFERENCES users(id) ON DELETE SET NULL"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "CREATE INDEX IF NOT EXISTS ix_notes_deleted_at ON notes(deleted_at)"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
+                        "REFERENCES users(id) ON DELETE SET NULL"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "CREATE INDEX IF NOT EXISTS ix_checklist_items_deleted_at ON checklist_items(deleted_at)"
+                    ))
+                except Exception:
+                    pass
+
                 db.session.commit()
             print("=== db.create_all() OK ===", flush=True)
         except Exception as e:
