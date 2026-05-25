@@ -298,6 +298,9 @@ def delete_user(user_id):
         }), 409
 
     # 筆記保留：確保 author_name 快照已存（顯示為「帳號 (帳號已刪除)」）
+    # F1: 以下 user-cleanup updates 故意 bypass soft-delete filter (用 Note.query
+    # 而非 Note.active())，因為要 cover 所有 row (含 soft-deleted) — 否則 restore
+    # 時引用已刪 user 仍 dangling。
     Note.query.filter_by(user_id=user.id, author_name=None).update({"author_name": user.username})
     Note.query.filter_by(user_id=user.id).update({"user_id": None})
     Note.query.filter_by(updated_by=user.id).update({"updated_by": None})
