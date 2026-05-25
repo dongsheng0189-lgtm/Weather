@@ -174,6 +174,8 @@ class ChecklistItem(db.Model):
     checked_at = db.Column(db.DateTime, nullable=True)
     checked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     checked_by_name = db.Column(EncryptedText, nullable=True)  # 快照
+    locked_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    locked_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)  # 排序用：新增/編輯/附件變更時 bump
 
@@ -181,6 +183,7 @@ class ChecklistItem(db.Model):
         "checklist_items", lazy=True, cascade="all, delete-orphan",
         order_by="ChecklistItem.updated_at.desc()"))
     checker = db.relationship("User", foreign_keys=[checked_by])
+    locker = db.relationship("User", foreign_keys=[locked_by])
 
 
 class NoteAttachment(db.Model):
