@@ -130,13 +130,6 @@
     .aqi-level-text { font-size: 1.7rem; font-weight: 600; }
     .aqi-pm25 { font-size: 1.05rem; opacity: .7; margin-top: .15rem; }
 
-    /* Staleness chip（F4 cache UX）*/
-    .staleness-chip { display: inline-block; font-size: 0.75rem; opacity: 0.6;
-                      margin-left: 0.5rem; padding: 0.1rem 0.4rem;
-                      border-radius: 0.5rem; background: rgba(255,255,255,0.1);
-                      transition: opacity 0.3s; vertical-align: middle; }
-    .staleness-chip.error { color: #ff6b6b; opacity: 0.9; background: rgba(255,107,107,0.15); }
-
     /* 載入與錯誤 */
     .loading { opacity: .6; font-size: 1.3rem; padding: 3rem 0; text-align: center; }
     .weather-error { background: rgba(255,100,100,.15); padding: 1rem 1.5rem; border-radius: 12px; text-align: center; }
@@ -154,7 +147,7 @@
 
   <!-- 主要天氣顯示 -->
   <div class="hero-section text-shadow-strong" id="hero-section">
-    <div class="city-name"><span id="city-name"></span><span id="staleness-chip" class="staleness-chip" style="display:none"></span></div>
+    <div class="city-name" id="city-name"></div>
     <div class="temp-main" id="temp-main"></div>
     <div class="desc" id="weather-desc"></div>
     <div class="temp-range" id="temp-range"></div>
@@ -211,80 +204,6 @@
   var errorBlock = document.getElementById('error-block');
   var detailsSection = document.getElementById('details-section');
   var aqiCard = document.getElementById('aqi-card');
-
-  // F4 stale-while-revalidate cache（spec: 2026-05-25-weather-gps-fast-load.md）
-  var CACHE_KEY = 'weather_last_location';
-  var CACHE_MAX_AGE_MS = 7 * 24 * 3600 * 1000;  // 7 天
-  var DISTANCE_THRESHOLD_DEG = 0.5;  // ≈ 55km @ 24°N
-
-  function loadCache() {
-    try {
-      var raw = localStorage.getItem(CACHE_KEY);
-      if (!raw) return null;
-      var c = JSON.parse(raw);
-      if (!c || !c.lat || !c.lon || !c.weatherData || !c.cachedAt) return null;
-      if (Date.now() - c.cachedAt > CACHE_MAX_AGE_MS) return null;
-      return c;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function saveCache(lat, lon, weatherData, aqiData) {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify({
-        lat: lat, lon: lon,
-        weatherData: weatherData,
-        aqiData: aqiData,
-        cachedAt: Date.now()
-      }));
-    } catch (e) {}
-  }
-
-  function formatStaleness(ageMs) {
-    var min = Math.floor(ageMs / 60000);
-    if (min < 5) return '';
-    if (min < 60) return min + ' 分鐘前 · 更新中…';
-    var hr = Math.floor(min / 60);
-    if (hr < 24) return hr + ' 小時前 · 更新中…';
-    var day = Math.floor(hr / 24);
-    return day + ' 天前 · 更新中…';
-  }
-
-  function isFarFromCache(newLat, newLon, cacheLat, cacheLon) {
-    return Math.abs(newLat - cacheLat) > DISTANCE_THRESHOLD_DEG ||
-           Math.abs(newLon - cacheLon) > DISTANCE_THRESHOLD_DEG;
-  }
-
-  function renderStalenessChip(cacheAge, isError) {
-    var chip = document.getElementById('staleness-chip');
-    if (!chip) return;
-    if (cacheAge == null) {
-      chip.style.display = 'none';
-      chip.classList.remove('error');
-      return;
-    }
-    if (isError) {
-      chip.textContent = '更新失敗 · 顯示為快取';
-      chip.classList.add('error');
-      chip.style.display = 'inline-block';
-      return;
-    }
-    var text = formatStaleness(cacheAge);
-    if (!text) {
-      chip.style.display = 'none';
-      chip.classList.remove('error');
-      return;
-    }
-    chip.textContent = text;
-    chip.classList.remove('error');
-    chip.style.display = 'inline-block';
-  }
-
-  function setLoadingText(text) {
-    var el = document.getElementById('loading-text');
-    if (el) el.textContent = text;
-  }
 
   function _applyWeatherBg(weatherMain, temp) {
     document.body.className = document.body.className.replace(/weather-\S+/g, '').trim();
