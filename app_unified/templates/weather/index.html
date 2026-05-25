@@ -479,28 +479,21 @@
     }).catch(function() {});
   }
 
-  function fallbackToIP() {
-    fetchWithTimeout('https://ip-api.com/json?fields=city,status', { cache: 'no-store' }, 2000)
-      .then(function(r) { return r.json(); })
-      .then(function(geo) {
-        if (geo.status === 'success' && geo.city) {
-          fetchWeather('/weather/api/weather?city=' + encodeURIComponent(geo.city));
-        } else {
-          fetchWeather('/weather/api/weather?city=Taipei');
-        }
-      })
-      .catch(function() { fetchWeather('/weather/api/weather?city=Taipei'); });
+  function fallbackToTaipei() {
+    // GPS 抓不到 (timeout / 拒絕 / 不支援) → 直接顯示台北。
+    // 不再走 ip-api.com (避免 IP 抓到外國時跑到奇怪城市、2026-05-25 user 報過 houzhuangzi)
+    fetchWeather('/weather/api/weather?city=Taipei');
   }
 
   waitForFP(function() {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         function(pos) { loadWeatherByCoords(pos.coords.latitude, pos.coords.longitude); },
-        function() { fallbackToIP(); },
+        function() { fallbackToTaipei(); },
         { timeout: 3000, maximumAge: 300000 }
       );
     } else {
-      fallbackToIP();
+      fallbackToTaipei();
     }
   });
 })();
