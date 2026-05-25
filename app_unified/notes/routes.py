@@ -129,6 +129,7 @@ def _item_lock_status(item):
         return False, None
     if item.locked_by == current_user.id:
         return False, None
+    from models import User
     locker = User.query.get(item.locked_by)
     return True, locker
 
@@ -153,22 +154,28 @@ def _ensure_item_lock_for_mutation(item, user_id):
         item.locked_by = user_id
         item.locked_at = datetime.utcnow()
         return True, None
+    from models import User
     locker = User.query.get(item.locked_by)
     return False, locker
 
 
 def _broadcast_item_lock(item, locked_by_user=None, deleted=False):
-    """廣播 item lock 狀態變更給 note-<id> room (排除 sender)。
-    locked_by_user=None 代表解鎖；deleted=True 通知 client 移除 DOM。"""
+    """廣播 item lock 狀態變更給 note-<id> room。HTTP handler 內呼叫，
+    無 sid context、不用 include_self。client 自己 dedupe (自己 acquire
+    後直接更新 local DOM、收到 broadcast 時已是 noop)。"""
     from extensions import socketio
-    socketio.emit('r', {
-        'op': 'il',
-        'note_id': item.note_id,
-        'item_id': item.id,
-        'locked_by_id': locked_by_user.id if locked_by_user else None,
-        'locked_by_username': locked_by_user.username if locked_by_user else None,
-        'deleted': deleted,
-    }, to=f'note-{item.note_id}', include_self=False)
+    try:
+        socketio.emit('r', {
+            'op': 'il',
+            'note_id': item.note_id,
+            'item_id': item.id,
+            'locked_by_id': locked_by_user.id if locked_by_user else None,
+            'locked_by_username': locked_by_user.username if locked_by_user else None,
+            'deleted': deleted,
+        }, room=f'note-{item.note_id}', namespace='/')
+    except Exception:
+        # broadcast 失敗不該擋 main flow（DB 已 commit）
+        pass
 
 
 def _get_business_day_range(offset_days=0):
@@ -1562,14 +1569,17 @@ def delete_checklist_item(item_id):
     db.session.commit()
     # F2: broadcast item 已刪、client 移除 DOM
     from extensions import socketio
-    socketio.emit('r', {
-        'op': 'il',
-        'note_id': note_id_for_broadcast,
-        'item_id': item_id_for_broadcast,
-        'locked_by_id': None,
-        'locked_by_username': None,
-        'deleted': True,
-    }, to=f'note-{note_id_for_broadcast}', include_self=False)
+    try:
+        socketio.emit('r', {
+            'op': 'il',
+            'note_id': note_id_for_broadcast,
+            'item_id': item_id_for_broadcast,
+            'locked_by_id': None,
+            'locked_by_username': None,
+            'deleted': True,
+        }, room=f'note-{note_id_for_broadcast}', namespace='/')
+    except Exception:
+        pass
     return jsonify({"status": "ok"})
 
 
