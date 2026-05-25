@@ -405,6 +405,21 @@ function _setupNoteWsRoom() {
       if (_lockOwnedByMe !== true) {
         _enterReadonlyDueTo409(msg.by_name || null);
       }
+    } else if (msg.op === 'il') {
+      // F2: item lock 狀態變更（別人 acquire / release / save 完 / delete）
+      var itemDiv = document.querySelector('#checklist-items > div[data-item-id="' + msg.item_id + '"]');
+      if (!itemDiv) return;
+      if (msg.deleted) {
+        itemDiv.remove();
+        return;
+      }
+      if (msg.locked_by_username) {
+        itemDiv.classList.add('locked-by-other');
+        itemDiv.dataset.lockedBy = msg.locked_by_username;
+      } else {
+        itemDiv.classList.remove('locked-by-other');
+        delete itemDiv.dataset.lockedBy;
+      }
     }
   });
 }
