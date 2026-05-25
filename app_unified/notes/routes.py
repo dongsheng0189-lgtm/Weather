@@ -354,7 +354,7 @@ def index():
     current_sort = sort_param if sort_param in ("updated", "created") else "updated"
     sort_order = Note.created_at.desc() if current_sort == "created" else Note.updated_at.desc()
 
-    query = Note.query
+    query = Note.active()
 
     # 店別範圍（不變）
     if current_user.is_super_admin():
@@ -482,7 +482,7 @@ def list_notes():
     keyword = request.args.get("q", "").strip()
     stores = _get_stores()
 
-    query = Note.query
+    query = Note.active()
     if current_user.is_super_admin():
         if store_filter in stores:
             query = query.filter_by(store=store_filter)
@@ -568,11 +568,11 @@ def create_note():
 @login_required
 def get_note(note_id):
     if current_user.is_super_admin():
-        note = Note.query.get_or_404(note_id)
+        note = Note.active().filter_by(id=note_id).first_or_404()
     elif current_user.is_admin():
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     else:
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     updater = None
     if note.updated_by:
         from models import User
@@ -594,11 +594,11 @@ def get_note(note_id):
 @login_required
 def update_note(note_id):
     if current_user.is_super_admin():
-        note = Note.query.get_or_404(note_id)
+        note = Note.active().filter_by(id=note_id).first_or_404()
     elif current_user.is_admin():
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     else:
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     data = request.get_json(silent=True) or {}
     stores = _get_stores()
 
@@ -667,7 +667,7 @@ def update_note(note_id):
 @notes_bp.route("/api/<int:note_id>/lock/heartbeat", methods=["POST"])
 @login_required
 def heartbeat_lock(note_id):
-    note = Note.query.get(note_id)
+    note = Note.active().filter_by(id=note_id).first()
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在"}), 404
     # 店別權限
@@ -699,7 +699,7 @@ def heartbeat_lock(note_id):
 @notes_bp.route("/api/<int:note_id>/lock/release", methods=["POST"])
 @login_required
 def release_lock_endpoint(note_id):
-    note = Note.query.get(note_id)
+    note = Note.active().filter_by(id=note_id).first()
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在"}), 404
     # 店別權限檢查
@@ -738,11 +738,11 @@ def release_lock_endpoint(note_id):
 def delete_note(note_id):
     from storage import delete_attachment as r2_delete
     if current_user.is_super_admin():
-        note = Note.query.get_or_404(note_id)
+        note = Note.active().filter_by(id=note_id).first_or_404()
     elif current_user.is_admin():
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     else:
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
 
     # 編輯鎖：別人持鎖中時不可刪除（避免別人正在編輯被刪導致工作消失）
     ok, locker = _ensure_lock_for_mutation(note, current_user.id)
@@ -862,7 +862,7 @@ def _run_ai_task(task_id, app, prompt, max_tokens, note_id=None, field=None):
                     call_llm, prompt, max_tokens=max_tokens,
                 )
                 if note_id and field:
-                    note = Note.query.get(note_id)
+                    note = Note.active().filter_by(id=note_id).first()
                     if note:
                         setattr(note, field, result)
                         note.updated_at = datetime.utcnow()
@@ -1247,7 +1247,7 @@ def _build_output_structure_prompt(has_regular, has_checklist):
 def _build_all_content(store_name=None):
     """收集同店所有筆記（排除 AI 摘要產生的 is_ai_summary=True 筆記），
     合併成 all_content（舊介面，供 summarize 使用）"""
-    query = Note.query.filter(Note.is_ai_summary.is_(False))
+    query = Note.active().filter(Note.is_ai_summary.is_(False))
     if store_name:
         query = query.filter_by(store=store_name)
     notes = query.order_by(Note.updated_at.desc()).all()
@@ -1258,11 +1258,11 @@ def _build_all_content(store_name=None):
 @notes_bp.route("/api/<int:note_id>/summarize", methods=["POST"])
 @login_required
 def summarize(note_id):
-    note = Note.query.get_or_404(note_id)
+    note = Note.active().filter_by(id=note_id).first_or_404()
 
     # 收集同店所有筆記合併，一次呼叫 API 做全體分類摘要
     data_block, count, has_cl = _build_all_content(note.store)
-    notes_for_count = Note.query.filter_by(store=note.store).all() if note.store else Note.query.all()
+    notes_for_count = Note.active().filter_by(store=note.store).all() if note.store else Note.active().all()
     has_reg = any(getattr(n, "note_type", "note") != "checklist" for n in notes_for_count)
     prompt = (
         MANAGER_PROMPT
@@ -1282,7 +1282,7 @@ def summarize(note_id):
 def outline(note_id):
     if not current_user.is_admin():
         return jsonify({"status": "error", "message": "僅限管理員"}), 403
-    note = Note.query.get_or_404(note_id)
+    note = Note.active().filter_by(id=note_id).first_or_404()
 
     # 單筆大綱：只處理這一篇（checklist 也用 outline 結構直接列項目）
     is_cl = getattr(note, "note_type", "note") == "checklist"
@@ -1325,7 +1325,7 @@ def notes_ai_summary():
 
     # 一般筆記與確認表單都全撈（_build_categorized_notes/_build_categorized_checklist
     # 會在 Python 端依 status/updated_at 分到 完成 / 區間內未完成 / 歷史未完成）
-    notes = (Note.query
+    notes = (Note.active()
              .filter(Note.is_ai_summary.is_(False))
              .filter_by(store=store)
              .order_by(Note.updated_at.desc())
@@ -1368,7 +1368,7 @@ def _run_local_summary(task_id, app, store, since, until, store_label, range_lab
                 from sqlalchemy.orm import joinedload
                 # joinedload 預先載入 author + checklist_items，避免 thread 內 lazy load
                 # 觸發跨 session 訪問（thread 沒有 Flask app_context / SA session）。
-                notes = (Note.query
+                notes = (Note.active()
                          .options(joinedload(Note.author), joinedload(Note.checklist_items))
                          .filter(Note.is_ai_summary.is_(False))
                          .filter_by(store=store)
@@ -1399,9 +1399,9 @@ def _run_local_summary(task_id, app, store, since, until, store_label, range_lab
 def _get_note_for_edit(note_id):
     """取得筆記（檢查權限）"""
     if current_user.is_super_admin():
-        return Note.query.get(note_id)
+        return Note.active().filter_by(id=note_id).first()
     else:
-        return Note.query.filter_by(id=note_id, store=current_user.store).first()
+        return Note.active().filter_by(id=note_id, store=current_user.store).first()
 
 
 def _checklist_item_json(item):
@@ -1438,11 +1438,11 @@ def list_checklist_items(note_id):
     # 預設 sort=updated → updated_at DESC（舊行為，相容性）
     sort_mode = request.args.get("sort", "updated")
     if sort_mode == "created":
-        items = ChecklistItem.query.filter_by(note_id=note_id).order_by(
+        items = ChecklistItem.active().filter_by(note_id=note_id).order_by(
             ChecklistItem.created_at.desc(), ChecklistItem.id.desc()
         ).all()
     else:  # default: updated
-        items = ChecklistItem.query.filter_by(note_id=note_id).order_by(
+        items = ChecklistItem.active().filter_by(note_id=note_id).order_by(
             ChecklistItem.updated_at.desc(), ChecklistItem.id.desc()
         ).all()
     return jsonify({"status": "ok", "items": [_checklist_item_json(i) for i in items]})
@@ -1451,7 +1451,7 @@ def list_checklist_items(note_id):
 @notes_bp.route("/api/items/<int:item_id>/lock/heartbeat", methods=["POST"])
 @login_required
 def item_lock_heartbeat(item_id):
-    item = ChecklistItem.query.get(item_id)
+    item = ChecklistItem.active().filter_by(id=item_id).first()
     if not item:
         return jsonify({"status": "error", "message": "項目不存在"}), 404
     note = _get_note_for_edit(item.note_id)
@@ -1475,7 +1475,7 @@ def item_lock_heartbeat(item_id):
 @notes_bp.route("/api/items/<int:item_id>/lock/release", methods=["POST"])
 @login_required
 def item_lock_release(item_id):
-    item = ChecklistItem.query.get(item_id)
+    item = ChecklistItem.active().filter_by(id=item_id).first()
     if not item:
         return jsonify({"status": "ok"})  # idempotent
     if item.locked_by == current_user.id:
@@ -1515,7 +1515,7 @@ def create_checklist_item(note_id):
 @notes_bp.route("/api/items/<int:item_id>", methods=["PATCH"])
 @login_required
 def update_checklist_item(item_id):
-    item = ChecklistItem.query.get(item_id)
+    item = ChecklistItem.active().filter_by(id=item_id).first()
     if not item:
         return jsonify({"status": "error", "message": "項目不存在"}), 404
     note = _get_note_for_edit(item.note_id)
@@ -1571,7 +1571,7 @@ def update_checklist_item(item_id):
 @login_required
 def delete_checklist_item(item_id):
     from storage import delete_attachment
-    item = ChecklistItem.query.get(item_id)
+    item = ChecklistItem.active().filter_by(id=item_id).first()
     if not item:
         return jsonify({"status": "error", "message": "項目不存在"}), 404
     note = _get_note_for_edit(item.note_id)
@@ -1625,11 +1625,11 @@ def upload_attachment_api():
         return jsonify({"status": "error", "message": "缺少 note_id"}), 400
 
     if current_user.is_super_admin():
-        note = Note.query.get(note_id)
+        note = Note.active().filter_by(id=note_id).first()
     elif current_user.is_admin():
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first()
     else:
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first()
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
 
@@ -1640,7 +1640,7 @@ def upload_attachment_api():
 
     # 驗證 item 屬於這個 note
     if item_id:
-        item = ChecklistItem.query.filter_by(id=item_id, note_id=note_id).first()
+        item = ChecklistItem.active().filter_by(id=item_id, note_id=note_id).first()
         if not item:
             return jsonify({"status": "error", "message": "項目不存在"}), 404
 
@@ -1672,7 +1672,7 @@ def upload_attachment_api():
     db.session.add(attachment)
     # 若附件綁到 checklist 項目，bump 該項目 updated_at（讓它跳到最上面）
     if item_id:
-        item = ChecklistItem.query.get(item_id)
+        item = ChecklistItem.active().filter_by(id=item_id).first()
         if item:
             item.updated_at = datetime.utcnow()
     db.session.commit()
@@ -1701,11 +1701,11 @@ def list_attachments():
         return jsonify({"status": "error", "message": "缺少 note_id"}), 400
 
     if current_user.is_super_admin():
-        note = Note.query.get(note_id)
+        note = Note.active().filter_by(id=note_id).first()
     elif current_user.is_admin():
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first()
     else:
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first()
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
 
@@ -1736,7 +1736,7 @@ def delete_attachment_api(attachment_id):
     if not attachment:
         return jsonify({"status": "error", "message": "附件不存在"}), 404
 
-    note = Note.query.get(attachment.note_id)
+    note = Note.active().filter_by(id=attachment.note_id).first()
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在"}), 404
 
@@ -1759,7 +1759,7 @@ def delete_attachment_api(attachment_id):
     db.session.delete(attachment)
     # 若是 checklist 項目附件，bump 項目 updated_at
     if item_id:
-        item = ChecklistItem.query.get(item_id)
+        item = ChecklistItem.active().filter_by(id=item_id).first()
         if item:
             item.updated_at = datetime.utcnow()
     db.session.commit()
@@ -1770,11 +1770,11 @@ def delete_attachment_api(attachment_id):
 @login_required
 def edit_note(note_id):
     if current_user.is_super_admin():
-        note = Note.query.get_or_404(note_id)
+        note = Note.active().filter_by(id=note_id).first_or_404()
     elif current_user.is_admin():
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     else:
-        note = Note.query.filter_by(id=note_id, store=current_user.store).first_or_404()
+        note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     stores = _get_stores()
     # 編輯鎖：GET 不 acquire；前端在 title/content focus 或 status/category 切換時才 acquire
     # 別人持鎖 → readonly + banner；沒人持鎖且自己沒動 → 不 acquire（純看不鎖）
