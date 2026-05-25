@@ -76,33 +76,30 @@ def _login_as(client, user):
         sess["_user_id"] = str(user.id)
 
 
-def test_checklist_create_acquires_lock_when_unlocked(app, client, db_session):
-    """create_checklist_item 應該觸發 lazy acquire（之前完全沒檢查鎖）。"""
+def test_checklist_create_atomic_does_not_acquire_note_lock(app, client, db_session):
+    """F2: create_checklist_item 改 atomic INSERT、不再 acquire note-level lock。"""
     alice, _bob = _make_users(db_session)
     n = _make_note(db_session)
     nid = n.id
-    aid = alice.id
     _login_as(client, alice)
     r = client.post(f"/notes/api/{nid}/items", json={"text": "x"})
     assert r.status_code in (200, 201), r.get_data(as_text=True)
     from models import Note
     n2 = Note.query.get(nid)
-    assert n2.locked_by == aid  # alice 自動 acquire
+    assert n2.locked_by is None  # F2: 不再自動 acquire
 
 
-def test_checklist_create_rejects_when_other_locked(app, client, db_session):
+def test_checklist_create_succeeds_even_when_note_locked_by_other(app, client, db_session):
+    """F2: 別人 hold note lock 不再擋新增 item。"""
     alice, bob = _make_users(db_session)
     n = _make_note(db_session)
     nid = n.id
     n.locked_by = alice.id
     n.locked_at = datetime.utcnow()
     db_session.commit()
-    alice_username = alice.username
     _login_as(client, bob)
     r = client.post(f"/notes/api/{nid}/items", json={"text": "y"})
-    assert r.status_code == 409, r.get_data(as_text=True)
-    body = r.get_json() or {}
-    assert alice_username in body.get("message", "")
+    assert r.status_code in (200, 201), r.get_data(as_text=True)
 
 
 def test_delete_note_rejects_when_other_locked(app, client, db_session):

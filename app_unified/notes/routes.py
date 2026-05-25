@@ -1370,6 +1370,8 @@ def _get_note_for_edit(note_id):
 
 def _checklist_item_json(item):
     from storage import get_signed_url
+    # F2: 加 lock 狀態給 frontend render lock chip
+    is_other_locked, locker = _item_lock_status(item)
     return {
         "id": item.id,
         "note_id": item.note_id,
@@ -1379,6 +1381,7 @@ def _checklist_item_json(item):
         "checked_at": tw_iso(item.checked_at, fallback=None),
         "checked_by_name": item.checked_by_name or (item.checker.username if item.checker else None),
         "created_at": tw_iso(item.created_at),
+        "locked_by_username": (locker.username if locker else None) if is_other_locked else None,
         "attachments": [{
             "id": a.id,
             "filename": a.filename,
