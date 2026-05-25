@@ -1453,10 +1453,7 @@ def create_checklist_item(note_id):
     note = _get_note_for_edit(note_id)
     if not note:
         return jsonify({"status": "error", "message": "筆記不存在或無權限"}), 404
-    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
-    if not ok:
-        return jsonify({"status": "error",
-                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
+    # F2: 拿掉 note-level lock check、新增改 atomic INSERT（不擋別人）
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     # order_index 仍保留（向下相容），但實際排序用 updated_at
@@ -1485,12 +1482,16 @@ def update_checklist_item(item_id):
     note = _get_note_for_edit(item.note_id)
     if not note:
         return jsonify({"status": "error", "message": "無權限"}), 403
-    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
-    if not ok:
-        return jsonify({"status": "error",
-                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
     data = request.get_json(silent=True) or {}
     changed = False
+    # F2: text 改動需要 item-level lock；is_checked toggle 不檢（atomic、允許併發）
+    is_text_edit = "text" in data and (data.get("text") or "").strip() != item.text
+    if is_text_edit:
+        ok, locker = _ensure_item_lock_for_mutation(item, current_user.id)
+        if not ok:
+            db.session.rollback()
+            return jsonify({"status": "error",
+                            "message": f"{locker.username if locker else '他人'} 編輯中"}), 409
     if "text" in data:
         new_text = (data.get("text") or "").strip()
         if new_text != item.text:
@@ -1517,7 +1518,13 @@ def update_checklist_item(item_id):
         item.updated_at = datetime.utcnow()
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id
+    # F2: text edit save 後釋放 item-lock
+    if is_text_edit:
+        item.locked_by = None
+        item.locked_at = None
     db.session.commit()
+    if is_text_edit:
+        _broadcast_item_lock(item, locked_by_user=None)
     return jsonify({"status": "ok", "item": _checklist_item_json(item)})
 
 
@@ -1531,20 +1538,35 @@ def delete_checklist_item(item_id):
     note = _get_note_for_edit(item.note_id)
     if not note:
         return jsonify({"status": "error", "message": "無權限"}), 403
-    ok, locker = _ensure_lock_for_mutation(note, current_user.id)
+    # F2: 換成 item-level lock check（別人正編就擋刪）
+    ok, locker = _ensure_item_lock_for_mutation(item, current_user.id)
     if not ok:
+        db.session.rollback()
         return jsonify({"status": "error",
-                        "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
+                        "message": f"{locker.username if locker else '他人'} 編輯中、無法刪除"}), 409
     # 刪 R2 上的附件
     for a in list(item.attachments):
         try:
             delete_attachment(a.object_key)
         except Exception:
             pass
+    # F2: 抓 id 給 broadcast 用（commit 後 item 已 detach）
+    item_id_for_broadcast = item.id
+    note_id_for_broadcast = item.note_id
     db.session.delete(item)
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id
     db.session.commit()
+    # F2: broadcast item 已刪、client 移除 DOM
+    from extensions import socketio
+    socketio.emit('r', {
+        'op': 'il',
+        'note_id': note_id_for_broadcast,
+        'item_id': item_id_for_broadcast,
+        'locked_by_id': None,
+        'locked_by_username': None,
+        'deleted': True,
+    }, to=f'note-{note_id_for_broadcast}', include_self=False)
     return jsonify({"status": "ok"})
 
 
