@@ -118,6 +118,59 @@ def _ensure_lock_for_mutation(note, user_id):
     return False, locker
 
 
+# ══════════ Item-level lock (F2 spec) ══════════
+
+def _item_lock_status(item):
+    """回傳 (is_locked_by_other, locker_user_or_None)。"""
+    if not item.locked_by or not item.locked_at:
+        return False, None
+    age_sec = (datetime.utcnow() - item.locked_at).total_seconds()
+    if age_sec > LOCK_TTL_SEC:
+        return False, None
+    if item.locked_by == current_user.id:
+        return False, None
+    locker = User.query.get(item.locked_by)
+    return True, locker
+
+
+def _acquire_item_lock(item):
+    """無條件 acquire；呼叫端負責 commit。"""
+    item.locked_by = current_user.id
+    item.locked_at = datetime.utcnow()
+
+
+def _ensure_item_lock_for_mutation(item, user_id):
+    """Return (ok, locker)。仿 _ensure_lock_for_mutation 邏輯。"""
+    if not item.locked_by or not item.locked_at:
+        item.locked_by = user_id
+        item.locked_at = datetime.utcnow()
+        return True, None
+    if item.locked_by == user_id:
+        item.locked_at = datetime.utcnow()
+        return True, None
+    age_sec = (datetime.utcnow() - item.locked_at).total_seconds()
+    if age_sec > LOCK_TTL_SEC:
+        item.locked_by = user_id
+        item.locked_at = datetime.utcnow()
+        return True, None
+    locker = User.query.get(item.locked_by)
+    return False, locker
+
+
+def _broadcast_item_lock(item, locked_by_user=None, deleted=False):
+    """廣播 item lock 狀態變更給 note-<id> room (排除 sender)。
+    locked_by_user=None 代表解鎖；deleted=True 通知 client 移除 DOM。"""
+    from extensions import socketio
+    socketio.emit('r', {
+        'op': 'il',
+        'note_id': item.note_id,
+        'item_id': item.id,
+        'locked_by_id': locked_by_user.id if locked_by_user else None,
+        'locked_by_username': locked_by_user.username if locked_by_user else None,
+        'deleted': deleted,
+    }, to=f'note-{item.note_id}', include_self=False)
+
+
 def _get_business_day_range(offset_days=0):
     """回傳營業日的 (start, end)，以 UTC 表示（無 tzinfo）。
 
