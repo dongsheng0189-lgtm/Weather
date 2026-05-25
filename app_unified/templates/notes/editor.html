@@ -99,12 +99,16 @@
                  display:flex;align-items:center;justify-content:center;"
           title="下一個命中">▶</button>
 </div>
+{# F2: checklist mode 完全不參與 note-level lock UI #}
+{% set _editor_type = note.note_type if note else (note_type or 'note') %}
+{% if _editor_type != 'checklist' %}
 <div id="lock-banner" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#856404;display:{% if is_readonly %}flex{% else %}none{% endif %};align-items:center;gap:.75rem;flex-wrap:wrap;">
   <span id="lock-banner-text">⚠️ 目前由 <strong id="lock-banner-name">{{ locker_name or '' }}</strong> 編輯中，無法編輯</span>
   {% if current_user.is_admin() or current_user.is_super_admin() %}
   <button class="btn btn-danger" id="btn-force-release" type="button" onclick="forceReleaseLock()" style="font-size:.8rem;padding:.3rem .7rem;margin-left:auto;">強制釋放鎖</button>
   {% endif %}
 </div>
+{% endif %}
 <div class="card editor-wrap">
   <input type="text" id="title-input" placeholder="筆記標題…" value="{{ note.title if note else default_title }}">
   {% if note and note.updated_by %}
@@ -464,6 +468,8 @@ function handleMutationResponse(resp, jsonBody) {
 // 編輯鎖 heartbeat
 var _hbTimer = null;
 function startHeartbeat() {
+  // F2: checklist mode 不參與 note-level lock（改成 item-level lock）
+  if (EDITOR_TYPE === 'checklist') return;
   if (!NOTE_ID || IS_READONLY || _hbTimer) return;
   _hbTimer = setInterval(function() {
     fetch('/notes/api/' + NOTE_ID + '/lock/heartbeat', { method: 'POST' })
