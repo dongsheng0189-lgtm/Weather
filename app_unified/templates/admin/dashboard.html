@@ -280,6 +280,15 @@ th { background: #f8f9fa; font-weight: 700; }
   <div id="user-logs-pagination" style="display:none;justify-content:center;align-items:center;gap:.4rem;margin-top:.75rem;flex-wrap:wrap;"></div>
 </div>
 
+<!-- F1: 已刪除（24h 內可救） -->
+<div class="card" style="margin-top:1rem;">
+  <h3>🗑️ 已刪除 — 24 小時內可復原
+    <span id="deleted-badge" style="background:#e74c3c;color:#fff;border-radius:10px;padding:.1rem .55rem;font-size:.72rem;display:none;margin-left:.4rem;vertical-align:middle;"></span>
+  </h3>
+  <button class="btn btn-secondary" onclick="loadDeleted()" style="margin-top:.5rem;">載入</button>
+  <div id="deleted-list" style="margin-top:.75rem;"></div>
+</div>
+
 {% if current_user.is_root_admin() %}
 <div class="card" style="margin-top:1rem;">
   <h3>🎛️ 模組權限管理</h3>
@@ -467,6 +476,87 @@ async function loadUserLogs() {
   _userLogsData = await res.json();
   document.getElementById('user-logs-table').style.display = 'table';
   renderUserLogsPage(1);
+}
+
+// F1: soft delete restore UI
+function _escHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, function(c) {
+    return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+  });
+}
+
+async function loadDeleted() {
+  const res = await fetch('/admin/api/deleted');
+  if (!res.ok) {
+    alert('載入失敗：' + res.status);
+    return;
+  }
+  const data = await res.json();
+  const list = document.getElementById('deleted-list');
+  list.innerHTML = '';
+  const total = data.notes.length + data.items.length;
+  const badge = document.getElementById('deleted-badge');
+  if (total > 0) { badge.textContent = total; badge.style.display = 'inline-block'; }
+  else { badge.style.display = 'none'; }
+
+  data.notes.forEach(function(n) {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:.7rem;border:1px solid #eee;border-radius:6px;margin-bottom:.5rem;display:flex;gap:.8rem;align-items:center;background:#fafafa;';
+    const typeLabel = (n.note_type === 'checklist') ? '確認表單' : '筆記';
+    row.innerHTML =
+      '<span style="background:#3498db;color:#fff;padding:.2rem .5rem;border-radius:4px;font-size:.75rem;flex-shrink:0;">' + typeLabel + '</span>' +
+      '<div style="flex:1;min-width:0;">' +
+      '<strong>' + _escHtml(n.title) + '</strong>' +
+      '<div style="font-size:.8rem;color:#888;margin-top:.2rem;">' +
+      _escHtml(n.store) + ' · ' + n.deleted_at + ' 由 ' + _escHtml(n.deleted_by_name) +
+      ' 刪除 · 剩 ' + n.hours_remaining + ' 小時</div></div>' +
+      '<button class="btn btn-primary" onclick="restoreNote(' + n.id + ', this)" style="flex-shrink:0;">復原</button>';
+    list.appendChild(row);
+  });
+
+  data.items.forEach(function(item) {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:.7rem;border:1px solid #eee;border-radius:6px;margin-bottom:.5rem;display:flex;gap:.8rem;align-items:center;background:#fafafa;';
+    row.innerHTML =
+      '<span style="background:#27ae60;color:#fff;padding:.2rem .5rem;border-radius:4px;font-size:.75rem;flex-shrink:0;">項目</span>' +
+      '<div style="flex:1;min-width:0;">「' + _escHtml(item.text) + '」' +
+      '<small style="color:#888;"> 來自 ' + _escHtml(item.note_title) + '</small>' +
+      '<div style="font-size:.8rem;color:#888;margin-top:.2rem;">' +
+      item.deleted_at + ' 由 ' + _escHtml(item.deleted_by_name) +
+      ' 刪除 · 剩 ' + item.hours_remaining + ' 小時</div></div>' +
+      '<button class="btn btn-primary" onclick="restoreItem(' + item.id + ', this)" style="flex-shrink:0;">復原</button>';
+    list.appendChild(row);
+  });
+
+  if (total === 0) {
+    list.innerHTML = '<div style="text-align:center;color:#888;padding:2rem;">最近 24 小時內無刪除記錄</div>';
+  }
+}
+
+async function restoreNote(noteId, btn) {
+  if (!confirm('確定復原這個筆記？')) return;
+  btn.disabled = true;
+  const res = await fetch('/admin/api/restore/note/' + noteId, { method: 'POST' });
+  if (res.ok) {
+    btn.closest('div').style.background = '#d4edda';
+    setTimeout(loadDeleted, 800);
+  } else {
+    alert('復原失敗：' + res.status);
+    btn.disabled = false;
+  }
+}
+
+async function restoreItem(itemId, btn) {
+  if (!confirm('確定復原這個項目？')) return;
+  btn.disabled = true;
+  const res = await fetch('/admin/api/restore/item/' + itemId, { method: 'POST' });
+  if (res.ok) {
+    btn.closest('div').style.background = '#d4edda';
+    setTimeout(loadDeleted, 800);
+  } else {
+    alert('復原失敗：' + res.status);
+    btn.disabled = false;
+  }
 }
 
 async function renameUser(uid, oldName) {
