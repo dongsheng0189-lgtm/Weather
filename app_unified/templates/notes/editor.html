@@ -1439,7 +1439,22 @@ function saveItemFromDialog() {
   });
 }
 
-if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();
+if (EDITOR_TYPE === 'checklist' && NOTE_ID) {
+  loadChecklistItems();
+  // F2 fix: periodic poll fallback、解 WS 偶爾漏接 broadcast 導致 chip stale 卡住
+  // 30s 一次、tab 不可見時跳過、自己有 modal 開著時跳過（避免覆蓋 user 編輯中的狀態）
+  setInterval(function() {
+    if (document.visibilityState !== 'visible') return;
+    if (_currentEditItemId) return;  // 自己有 dialog 開著就跳過
+    loadChecklistItems();
+  }, 30000);
+  // tab 從 background 切回 visible 時、立刻 reload 一次（不等 30s）
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && !_currentEditItemId) {
+      loadChecklistItems();
+    }
+  });
+}
 
 /* ═══ keepalive（只保活 session，不存 draft）═══ */
 if (!IS_READONLY) EditKeepalive.init();
