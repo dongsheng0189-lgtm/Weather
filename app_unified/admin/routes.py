@@ -175,10 +175,11 @@ def require_admin():
 def dashboard():
     require_admin()
     try:
-        from notes.cleanup import cleanup_resolved_notes
+        from notes.cleanup import cleanup_resolved_notes, cleanup_soft_deleted
         cleanup_resolved_notes()
+        cleanup_soft_deleted()
     except Exception:
-        current_app.logger.exception("cleanup_resolved_notes failed")
+        current_app.logger.exception("cleanup hooks failed")
     user_page = request.args.get("user_page", 1, type=int)
     user_store_filter = request.args.get("user_store", "").strip()
     per_page = 20

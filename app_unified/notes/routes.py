@@ -335,10 +335,11 @@ def _date_filter(query, range_param):
 @login_required
 def index():
     try:
-        from notes.cleanup import cleanup_resolved_notes
+        from notes.cleanup import cleanup_resolved_notes, cleanup_soft_deleted
         cleanup_resolved_notes()
+        cleanup_soft_deleted()
     except Exception:
-        current_app.logger.exception("cleanup_resolved_notes failed")
+        current_app.logger.exception("cleanup hooks failed")
     store_filter = request.args.get("store", "")
     status_filter = request.args.get("status", "")
     range_param = request.args.get("range", "")
