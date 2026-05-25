@@ -826,3 +826,105 @@ def get_logs():
     } for l in logs])
 
 
+
+# ══════════ F1: Soft delete restore (admin/super_admin only) ══════════
+
+@admin_bp.route("/api/deleted", methods=["GET"])
+@login_required
+def list_deleted():
+    """列 24h 內 soft-deleted notes + items。admin 看本店、super_admin 跨店。"""
+    if not current_user.is_admin():
+        abort(403)
+    from datetime import datetime, timedelta
+    from models import ChecklistItem
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    now = datetime.utcnow()
+
+    # 1. Deleted notes 仍在 24h 內
+    note_q = Note.query.filter(
+        Note.deleted_at.isnot(None),
+        Note.deleted_at > cutoff,
+    )
+    if not current_user.is_super_admin():
+        note_q = note_q.filter_by(store=current_user.store)
+    deleted_notes = note_q.order_by(Note.deleted_at.desc()).all()
+
+    # 2. Deleted items (parent note 不能 deleted、否則用 note 復原)
+    item_q = ChecklistItem.query.filter(
+        ChecklistItem.deleted_at.isnot(None),
+        ChecklistItem.deleted_at > cutoff,
+    ).join(Note, ChecklistItem.note_id == Note.id).filter(
+        Note.deleted_at.is_(None),
+    )
+    if not current_user.is_super_admin():
+        item_q = item_q.filter(Note.store == current_user.store)
+    deleted_items = item_q.order_by(ChecklistItem.deleted_at.desc()).all()
+
+    def _note_dict(n):
+        deleter = User.query.get(n.deleted_by) if n.deleted_by else None
+        hours_remaining = round(24 - (now - n.deleted_at).total_seconds() / 3600, 1)
+        return {
+            "id": n.id,
+            "title": n.title or "(無標題)",
+            "store": n.store or "",
+            "note_type": n.note_type,
+            "deleted_at": n.deleted_at.strftime("%Y-%m-%d %H:%M"),
+            "deleted_by_name": deleter.username if deleter else "(unknown)",
+            "hours_remaining": hours_remaining,
+        }
+
+    def _item_dict(item):
+        deleter = User.query.get(item.deleted_by) if item.deleted_by else None
+        hours_remaining = round(24 - (now - item.deleted_at).total_seconds() / 3600, 1)
+        return {
+            "id": item.id,
+            "text": (item.text or "")[:60],
+            "note_id": item.note_id,
+            "note_title": (item.note.title if item.note else "(unknown)"),
+            "deleted_at": item.deleted_at.strftime("%Y-%m-%d %H:%M"),
+            "deleted_by_name": deleter.username if deleter else "(unknown)",
+            "hours_remaining": hours_remaining,
+        }
+
+    return jsonify({
+        "notes": [_note_dict(n) for n in deleted_notes],
+        "items": [_item_dict(i) for i in deleted_items],
+    })
+
+
+@admin_bp.route("/api/restore/note/<int:note_id>", methods=["POST"])
+@login_required
+def restore_note_endpoint(note_id):
+    if not current_user.is_admin():
+        abort(403)
+    note = Note.query.filter_by(id=note_id).first()
+    if not note or note.deleted_at is None:
+        return jsonify({"status": "error", "message": "找不到或已過期"}), 404
+    if not current_user.is_super_admin() and note.store != current_user.store:
+        abort(403)
+    from notes.routes import restore_note
+    restore_note(note)
+    _log_user_action('restore_note', None,
+                     detail=f'note_id={note.id}, title={note.title}')
+    db.session.commit()
+    return jsonify({"status": "ok"})
+
+
+@admin_bp.route("/api/restore/item/<int:item_id>", methods=["POST"])
+@login_required
+def restore_item_endpoint(item_id):
+    if not current_user.is_admin():
+        abort(403)
+    from models import ChecklistItem
+    item = ChecklistItem.query.filter_by(id=item_id).first()
+    if not item or item.deleted_at is None:
+        return jsonify({"status": "error", "message": "找不到或已過期"}), 404
+    if not current_user.is_super_admin():
+        if not item.note or item.note.store != current_user.store:
+            abort(403)
+    from notes.routes import restore_item
+    restore_item(item)
+    _log_user_action('restore_item', None,
+                     detail=f'item_id={item.id}, note_id={item.note_id}')
+    db.session.commit()
+    return jsonify({"status": "ok"})
