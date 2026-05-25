@@ -206,12 +206,12 @@ def register_ws_events(socketio):
                        'message': f"目前由 {locker.username if locker else '他人'} 編輯中"})
             return
 
-        for att in note.attachments:
-            r2_delete(att.object_key)
+        # F1: soft delete、R2 attachment 不在這刪（24h cleanup 才刪）
+        from notes.routes import soft_delete_note
+        soft_delete_note(note, current_user.id)
 
         log = NoteLog(note_id=note.id, note_title=note.title, user_id=current_user.id, action='delete')
         db.session.add(log)
-        db.session.delete(note)
         db.session.commit()
         emit('r', {'op': 'dn', 'status': 'ok'})
 
