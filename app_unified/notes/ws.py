@@ -47,7 +47,7 @@ def register_ws_events(socketio):
         shift_filter = data.get('shift', '')
         keyword = (data.get('q') or '').strip()
         stores = _get_stores()
-        query = Note.query
+        query = Note.active()
         if current_user.is_super_admin():
             if store_filter in stores:
                 query = query.filter_by(store=store_filter)
@@ -131,11 +131,11 @@ def register_ws_events(socketio):
     def _update_note(data):
         note_id = data.get('id')
         if current_user.is_super_admin():
-            note = Note.query.get(note_id)
+            note = Note.active().filter_by(id=note_id).first()
         elif current_user.is_admin():
-            note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+            note = Note.active().filter_by(id=note_id, store=current_user.store).first()
         else:
-            note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+            note = Note.active().filter_by(id=note_id, store=current_user.store).first()
         if not note:
             emit('r', {'op': 'er', 'message': 'not found'})
             return
@@ -189,11 +189,11 @@ def register_ws_events(socketio):
         from storage import delete_attachment as r2_delete
         note_id = data.get('id')
         if current_user.is_super_admin():
-            note = Note.query.get(note_id)
+            note = Note.active().filter_by(id=note_id).first()
         elif current_user.is_admin():
-            note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+            note = Note.active().filter_by(id=note_id, store=current_user.store).first()
         else:
-            note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+            note = Note.active().filter_by(id=note_id, store=current_user.store).first()
         if not note:
             emit('r', {'op': 'er', 'message': 'not found'})
             return
@@ -218,11 +218,11 @@ def register_ws_events(socketio):
     def _get_note(data):
         note_id = data.get('id')
         if current_user.is_super_admin():
-            note = Note.query.get(note_id)
+            note = Note.active().filter_by(id=note_id).first()
         elif current_user.is_admin():
-            note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+            note = Note.active().filter_by(id=note_id, store=current_user.store).first()
         else:
-            note = Note.query.filter_by(id=note_id, store=current_user.store).first()
+            note = Note.active().filter_by(id=note_id, store=current_user.store).first()
         if not note:
             emit('r', {'op': 'er', 'message': 'not found'})
             return
@@ -252,11 +252,11 @@ def register_ws_events(socketio):
             return
         # 權限檢查（同 _get_note）
         if current_user.is_super_admin():
-            note = Note.query.get(nid)
+            note = Note.active().filter_by(id=nid).first()
         elif current_user.is_admin():
-            note = Note.query.filter_by(id=nid, store=current_user.store).first()
+            note = Note.active().filter_by(id=nid, store=current_user.store).first()
         else:
-            note = Note.query.filter_by(id=nid, store=current_user.store).first()
+            note = Note.active().filter_by(id=nid, store=current_user.store).first()
         if not note:
             emit('r', {'op': 'er', 'message': 'not found'})
             return
