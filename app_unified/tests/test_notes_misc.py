@@ -61,27 +61,40 @@ def test_checklist_sort_by_created_keeps_order_after_update(app, client, user_al
     assert texts2 == ["a", "c", "b"], f"Expected updated order, got: {texts2}"
 
 
-def test_range_all_no_date_filter(app, client, user_alice):
-    """range=all 應撈所有筆記，不限日期；range=7d 應該過濾。"""
-    # 60 天前 + 今天 各一筆
-    old_n = Note(title="old-note-xyz", content="", store="A", category="misc",
+def test_range_all_no_date_filter(app, client, db_session):
+    """range=all 應撈所有筆記，不限日期；range=7d 應該過濾。
+
+    用獨立 store 隔離 prior test data（per_page=20、prior data 多會把 old note
+    推離 page 1、舊版用 store="A" 在整 suite 跑時 isolation 不足）。
+    """
+    store_name = f"Z{uuid.uuid4().hex[:6]}"
+    db_session.add(Store(name=store_name))
+    db_session.commit()
+
+    suffix = uuid.uuid4().hex[:8]
+    user = User(username=f"alice-{suffix}", store=store_name, role="admin")
+    user.set_password("x")
+    db_session.add(user)
+    db_session.commit()
+
+    old_n = Note(title="old-note-xyz", content="", store=store_name, category="misc",
                  updated_at=datetime.utcnow() - timedelta(days=60))
-    new_n = Note(title="new-note-xyz", content="", store="A", category="misc",
+    new_n = Note(title="new-note-xyz", content="", store=store_name, category="misc",
                  updated_at=datetime.utcnow())
     db.session.add_all([old_n, new_n])
     db.session.commit()
 
-    _login_as(client, user_alice)
+    _login_as(client, user)
 
     # range=7d 應該只看到 new-note
-    r1 = client.get("/notes/?store=A&range=7d")
+    r1 = client.get(f"/notes/?store={store_name}&range=7d")
     assert r1.status_code == 200
     body1 = r1.data.decode("utf-8")
     assert "new-note-xyz" in body1
     assert "old-note-xyz" not in body1
 
     # range=all 應該兩筆都看到（不限日期）
-    r2 = client.get("/notes/?store=A&range=all")
+    r2 = client.get(f"/notes/?store={store_name}&range=all")
     assert r2.status_code == 200
     body2 = r2.data.decode("utf-8")
     assert "new-note-xyz" in body2
