@@ -14,6 +14,12 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
+import os
 from flask_socketio import SocketIO
 
-socketio = SocketIO()
+# F2 fix: multi-worker broadcast 需要 message queue 否則跨 worker 漏接 ~50%。
+# 設 REDIS_URL env (Zeabur Redis marketplace service) → flask-socketio 自動透過
+# Redis pub/sub 同步所有 worker、broadcast 全 reliable。
+# 沒設 REDIS_URL → fallback 既有單 worker 行為 (dev / 沒裝 Redis 時)、不會 crash。
+_redis_url = os.environ.get('REDIS_URL') or None
+socketio = SocketIO(message_queue=_redis_url) if _redis_url else SocketIO()
