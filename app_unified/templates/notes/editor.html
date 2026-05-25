@@ -417,6 +417,14 @@ function _setupNoteWsRoom() {
         itemDiv.remove();
         return;
       }
+      // F2 fix: 自己的 lock 不該在自己 DOM 顯示「別人編輯中」chip
+      // (避免 acquire 時 broadcast 含自己 → 自己 client 把自己加 chip → release 漏接時殘留)
+      if (msg.locked_by_id && msg.locked_by_id === window.CURRENT_USER_ID) {
+        // 顯式清掉、防 stale chip
+        itemDiv.classList.remove('locked-by-other');
+        delete itemDiv.dataset.lockedBy;
+        return;
+      }
       if (msg.locked_by_username) {
         itemDiv.classList.add('locked-by-other');
         itemDiv.dataset.lockedBy = msg.locked_by_username;
@@ -1269,7 +1277,15 @@ function closeItemDialog() {
     _itemLockHeartbeatTimer = null;
   }
   if (_currentEditItemId) {
-    fetch('/notes/api/items/' + _currentEditItemId + '/lock/release', { method: 'POST' }).catch(function() {});
+    var releasedId = _currentEditItemId;
+    fetch('/notes/api/items/' + releasedId + '/lock/release', { method: 'POST' }).catch(function() {});
+    // F2 fix: optimistic local DOM update — 不依賴 WS roundtrip
+    // 避免 WS 斷線時 chip 卡住、user 看自己還在編
+    var itemDiv = document.querySelector('#checklist-items > div[data-item-id="' + releasedId + '"]');
+    if (itemDiv) {
+      itemDiv.classList.remove('locked-by-other');
+      delete itemDiv.dataset.lockedBy;
+    }
     _currentEditItemId = null;
   }
   document.getElementById('item-modal').style.display = 'none';
