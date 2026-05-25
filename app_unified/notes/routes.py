@@ -1409,6 +1409,44 @@ def list_checklist_items(note_id):
     return jsonify({"status": "ok", "items": [_checklist_item_json(i) for i in items]})
 
 
+@notes_bp.route("/api/items/<int:item_id>/lock/heartbeat", methods=["POST"])
+@login_required
+def item_lock_heartbeat(item_id):
+    item = ChecklistItem.query.get(item_id)
+    if not item:
+        return jsonify({"status": "error", "message": "項目不存在"}), 404
+    note = _get_note_for_edit(item.note_id)
+    if not note:
+        return jsonify({"status": "error", "message": "無權限"}), 403
+    # 判斷是否第一次 acquire（要 broadcast）vs refresh（不 broadcast）
+    was_unlocked = (not item.locked_by) or (item.locked_by != current_user.id and
+        (not item.locked_at or
+         (datetime.utcnow() - item.locked_at).total_seconds() > LOCK_TTL_SEC))
+    ok, locker = _ensure_item_lock_for_mutation(item, current_user.id)
+    if not ok:
+        db.session.rollback()
+        return jsonify({"status": "locked",
+                        "locker": locker.username if locker else None}), 409
+    db.session.commit()
+    if was_unlocked:
+        _broadcast_item_lock(item, locked_by_user=current_user)
+    return jsonify({"status": "ok"})
+
+
+@notes_bp.route("/api/items/<int:item_id>/lock/release", methods=["POST"])
+@login_required
+def item_lock_release(item_id):
+    item = ChecklistItem.query.get(item_id)
+    if not item:
+        return jsonify({"status": "ok"})  # idempotent
+    if item.locked_by == current_user.id:
+        item.locked_by = None
+        item.locked_at = None
+        db.session.commit()
+        _broadcast_item_lock(item, locked_by_user=None)
+    return jsonify({"status": "ok"})
+
+
 @notes_bp.route("/api/<int:note_id>/items", methods=["POST"])
 @login_required
 def create_checklist_item(note_id):
