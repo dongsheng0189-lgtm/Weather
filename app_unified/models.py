@@ -129,6 +129,11 @@ class Note(db.Model):
         return cls.query.filter(cls.deleted_at.is_(None))
 
     @property
+    def active_checklist_items(self):
+        """F1: 排除 soft-deleted items (relationship 仍含所有 row 給 admin restore 用)。"""
+        return [i for i in self.checklist_items if i.deleted_at is None]
+
+    @property
     def display_author(self):
         """顯示用：原帳號在 → 帳號名；已刪除 → 原帳號名 (帳號已刪除)"""
         if self.author:

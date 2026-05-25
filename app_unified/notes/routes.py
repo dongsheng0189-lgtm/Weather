@@ -36,7 +36,7 @@ def _note_matches(n, kl):
     """搜尋比對：title / content / checklist 項目文字"""
     if kl in (n.title or "").lower() or kl in (n.content or "").lower():
         return True
-    for item in (n.checklist_items or []):
+    for item in n.active_checklist_items:
         if kl in (item.text or "").lower():
             return True
     return False
@@ -930,7 +930,7 @@ def _format_checklist_for_ai(n, since=None, until=None):
     since/until: datetime（UTC, naive）— 若給定，已完成項目只列 [since, until) 內
            的（避免今天的摘要把昨天完成的也撈進來，反之亦然）；未完成項目永遠全部列出。
     """
-    items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
+    items = sorted(n.active_checklist_items, key=lambda i: (i.updated_at or i.created_at), reverse=True)
     total = len(items)
     done_all = [i for i in items if i.is_checked]
     if since is not None:
@@ -1008,7 +1008,7 @@ def _build_categorized_checklist(checklists, since=None, until=None, inrange_lab
     for n in checklists:
         cat_enum = getattr(n, "category", None)
         cat = CATEGORY_TO_BUCKET.get(cat_enum) or _classify_by_title(n.title)
-        items = sorted(n.checklist_items or [], key=lambda i: (i.updated_at or i.created_at), reverse=True)
+        items = sorted(n.active_checklist_items, key=lambda i: (i.updated_at or i.created_at), reverse=True)
         done_all = [i for i in items if i.is_checked]
         if since is not None:
             def _in_range(it):
