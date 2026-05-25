@@ -102,12 +102,23 @@ def item_lock_release(item_id):
     return jsonify({"status": "ok"})
 ```
 
-### 4. 既有 PUT/DELETE item 加 item-level lock check
+### 4. 既有 endpoints lock check 重整
 
-`notes/routes.py` 既有：
-- `PUT /api/items/<id>` — 加 `ok, locker = _ensure_item_lock_for_mutation(item, current_user.id); if not ok: return 409`
-- `DELETE /api/items/<id>` — 同上
-- `is_checked` toggle endpoint — **不**走 item-lock check（toggle 是 quick atomic、應該允許併發）
+從 `notes/routes.py` grep `_ensure_lock_for_mutation` 找到 7 處呼叫、F2 處理如下：
+
+| Line | Endpoint | 既有 lock check | F2 後處理 |
+|---|---|---|---|
+| 544 | `PUT /api/<id>` (note title/content/status/category) | `_ensure_lock_for_mutation(note)` | **保留**（general note flow 不動、checklist mode user 編 title 仍會 note-lock 但 item edit 不受影響） |
+| 658 | `DELETE /api/<id>` (delete note) | `_ensure_lock_for_mutation(note)` | **保留** |
+| **1365** | `POST /api/<id>/items` (**新增 item**) | `_ensure_lock_for_mutation(note)` | **拿掉**、改 atomic INSERT 不檢查 lock |
+| **1397** | `PATCH /api/items/<id>` (編輯 item) | `_ensure_lock_for_mutation(note)` (note-level) | **換成** `_ensure_item_lock_for_mutation(item)` (item-level) |
+| **1443** | `DELETE /api/items/<id>` | `_ensure_lock_for_mutation(note)` (note-level) | **換成** `_ensure_item_lock_for_mutation(item)` (item-level) |
+| 1487 | `POST /api/attachments` (upload attachment) | `_ensure_lock_for_mutation(note)` | **保留**（attachment 屬 note、不屬 item） |
+| 1603 | `DELETE /api/attachments/<id>` | `_ensure_lock_for_mutation(note)` | **保留** |
+
+**Toggle is_checked**：不走 lock check（既有行為、不在這 7 條內）— quick atomic、允許併發。
+
+**注意**：line 1397 endpoint method 是 `PATCH` 不是 PUT（spec 其他段落「PUT item」均指 PATCH）。
 
 ### 5. `_checklist_item_json` 加 lock 資訊
 
@@ -337,7 +348,9 @@ F2 後行為：
 | User A 編 item 1、user B 刪除 item 1 | B 的 DELETE 被 409 擋住（item-level lock check） |
 | User A 編 item 1、user B 改 note title | A 跟 B 互不干擾（A 只 hold item lock、B 觸發 note-level lock 才 acquire note） |
 | User A 改 note title（hold note lock）、user B 想改 status | B 的 PUT 被 409 擋住（既有 note-level lock）— 既有行為、不在 F2 scope |
-| User A 編 item、user B 同時新增 item | 兩個都成功（新增是 atomic create、無 conflict） |
+| User A 編 item、user B 同時新增 item | **兩個都成功**（新增是 atomic INSERT、F2 拿掉 line 1365 既有 note-lock check） |
+| User A 新增 item、user B 同時編另一 item | **兩個都成功**（A 走 atomic INSERT 不卡 B、B 走 item-level lock 只擋編同一 item） |
+| User A 新增 item、user B 同時新增 item | **兩個都成功**（並行 INSERT、各拿自己的 PK） |
 | 既有 ChecklistItem row（無 lock 欄位）| Migration 後新欄位 NULL、`_item_lock_status` 拿到 None 自動視為未鎖 |
 | Toggle is_checked（勾完成）| 不走 lock check（即使別人在編、勾選仍 OK；既有行為） |
 | A unlock 後 B 即時看到 | WebSocket broadcast 'il' op、B < 1s 內視覺更新（chip 消失） |
