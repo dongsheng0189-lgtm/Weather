@@ -27,6 +27,7 @@
 </script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/notes-fullscreen.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/announcements.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/fullscreen_viewer.css') }}">
 <style>
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .note-card { background: #fff; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.07); cursor: pointer; transition: box-shadow .2s; border-left: 4px solid #3498db; }
@@ -395,6 +396,7 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/fullscreen_viewer.js') }}"></script>
 <script>
 function pollAiTask(taskId, onDone, onError, onTick) {
   var elapsed = 0;
