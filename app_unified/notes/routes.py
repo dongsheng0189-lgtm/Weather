@@ -178,6 +178,36 @@ def _broadcast_item_lock(item, locked_by_user=None, deleted=False):
         pass
 
 
+# ══════════ Soft delete helpers (F1 spec) ══════════
+
+def soft_delete_note(note, user_id):
+    """軟刪除 note。子 item 不個別 mark (Note.deleted_at IS NULL filter 自動隔離)。
+    連帶清 lock 避免殘留。"""
+    note.deleted_at = datetime.utcnow()
+    note.deleted_by = user_id
+    note.locked_by = None
+    note.locked_at = None
+
+
+def soft_delete_item(item, user_id):
+    """軟刪除 item。清 lock 避免殘留。"""
+    item.deleted_at = datetime.utcnow()
+    item.deleted_by = user_id
+    item.locked_by = None
+    item.locked_at = None
+
+
+def restore_note(note):
+    """還原 note。子 item 自動跟著恢復 (沒個別 mark)。"""
+    note.deleted_at = None
+    note.deleted_by = None
+
+
+def restore_item(item):
+    item.deleted_at = None
+    item.deleted_by = None
+
+
 def _get_business_day_range(offset_days=0):
     """回傳營業日的 (start, end)，以 UTC 表示（無 tzinfo）。
 
