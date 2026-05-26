@@ -123,6 +123,13 @@ class Note(db.Model):
                            foreign_keys="NoteLog.note_id",
                            primaryjoin="Note.id == NoteLog.note_id")
 
+    tags = db.relationship(
+        "Tag",
+        secondary="note_tags",
+        lazy="select",
+        backref=db.backref("notes", lazy="select"),
+    )
+
     @classmethod
     def active(cls):
         """Query builder filter 出未軟刪的 notes (F1 soft delete)。"""
@@ -200,6 +207,12 @@ class ChecklistItem(db.Model):
     checker = db.relationship("User", foreign_keys=[checked_by])
     locker = db.relationship("User", foreign_keys=[locked_by])
     deleter = db.relationship("User", foreign_keys=[deleted_by])
+    tags = db.relationship(
+        "Tag",
+        secondary="checklist_item_tags",
+        lazy="select",
+        backref=db.backref("items", lazy="select"),
+    )
 
     @classmethod
     def active(cls):
@@ -438,3 +451,31 @@ class AiTask(db.Model):
     __table_args__ = (
         db.Index("ix_ai_tasks_status_updated_at", "status", "updated_at"),
     )
+
+
+class Tag(db.Model):
+    __tablename__ = "tags"
+
+    id = db.Column(db.Integer, primary_key=True)
+    store = db.Column(db.String(8), nullable=False, index=True)
+    name = db.Column(db.String(20), nullable=False)
+    color = db.Column(db.String(7), nullable=False)
+    pinned = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (db.UniqueConstraint("store", "name", name="uq_tags_store_name"),)
+
+
+class NoteTag(db.Model):
+    __tablename__ = "note_tags"
+
+    note_id = db.Column(db.Integer, db.ForeignKey("notes.id", ondelete="CASCADE"), primary_key=True)
+    tag_id = db.Column(db.Integer, db.ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+
+class ChecklistItemTag(db.Model):
+    __tablename__ = "checklist_item_tags"
+
+    item_id = db.Column(db.Integer, db.ForeignKey("checklist_items.id", ondelete="CASCADE"), primary_key=True)
+    tag_id = db.Column(db.Integer, db.ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
