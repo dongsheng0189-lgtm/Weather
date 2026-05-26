@@ -44,3 +44,47 @@ def test_categorize_checklists_includes_note_id_and_item_id():
     assert len(items) == 1
     assert items[0]["note_id"] == 42
     assert items[0]["item_id"] == 99
+
+
+def test_format_cluster_single_note_emits_markdown_link():
+    cluster = [{
+        "note_id": 42,
+        "title": "冰箱漏水",
+        "content": "已約23號開刀",
+        "author": "婉婷",
+    }]
+    line = _format_cluster(cluster)
+    # 預期：開頭 [【婉婷】冰箱漏水 — 已約23號開刀](/n/42)
+    assert "[【婉婷】冰箱漏水" in line
+    assert "(/n/42)" in line
+    assert line.startswith("[")  # markdown link 從第一個字元開始
+
+
+def test_format_cluster_checklist_item_uses_fragment_anchor():
+    """Checklist item 需要 fragment anchor `#item-<id>` 才能滾到該 row。"""
+    cluster = [{
+        "note_id": 42,
+        "item_id": 99,
+        "title": "[日檢] 檢查冰箱",
+        "content": "",
+        "author": "小明",
+    }]
+    line = _format_cluster(cluster)
+    assert "(/n/42#item-99)" in line
+
+
+def test_format_cluster_multi_item_tail_has_per_author_links():
+    """Cluster ≥2 筆時，尾註的 author 名單每個都各自 link 到自己那筆 note。"""
+    cluster = [
+        {"note_id": 10, "title": "冰箱漏水", "content": "詳細內容很長很長很長", "author": "婉婷"},
+        {"note_id": 20, "title": "冰箱漏水", "content": "短", "author": "小明"},
+        {"note_id": 30, "title": "冰箱漏水", "content": "也短", "author": "阿華"},
+    ]
+    line = _format_cluster(cluster)
+    # 代表是最長的（婉婷）
+    assert "(/n/10)" in line
+    # 尾註：每個 author 個別 link 到 own note
+    assert "[婉婷](/n/10)" in line or "[小明](/n/20)" in line
+    assert "[小明](/n/20)" in line
+    assert "[阿華](/n/30)" in line
+    assert "（3 筆" in line

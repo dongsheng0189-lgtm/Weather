@@ -187,33 +187,70 @@ def _cluster_items(items, eps=0.4):
     return list(cluster_to_items.values())
 
 
+def _cluster_item_url(item):
+    """從 bucket item 組 URL：note 用 /n/<id>，checklist item 用 /n/<id>#item-<item_id>。"""
+    nid = item.get("note_id")
+    iid = item.get("item_id")
+    if nid is None:
+        return None  # 防呆：bucket 沒帶 id 時退回純文字
+    if iid is not None:
+        return f"/n/{nid}#item-{iid}"
+    return f"/n/{nid}"
+
+
 def _format_cluster(cluster):
-    """從 cluster 抽代表 + 狀態標記，回傳 bullet 字串"""
+    """從 cluster 抽代表 + 狀態標記，回傳 markdown bullet 字串（含 link）。
+
+    Output 範例：
+      single: [【婉婷】冰箱漏水 — 已約23號開刀](/n/42) 🟡
+      multi:  [【婉婷】冰箱漏水 — 已約23號開刀](/n/10) ✓（3 筆 / [婉婷](/n/10)、[小明](/n/20)、[阿華](/n/30)）
+    """
     rep = max(cluster, key=lambda x: len(x["title"]) + len(x["content"]))
     title = rep["title"]
     content = rep["content"]
     author = rep["author"]
 
-    line = f"【{author}】{title}"
-
+    # 主 label（會包進 markdown link）
+    label = f"【{author}】{title}"
     if content:
         first = content.strip().split("\n")[0].strip()
         if first and first != title:
             if len(first) > 100:
                 first = first[:100] + "…"
-            line += f" — {first}"
+            label += f" — {first}"
 
+    rep_url = _cluster_item_url(rep)
+    if rep_url:
+        line = f"[{label}]({rep_url})"
+    else:
+        line = label  # 防呆 fallback
+
+    # 狀態符號放在 link 外
     full = (title or "") + " " + (content or "")
     if DONE_PAT.search(full):
         line += " ✓"
     elif PROGRESS_PAT.search(full):
         line += " 🟡"
 
+    # 多筆 cluster：尾註每個 author link 到自己那筆
     if len(cluster) > 1:
-        names = sorted({c["author"] for c in cluster if c.get("author")})
+        # 用 note_id 去重（同 note_id 多 author 只列一次；不同 note 同 author 也只列 author 一次）
+        seen_nids = set()
+        author_links = []
+        for c in cluster:
+            nid = c.get("note_id")
+            ca = c.get("author") or "?"
+            if nid in seen_nids:
+                continue
+            seen_nids.add(nid)
+            url = _cluster_item_url(c)
+            if url:
+                author_links.append(f"[{ca}]({url})")
+            else:
+                author_links.append(ca)
         line += f"（{len(cluster)} 筆"
-        if len(names) > 1:
-            line += f" / {', '.join(names)}"
+        if author_links:
+            line += f" / {'、'.join(author_links)}"
         line += "）"
 
     return line
