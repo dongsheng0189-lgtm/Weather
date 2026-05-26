@@ -11,6 +11,22 @@
 #title-input:focus { border-color: #3498db; }
 #content-area { min-height: 60vh; resize: vertical; font-size: 1rem; line-height: 1.6; }
 
+/* AI 摘要筆記內 link 視覺：預設看起來像一般文字 (color/text-decoration 都 inherit)，
+   hover 時才出現黃底 + cursor:pointer 提示「這條可點」。減少視覺雜訊、保持摘要
+   閱讀順暢，但 click 行為仍正常運作。 */
+#ai-summary-rendered a[href^="/n/"] {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 1px 2px;
+  margin: -1px -2px;
+  transition: background .12s;
+}
+#ai-summary-rendered a[href^="/n/"]:hover {
+  background: #fff3cd;
+  cursor: pointer;
+}
+
 /* Review mode — 從 AI 摘要 link 過來時，整張 editor 內所有可編輯控制都鎖住，
    避免 review 時誤改資料。CSS 覆蓋掉 DOM 上「全部」editor.wrap 內的互動 widget，
    連帶涵蓋 async render 出來的 checklist items / tag chips。

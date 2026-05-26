@@ -222,6 +222,17 @@ def _cluster_item_url(item):
     return f"/n/{nid}"
 
 
+def _md_link_escape(s):
+    """Escape markdown chars 會把 `[label](url)` 切錯：
+    - `[` `]` 在 label 內會提前結束 link text
+    - `\\` 是 markdown escape 起頭
+    Prod 已發現 title / content 含這些字元時、整條 bullet 變壞 link 或無 link。
+    """
+    if not s:
+        return s
+    return s.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
 def _format_cluster(cluster):
     """從 cluster 抽代表 + 狀態標記，回傳 markdown bullet 字串（含 link）。
 
@@ -234,14 +245,14 @@ def _format_cluster(cluster):
     content = rep["content"]
     author = rep["author"]
 
-    # 主 label（會包進 markdown link）
-    label = f"【{author}】{title}"
+    # 主 label（會包進 markdown link）— escape [/]/\\ 防止 marked 切錯
+    label = f"【{_md_link_escape(author)}】{_md_link_escape(title)}"
     if content:
         first = content.strip().split("\n")[0].strip()
         if first and first != title:
             if len(first) > 100:
                 first = first[:100] + "…"
-            label += f" — {first}"
+            label += f" — {_md_link_escape(first)}"
 
     rep_url = _cluster_item_url(rep)
     if rep_url:
@@ -269,7 +280,7 @@ def _format_cluster(cluster):
             seen_nids.add(nid)
             url = _cluster_item_url(c)
             if url:
-                author_links.append(f"[{ca}]({url})")
+                author_links.append(f"[{_md_link_escape(ca)}]({url})")
             else:
                 author_links.append(ca)
         line += f"（{len(cluster)} 筆"
