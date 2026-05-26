@@ -38,6 +38,10 @@
     if (opts.body && !(opts.body instanceof FormData)) {
       opts.headers['Content-Type'] = 'application/json';
     }
+    // 自動帶 ?store= 給 tag API、避免 super_admin (帳號 store=None) 拿不到 effective store
+    if (window.CURRENT_STORE && url.indexOf('/notes/api/tags') === 0 && url.indexOf('store=') === -1) {
+      url += (url.indexOf('?') === -1 ? '?' : '&') + 'store=' + encodeURIComponent(window.CURRENT_STORE);
+    }
     return fetch(url, opts).then(function(r) {
       return r.json().then(function(j) { return {ok: r.ok, status: r.status, data: j}; });
     });

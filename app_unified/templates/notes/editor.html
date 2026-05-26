@@ -1608,6 +1608,8 @@ if (!IS_READONLY) EditKeepalive.init();
     {% endfor %}
     {% endif %}
   ];
+  // 編輯頁 note.store 優先、否則 current_user.store
+  window.CURRENT_STORE = {{ (note.store if note else (current_user.store or ''))|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/tag_system.js') }}" defer></script>
 {% endblock %}

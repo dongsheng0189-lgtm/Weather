@@ -677,6 +677,10 @@ document.getElementById('enroll-submit').onclick = async () => {
   }
 };
 </script>
+<script>
+  // 標籤 API 需要 store context (super_admin 帳號可能 store=None、需從當前頁 context 帶)
+  window.CURRENT_STORE = {{ (current_store or current_user.store or '')|tojson }};
+</script>
 <script src="{{ url_for('static', filename='js/collapsible_sections.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/tag_system.js') }}" defer></script>
 {% endblock %}
