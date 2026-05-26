@@ -157,14 +157,14 @@
   </div>
   <div class="editor-toolbar">
     <button class="btn btn-primary" id="btn-save" onclick="doSave()">💾 儲存</button>
-    {% if note %}
     <button type="button" id="open-tag-picker"
-            data-target-type="note" data-target-id="{{ note.id }}"
+            data-target-type="note" data-target-id="{{ note.id if note else '' }}"
             data-current-tag-ids="{{ current_tag_ids|tojson|safe if current_tag_ids is defined else '[]' }}"
             style="font-size:.85rem;padding:.4rem .8rem;border-radius:6px;
                    border:1px solid #ddd;background:#fff;cursor:pointer;">
       🏷️ 標籤 <span id="note-tag-count">(0/5)</span>
     </button>
+    {% if note %}
     <button class="btn btn-danger" id="btn-delete" onclick="doDelete()" style="margin-left:auto;">刪除</button>
     {% endif %}
   </div>
@@ -655,7 +655,13 @@ function doSave() {
   var url = NOTE_ID ? ('/notes/api/' + NOTE_ID) : '/notes/api';
   var method = NOTE_ID ? 'PUT' : 'POST';
   var body = { title: title, content: content, store: store, status: currentStatus, category: currentCategory, shift: currentShift };
-  if (!NOTE_ID) body.note_type = EDITOR_TYPE;
+  if (!NOTE_ID) {
+    body.note_type = EDITOR_TYPE;
+    // 新筆記：把 pre-save 標籤一起帶進 POST、後端會 inline 建 m2m
+    if (window.__PRESAVE_TAG_IDS && window.__PRESAVE_TAG_IDS.length > 0) {
+      body.tag_ids = window.__PRESAVE_TAG_IDS;
+    }
+  }
   fetch(url, {
     method: method,
     headers: {'Content-Type': 'application/json'},
@@ -1492,18 +1498,18 @@ if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();
 if (!IS_READONLY) EditKeepalive.init();
 
 </script>
-{% if note %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tag_system.css') }}">
 {% include 'notes/_tag_picker_modal.html' %}
 <script>
-  // Expose tag context to tag_system.js for inline rendering on checklist items
+  // Expose tag context to tag_system.js
   window.ITEM_TAG_IDS_MAP = {{ item_tag_ids_map|tojson|safe if item_tag_ids_map is defined else '{}' }};
   window.ALL_STORE_TAGS = [
-    {% for t in all_store_tags if all_store_tags is defined %}
+    {% if all_store_tags is defined and all_store_tags %}
+    {% for t in all_store_tags %}
     {id: {{ t.id }}, name: "{{ t.name|e }}", color: "{{ t.color }}"}{% if not loop.last %},{% endif %}
     {% endfor %}
+    {% endif %}
   ];
 </script>
 <script src="{{ url_for('static', filename='js/tag_system.js') }}" defer></script>
-{% endif %}
 {% endblock %}

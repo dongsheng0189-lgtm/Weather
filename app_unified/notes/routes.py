@@ -479,6 +479,10 @@ def new_note():
     shift_glue = f"{shift}" if shift else ""
     default_title = f"{today} {shift_glue}{CATEGORY_LABELS[category]}"
 
+    # 新增筆記也要 picker 用：拉當前使用者 store 的所有標籤
+    from models import Tag as _Tag
+    _user_store = current_user.store
+    all_store_tags = _Tag.query.filter_by(store=_user_store).all() if _user_store else []
     return render_template("notes/editor.html", note=None, stores=stores,
                            status_choices=STATUS_CHOICES,
                            category_choices=CATEGORY_CHOICES,
@@ -486,7 +490,10 @@ def new_note():
                            default_title=default_title,
                            note_type=note_type,
                            default_category=category,
-                           default_shift=shift)
+                           default_shift=shift,
+                           current_tag_ids=[],
+                           item_tag_ids_map={},
+                           all_store_tags=all_store_tags)
 
 
 @notes_bp.route("/api", methods=["GET"])
@@ -579,6 +586,15 @@ def create_note():
         note.resolved_at = datetime.utcnow()
     db.session.add(note)
     db.session.commit()
+    # 處理 inline 標籤（新增筆記同時掛標籤）
+    tag_ids = data.get("tag_ids") or []
+    if isinstance(tag_ids, list) and tag_ids and store:
+        from models import Tag as _Tag, NoteTag as _NoteTag
+        tag_ids = list(set(int(x) for x in tag_ids if isinstance(x, (int, str)) and str(x).isdigit()))[:5]
+        valid_tags = _Tag.query.filter(_Tag.id.in_(tag_ids), _Tag.store == store).all()
+        for t in valid_tags:
+            db.session.add(_NoteTag(note_id=note.id, tag_id=t.id))
+        db.session.commit()
     return jsonify({"status": "ok", "id": note.id}), 201
 
 

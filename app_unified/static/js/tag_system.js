@@ -263,8 +263,14 @@
     var row = document.querySelector('.tag-filter-row[data-role="tag-row"]');
     if (!row) return;
     var currentTagId = parseInt(new URLSearchParams(window.location.search).get('tag') || '0', 10);
+    // 排序：釘選優先、其餘按 id desc (新建立的先出)
     var pinned = state.tags.filter(function(t) { return t.pinned; });
-    var others = state.tags.filter(function(t) { return !t.pinned; });
+    var others = state.tags.filter(function(t) { return !t.pinned; })
+                           .sort(function(a, b) { return b.id - a.id; });
+    var ordered = pinned.concat(others);
+    var VISIBLE = 3;
+    var head = ordered.slice(0, VISIBLE);
+    var tail = ordered.slice(VISIBLE);
     row.innerHTML = '';
     if (state.tags.length === 0) return;
     var label = document.createElement('span');
@@ -283,20 +289,20 @@
       return chip;
     }
 
-    pinned.forEach(function(t) { row.appendChild(makeChip(t)); });
-    if (others.length > 0) {
+    head.forEach(function(t) { row.appendChild(makeChip(t)); });
+    if (tail.length > 0) {
       var moreBtn = document.createElement('button');
       moreBtn.type = 'button';
       moreBtn.className = 'more-toggle';
-      moreBtn.textContent = '+' + others.length + ' more';
+      moreBtn.textContent = '+' + tail.length + ' more';
       var expanded = false;
       moreBtn.addEventListener('click', function() {
         if (expanded) {
           row.querySelectorAll('.tag-chip[data-more]').forEach(function(c) { c.remove(); });
-          moreBtn.textContent = '+' + others.length + ' more';
+          moreBtn.textContent = '+' + tail.length + ' more';
           expanded = false;
         } else {
-          others.forEach(function(t) {
+          tail.forEach(function(t) {
             var c = makeChip(t);
             c.dataset.more = '1';
             row.insertBefore(c, moreBtn);
@@ -364,10 +370,16 @@
     };
 
     modal.querySelector('[data-role="save"]').onclick = function() {
+      var ids = Array.from(selected);
+      // Pre-save mode (new note/item — no id yet): just buffer + close, doSave 會帶進 POST
+      if (!targetId) {
+        modal.classList.remove('is-open');
+        if (onSaved) onSaved(ids);
+        return;
+      }
       var url = (targetType === 'note')
         ? '/notes/api/' + targetId + '/tags'
         : '/notes/api/items/' + targetId + '/tags';
-      var ids = Array.from(selected);
       fetchJson(url, {method: 'PUT', body: JSON.stringify({tag_ids: ids})})
         .then(function(r) {
           if (r.ok) {
@@ -384,7 +396,8 @@
     var btn = document.getElementById('open-tag-picker');
     if (!btn) return;
     var targetType = btn.dataset.targetType;
-    var targetId = parseInt(btn.dataset.targetId, 10);
+    var rawId = btn.dataset.targetId;
+    var targetId = rawId ? parseInt(rawId, 10) : null;  // null = new note pre-save mode
     var currentIds = [];
     try { currentIds = JSON.parse(btn.dataset.currentTagIds || '[]'); } catch (e) {}
     var badge = document.getElementById('note-tag-count');
@@ -392,10 +405,13 @@
       if (badge) badge.textContent = '(' + ids.length + '/5)';
     }
     refreshCountBadge(currentIds);
+    // expose pre-save buffer 給 doSave 用
+    window.__PRESAVE_TAG_IDS = currentIds.slice();
     btn.addEventListener('click', function() {
       openPicker(targetType, targetId, currentIds, function(ids) {
         currentIds = ids;
         refreshCountBadge(ids);
+        window.__PRESAVE_TAG_IDS = ids.slice();
       });
     });
   }
