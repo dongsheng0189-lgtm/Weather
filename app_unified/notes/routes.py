@@ -346,6 +346,7 @@ def index():
     category_filter = request.args.get("category", "")
     shift_filter = request.args.get("shift", "none")  # default 'none' (= NULL)
     keyword = request.args.get("q", "").strip()
+    tag_id = request.args.get("tag", type=int)
     page = request.args.get("page", 1, type=int)
     per_page = 20
     stores = _get_stores()
@@ -375,7 +376,7 @@ def index():
         # AI 摘要的內容是其他 note 的彙整，搜尋會跟原 note 重複出現 → 排除掉
         query = query.filter(Note.is_ai_summary.isnot(True))
     else:
-        # AND 組合：category + status + range
+        # AND 組合：category + status + range + tag
         active_filter = 'combined'
         if category_filter in CATEGORY_CHOICES:
             query = query.filter_by(category=category_filter)
@@ -384,6 +385,9 @@ def index():
             query = query.filter_by(shift=shift_filter)
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
+        if tag_id:
+            from models import NoteTag
+            query = query.join(NoteTag, NoteTag.note_id == Note.id).filter(NoteTag.tag_id == tag_id)
         if not range_param:
             range_param = 'today'
         query = _date_filter(query, range_param)
@@ -429,6 +433,7 @@ def index():
                            current_category=category_filter,
                            current_shift=shift_filter,
                            current_keyword=keyword,
+                           current_tag=tag_id,
                            current_sort=current_sort,
                            active_filter=active_filter,
                            status_choices=STATUS_CHOICES,
