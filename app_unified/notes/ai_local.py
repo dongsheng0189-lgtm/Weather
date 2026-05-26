@@ -96,6 +96,7 @@ def _categorize_notes(notes, since, until):
 
         author = n.author_name or (n.author.username if n.author else "?")
         buckets[cat][target].append({
+            "note_id": n.id,
             "title": n.title or "",
             "content": n.content or "",
             "author": author,
@@ -143,6 +144,8 @@ def _categorize_checklists(notes, since, until):
 
             who = (item.checked_by_name if is_checked else "") or "?"
             buckets[cat][target].append({
+                "note_id": n.id,
+                "item_id": item.id,
                 "title": f"[{note_title}] {text}" if note_title else text,
                 "content": "",
                 "author": who,
