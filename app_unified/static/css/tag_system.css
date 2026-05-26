@@ -21,11 +21,13 @@
   border: 2px solid transparent;
   transition: opacity .12s, border-color .12s, box-shadow .12s, transform .12s;
 }
-.tag-chip.is-button:not(.is-active) {
+/* 只有 picker modal 內未選 chip 才暗化 (幫使用者區分已選/未選)
+   filter row 跟管理 list 都保持原色、純資訊用 */
+.tag-picker-modal .tag-chip.is-button:not(.is-active) {
   opacity: .5;
   filter: grayscale(.3);
 }
-.tag-chip.is-button:hover { opacity: .85; filter: none; }
+.tag-picker-modal .tag-chip.is-button:hover { opacity: .85; filter: none; }
 .tag-chip.is-button.is-active {
   opacity: 1;
   filter: none;

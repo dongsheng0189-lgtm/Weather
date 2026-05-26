@@ -192,7 +192,11 @@
       {% for val, label in cat_tab_labels %}
       <a href="{{ url_for('notes.index', store=current_store, category=val, tag=current_tag) }}"
          class="store-tab {% if current_category == val %}active{% endif %}"
-         style="{% if current_category == val and val %}background:#3498db;color:#fff;{% endif %}">{{ label }}</a>
+         style="{% if current_category == val %}
+                  {% if val == '' %}background:#2c3e50;color:#fff;
+                  {% else %}background:#3498db;color:#fff;
+                  {% endif %}
+                {% endif %}">{{ label }}</a>
       {% endfor %}
     </div>
     {% set shift_tab_labels = [('none','全部'),('A','A'),('B','B'),('N','N')] %}
