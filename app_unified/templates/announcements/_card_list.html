@@ -1,28 +1,46 @@
 {% if announcements %}
-<section class="announcement-section">
-  <h2 class="announcement-section-title">📢 公告</h2>
-  {% for a in announcements %}
-  <article class="announcement-card {% if a.is_global %}is-global{% endif %}"
-           data-ann-id="{{ a.id }}">
-    <header class="ann-header">
-      <span class="scope-chip">{{ '全部' if a.is_global else a.store }}</span>
-      <h3 class="ann-title">{{ a.title }}</h3>
-    </header>
-    <div class="ann-content">{{ a.content }}</div>
-    <div class="ann-attachments" data-ann-id="{{ a.id }}"></div>
-    <footer class="ann-footer">
-      <span class="ann-author">{{ a.display_author }}</span>
-      <time class="ann-time">{{ ann_times[a.id] }}</time>
-      {% if a.id in ann_edited_ids %}
-      <span class="ann-edited-chip">已編輯</span>
-      {% endif %}
-      {% if a.id in editable_ann_ids %}
-      <a class="btn btn-secondary btn-sm"
-         href="{{ url_for('notes.announcement_edit_page', announcement_id=a.id) }}">編輯</a>
-      {% endif %}
-    </footer>
-  </article>
-  {% endfor %}
+{% set max_ann_id = announcements | map(attribute='id') | max %}
+<section class="collapsible" data-section="announcements" data-max-ann-id="{{ max_ann_id }}">
+  <div class="collapsible-bar" data-role="section-bar">
+    <span class="bar-title">📢 公告 ({{ announcements|length }})</span>
+    <span class="bar-chevron">▶</span>
+  </div>
+  <div class="collapsible-preview">
+    <ul class="ann-bullet-list">
+      {% for a in announcements %}
+      <li>
+        <a class="ann-bullet" data-ann-id="{{ a.id }}" role="button" tabindex="0">{{ a.title }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="collapsible-body">
+    {% for a in announcements %}
+    <div class="ann-item is-expanded" data-ann-id="{{ a.id }}">
+      <a class="ann-bullet" data-ann-id="{{ a.id }}" role="button" tabindex="0">{{ a.title }}</a>
+      <article class="announcement-card {% if a.is_global %}is-global{% endif %}"
+               data-ann-id="{{ a.id }}">
+        <header class="ann-header">
+          <span class="scope-chip">{{ '全部' if a.is_global else a.store }}</span>
+          <h3 class="ann-title">{{ a.title }}</h3>
+        </header>
+        <div class="ann-content">{{ a.content }}</div>
+        <div class="ann-attachments" data-ann-id="{{ a.id }}"></div>
+        <footer class="ann-footer">
+          <span class="ann-author">{{ a.display_author }}</span>
+          <time class="ann-time">{{ ann_times[a.id] }}</time>
+          {% if a.id in ann_edited_ids %}
+          <span class="ann-edited-chip">已編輯</span>
+          {% endif %}
+          {% if a.id in editable_ann_ids %}
+          <a class="btn btn-secondary btn-sm"
+             href="{{ url_for('notes.announcement_edit_page', announcement_id=a.id) }}">編輯</a>
+          {% endif %}
+        </footer>
+      </article>
+    </div>
+    {% endfor %}
+  </div>
 </section>
 
 <script src="{{ url_for('static', filename='js/announcement_attachments.js') }}"></script>

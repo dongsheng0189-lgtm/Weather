@@ -66,8 +66,10 @@ def test_each_announcement_has_bullet_and_card_wrappers(client, db):
     _login(client, u)
     r = client.get("/notes/")
     html = r.get_data(as_text=True)
-    assert html.count('class="ann-item"') >= 2
-    assert html.count('class="ann-bullet"') >= 2
+    # ann-item wrapper appears once per announcement (in body)
+    assert html.count('class="ann-item ') >= 2
+    # ann-bullet appears twice per announcement (preview + body)
+    assert html.count('class="ann-bullet"') >= 4
     assert 'FIRST' in html
     assert 'SECOND' in html
 
