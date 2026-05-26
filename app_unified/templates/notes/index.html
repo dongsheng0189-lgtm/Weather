@@ -151,70 +151,91 @@
   <a href="{{ url_for('notes.index') }}" class="store-tab active" data-store="{{ current_user.store }}">{{ current_user.store }} 店</a>
 </div>
 {% endif %}
-<form method="get" action="{{ url_for('notes.index') }}" style="display:flex;gap:.4rem;margin-bottom:.75rem;align-items:center;">
-  <span style="font-size:.85rem;color:#666;">關鍵字：</span>
-  {% if current_store %}<input type="hidden" name="store" value="{{ current_store }}">{% endif %}
-  <input type="text" name="q" value="{{ current_keyword or '' }}" placeholder="搜尋標題/內容…" style="flex:1;max-width:300px;padding:.4rem .6rem;border:1px solid #ddd;border-radius:6px;font-size:.9rem;min-height:36px;">
-  <button type="submit" class="btn btn-primary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">搜尋</button>
-  {% if active_filter == 'keyword' %}
-  <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;display:inline-flex;align-items:center;gap:.3rem;"><span style="color:#e74c3c;font-weight:700;">✕</span> 取消</a>
-  {% endif %}
-</form>
-{# keyword mode returns full matched set — these limiting filters are off-topic, hide them #}
-{% if not current_keyword %}
-{% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('machine','機台'),('misc','雜項')] %}
-<div class="range-tabs">
-  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">種類：</span>
-  {% for val, label in cat_tab_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=val) }}"
-     class="store-tab {% if current_category == val %}active{% endif %}"
-     style="{% if current_category == val and val %}background:#3498db;color:#fff;{% endif %}">{{ label }}</a>
-  {% endfor %}
-</div>
-{% set shift_tab_labels = [('none','全部'),('A','A'),('B','B'),('N','N')] %}
-<div class="range-tabs">
-  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">班別：</span>
-  {% for val, label in shift_tab_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=val) }}"
-     class="store-tab {% if current_shift == val %}active{% endif %}"
-     style="{% if current_shift == val %}background:#16a085;color:#fff;{% endif %}">{{ label }}</a>
-  {% endfor %}
-</div>
-<div class="range-tabs">
-  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">時間：</span>
-  {% set range_labels = [('today','今天'),('3d','近3天'),('7d','近7天'),('all','所有')] %}
-  {% for val, label in range_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=val) }}"
-     class="store-tab {% if current_range == val %}active{% endif %}"
-     style="{% if current_range == val %}background:#2c3e50;color:#fff;{% endif %}">{{ label }}</a>
-  {% endfor %}
-</div>
-{% set status_labels = [('','全部'),('pending','待處理'),('in_progress','待討論'),('resolved','已解決')] %}
-<div class="status-tabs">
-  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">狀態：</span>
-  {% for val, label in status_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=val) }}"
-     class="store-tab {% if current_status == val %}active{% endif %}"
-     style="{% if current_status == val %}
-              {% if val == '' %}background:#2c3e50;color:#fff;
-              {% elif val == 'pending' %}background:#95a5a6;color:#fff;
-              {% elif val == 'in_progress' %}background:#3498db;color:#fff;
-              {% elif val == 'resolved' %}background:#27ae60;color:#fff;
-              {% endif %}
-            {% endif %}">{{ label }}</a>
-  {% endfor %}
-</div>
-{% set sort_labels = [('updated','照更新'),('created','照日期')] %}
-<div class="status-tabs">
-  <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">排列：</span>
-  {% for val, label in sort_labels %}
-  <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=current_status, sort=val) }}"
-     onclick="try { localStorage.setItem('notes_sort', '{{ val }}'); } catch(e){}"
-     class="store-tab {% if current_sort == val %}active{% endif %}"
-     style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">{{ label }}</a>
-  {% endfor %}
-</div>
-{% endif %}
+{% set active_filter_count = 0 %}
+{% if current_keyword %}{% set active_filter_count = active_filter_count + 1 %}{% endif %}
+{% if current_tag %}{% set active_filter_count = active_filter_count + 1 %}{% endif %}
+{% if current_category %}{% set active_filter_count = active_filter_count + 1 %}{% endif %}
+{% if current_shift and current_shift != 'none' %}{% set active_filter_count = active_filter_count + 1 %}{% endif %}
+{% if current_range and current_range != 'today' %}{% set active_filter_count = active_filter_count + 1 %}{% endif %}
+{% if current_status %}{% set active_filter_count = active_filter_count + 1 %}{% endif %}
+{% if current_sort and current_sort != 'updated' %}{% set active_filter_count = active_filter_count + 1 %}{% endif %}
+
+<section class="collapsible" data-section="filters"
+         data-active-count="{{ active_filter_count }}">
+  <div class="collapsible-bar" data-role="section-bar">
+    <span class="bar-title">⚙️ 進階篩選{% if active_filter_count > 0 %} ({{ active_filter_count }}){% endif %}</span>
+    <span class="bar-chevron">▶</span>
+  </div>
+  <div class="collapsible-body">
+    <form method="get" action="{{ url_for('notes.index') }}" style="display:flex;gap:.4rem;margin-bottom:.75rem;align-items:center;flex-wrap:wrap;">
+      <span style="font-size:.85rem;color:#666;">🔍 關鍵字：</span>
+      {% if current_store %}<input type="hidden" name="store" value="{{ current_store }}">{% endif %}
+      <input type="text" name="q" value="{{ current_keyword or '' }}" placeholder="搜尋標題/內容…" style="flex:1;max-width:300px;padding:.4rem .6rem;border:1px solid #ddd;border-radius:6px;font-size:.9rem;min-height:36px;">
+      <button type="submit" class="btn btn-primary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;">搜尋</button>
+      {% if active_filter == 'keyword' %}
+      <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;display:inline-flex;align-items:center;gap:.3rem;"><span style="color:#e74c3c;font-weight:700;">✕</span> 取消</a>
+      {% endif %}
+    </form>
+
+    {# 標籤 row 預留位、Task C6 fill via JS #}
+    <div class="tag-filter-row" data-role="tag-row"></div>
+
+    {% if not current_keyword %}
+    {% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('machine','機台'),('misc','雜項')] %}
+    <div class="range-tabs">
+      <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">種類：</span>
+      {% for val, label in cat_tab_labels %}
+      <a href="{{ url_for('notes.index', store=current_store, category=val, tag=current_tag) }}"
+         class="store-tab {% if current_category == val %}active{% endif %}"
+         style="{% if current_category == val and val %}background:#3498db;color:#fff;{% endif %}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    {% set shift_tab_labels = [('none','全部'),('A','A'),('B','B'),('N','N')] %}
+    <div class="range-tabs">
+      <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">班別：</span>
+      {% for val, label in shift_tab_labels %}
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=val, tag=current_tag) }}"
+         class="store-tab {% if current_shift == val %}active{% endif %}"
+         style="{% if current_shift == val %}background:#16a085;color:#fff;{% endif %}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    <div class="range-tabs">
+      <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">時間：</span>
+      {% set range_labels = [('today','今天'),('3d','近3天'),('7d','近7天'),('all','所有')] %}
+      {% for val, label in range_labels %}
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=val, tag=current_tag) }}"
+         class="store-tab {% if current_range == val %}active{% endif %}"
+         style="{% if current_range == val %}background:#2c3e50;color:#fff;{% endif %}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    {% set status_labels = [('','全部'),('pending','待處理'),('in_progress','待討論'),('resolved','已解決')] %}
+    <div class="status-tabs">
+      <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">狀態：</span>
+      {% for val, label in status_labels %}
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=val, tag=current_tag) }}"
+         class="store-tab {% if current_status == val %}active{% endif %}"
+         style="{% if current_status == val %}
+                  {% if val == '' %}background:#2c3e50;color:#fff;
+                  {% elif val == 'pending' %}background:#95a5a6;color:#fff;
+                  {% elif val == 'in_progress' %}background:#3498db;color:#fff;
+                  {% elif val == 'resolved' %}background:#27ae60;color:#fff;
+                  {% endif %}
+                {% endif %}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    {% set sort_labels = [('updated','照更新'),('created','照日期')] %}
+    <div class="status-tabs">
+      <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">排列：</span>
+      {% for val, label in sort_labels %}
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=current_status, sort=val, tag=current_tag) }}"
+         onclick="try { localStorage.setItem('notes_sort', '{{ val }}'); } catch(e){}"
+         class="store-tab {% if current_sort == val %}active{% endif %}"
+         style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">{{ label }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>
 
 {% if notes %}
 <div class="notes-grid">
