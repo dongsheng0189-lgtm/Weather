@@ -142,3 +142,58 @@ def delete_tag(tag_id):
     db.session.delete(t)  # cascade clears m2m
     db.session.commit()
     return jsonify({'ok': True, 'cascaded': n_count + i_count})
+
+
+@notes_bp.route('/api/<int:note_id>/tags', methods=['PUT'])
+@login_required
+def set_note_tags(note_id):
+    n = db.session.get(Note, note_id)
+    if not n:
+        abort(404)
+    if current_user.role != 'super_admin' and n.store != current_user.store:
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    tag_ids = data.get('tag_ids') or []
+    if not isinstance(tag_ids, list) or len(tag_ids) > MAX_TAGS_PER_ITEM:
+        return jsonify({'error': f'最多 {MAX_TAGS_PER_ITEM} 個標籤'}), 400
+    tag_ids = list(set(tag_ids))  # de-dup
+    tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
+    if len(tags) != len(tag_ids):
+        return jsonify({'error': '部分標籤不存在'}), 400
+    for t in tags:
+        if t.store != n.store:
+            return jsonify({'error': '跨店標籤'}), 400
+    NoteTag.query.filter_by(note_id=n.id).delete()
+    for tid in tag_ids:
+        db.session.add(NoteTag(note_id=n.id, tag_id=tid))
+    db.session.commit()
+    return jsonify({'tag_ids': tag_ids})
+
+
+@notes_bp.route('/api/items/<int:item_id>/tags', methods=['PUT'])
+@login_required
+def set_item_tags(item_id):
+    item = db.session.get(ChecklistItem, item_id)
+    if not item:
+        abort(404)
+    note = db.session.get(Note, item.note_id)
+    if not note:
+        abort(404)
+    if current_user.role != 'super_admin' and note.store != current_user.store:
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    tag_ids = data.get('tag_ids') or []
+    if not isinstance(tag_ids, list) or len(tag_ids) > MAX_TAGS_PER_ITEM:
+        return jsonify({'error': f'最多 {MAX_TAGS_PER_ITEM} 個標籤'}), 400
+    tag_ids = list(set(tag_ids))
+    tags = Tag.query.filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
+    if len(tags) != len(tag_ids):
+        return jsonify({'error': '部分標籤不存在'}), 400
+    for t in tags:
+        if t.store != note.store:
+            return jsonify({'error': '跨店標籤'}), 400
+    ChecklistItemTag.query.filter_by(item_id=item.id).delete()
+    for tid in tag_ids:
+        db.session.add(ChecklistItemTag(item_id=item.id, tag_id=tid))
+    db.session.commit()
+    return jsonify({'tag_ids': tag_ids})

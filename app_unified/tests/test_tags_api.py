@@ -144,6 +144,64 @@ def test_unpin_then_pin_new(client, db):
     assert r.status_code == 200
 
 
+def test_set_note_tags_replace_semantics(client, db):
+    from models import Tag, Note
+    u = _mk_user(db, username=_uniq('u'))
+    n = Note(user_id=u.id, store='B店', title='n', content='', note_type='regular')
+    t1 = Tag(store='B店', name=_uniq('T1'), color='#E74C3C')
+    t2 = Tag(store='B店', name=_uniq('T2'), color='#27AE60')
+    t3 = Tag(store='B店', name=_uniq('T3'), color='#3498DB')
+    db.session.add_all([n, t1, t2, t3])
+    db.session.commit()
+    _login(client, u)
+    r = client.put(f'/notes/api/{n.id}/tags', json={'tag_ids': [t1.id, t2.id]})
+    assert sorted(r.get_json()['tag_ids']) == sorted([t1.id, t2.id])
+    r = client.put(f'/notes/api/{n.id}/tags', json={'tag_ids': [t3.id]})
+    assert r.get_json()['tag_ids'] == [t3.id]
+
+
+def test_set_note_tags_rejects_over_5(client, db):
+    from models import Tag, Note
+    u = _mk_user(db, username=_uniq('u'))
+    n = Note(user_id=u.id, store='B店', title='n', content='', note_type='regular')
+    ts = [Tag(store='B店', name=_uniq(f'M{i}'), color='#E74C3C') for i in range(6)]
+    db.session.add(n)
+    db.session.add_all(ts)
+    db.session.commit()
+    _login(client, u)
+    r = client.put(f'/notes/api/{n.id}/tags',
+                   json={'tag_ids': [t.id for t in ts]})
+    assert r.status_code == 400
+
+
+def test_set_note_tags_rejects_cross_store(client, db):
+    from models import Tag, Note
+    u = _mk_user(db, store='B店', username=_uniq('u'))
+    n = Note(user_id=u.id, store='B店', title='n', content='', note_type='regular')
+    t = Tag(store='Z店', name=_uniq('Zt'), color='#E74C3C')
+    db.session.add_all([n, t])
+    db.session.commit()
+    _login(client, u)
+    r = client.put(f'/notes/api/{n.id}/tags', json={'tag_ids': [t.id]})
+    assert r.status_code == 400
+
+
+def test_set_item_tags_replace_semantics(client, db):
+    from models import Tag, Note, ChecklistItem
+    u = _mk_user(db, username=_uniq('u'))
+    n = Note(user_id=u.id, store='B店', title='n', content='', note_type='checklist')
+    db.session.add(n)
+    db.session.commit()
+    it = ChecklistItem(note_id=n.id, text='補貨', is_checked=False)
+    t1 = Tag(store='B店', name=_uniq('IT1'), color='#E74C3C')
+    db.session.add_all([it, t1])
+    db.session.commit()
+    _login(client, u)
+    r = client.put(f'/notes/api/items/{it.id}/tags', json={'tag_ids': [t1.id]})
+    assert r.status_code == 200
+    assert r.get_json()['tag_ids'] == [t1.id]
+
+
 def test_update_cross_store_forbidden(client, db):
     from models import Tag
     u = _mk_user(db, store='B店', username=_uniq('u'))
