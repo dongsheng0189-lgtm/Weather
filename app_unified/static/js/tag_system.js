@@ -137,6 +137,19 @@
   function renderMgmt() {
     var section = document.querySelector('.collapsible[data-section="tag-management"]');
     if (!section) return;
+    // super_admin 在「全部」tab → 無 store context、標籤無法管理
+    if (!window.CURRENT_STORE) {
+      section.querySelector('[data-role="count"]').textContent = '';
+      section.querySelector('[data-role="pin-count"]').textContent = '';
+      section.querySelector('[data-role="pinned-list"]').innerHTML = '';
+      section.querySelector('[data-role="other-list"]').innerHTML =
+        '<div style="padding:.5rem;color:#888;font-size:.9rem;">⚠️ 請先在頂部切換到指定店別才能管理標籤（標籤是 per-store 的）</div>';
+      var newBtn = section.querySelector('[data-role="new-tag-btn"]');
+      if (newBtn) { newBtn.disabled = true; newBtn.title = '請先選擇店別'; }
+      return;
+    }
+    var newBtn0 = section.querySelector('[data-role="new-tag-btn"]');
+    if (newBtn0) { newBtn0.disabled = false; newBtn0.title = ''; }
     var pinned = state.tags.filter(function(t) { return t.pinned; });
     var others = state.tags.filter(function(t) { return !t.pinned; });
     section.querySelector('[data-role="count"]').textContent =
