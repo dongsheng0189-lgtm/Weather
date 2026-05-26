@@ -5,7 +5,7 @@
  *   - API calls (/notes/api/*, /weather/api/*): network-first
  *   - Navigation: network-first, fallback to cache
  */
-const CACHE_NAME = 'note-weather-v28';
+const CACHE_NAME = 'note-weather-v29';
 const STATIC_CACHE_URLS = [
   '/static/js/camera.js',
   '/static/js/voice_input.js',
@@ -29,6 +29,18 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
+// caches.match() 沒命中時回 undefined，respondWith(undefined) 會丟
+// "Failed to convert value to 'Response'" — 所有 fallback 都要保證回到一個 Response。
+async function networkFirst(request) {
+  try {
+    return await fetch(request);
+  } catch (err) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    return Response.error();
+  }
+}
+
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
@@ -38,9 +50,7 @@ self.addEventListener('fetch', event => {
       url.pathname.startsWith('/m/api') ||
       url.pathname.startsWith('/weather/api') ||
       url.pathname.startsWith('/auth/')) {
-    event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
-    );
+    event.respondWith(networkFirst(event.request));
     return;
   }
 
@@ -53,14 +63,12 @@ self.addEventListener('fetch', event => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
           return response;
-        });
+        }).catch(() => Response.error());
       })
     );
     return;
   }
 
   // Navigation: network-first
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
-  );
+  event.respondWith(networkFirst(event.request));
 });

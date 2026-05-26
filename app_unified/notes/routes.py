@@ -69,7 +69,12 @@ class _PyPagination:
 
 
 def _lock_status(note):
-    """回傳 (is_locked_by_other, locker_user_or_None)"""
+    """回傳 (is_locked_by_other, locker_user_or_None)
+
+    Checklist 走 item-level lock，note-level 不適用 — 永遠當沒鎖。
+    """
+    if getattr(note, "note_type", None) == "checklist":
+        return False, None
     if not note.locked_by or not note.locked_at:
         return False, None
     age_sec = (datetime.utcnow() - note.locked_at).total_seconds()
@@ -83,6 +88,8 @@ def _lock_status(note):
 
 
 def _acquire_lock(note):
+    if getattr(note, "note_type", None) == "checklist":
+        return
     note.locked_by = current_user.id
     note.locked_at = datetime.utcnow()
 
@@ -96,7 +103,11 @@ def _ensure_lock_for_mutation(note, user_id):
     回傳 (ok: bool, locker: User|None)
     - ok=True, locker=None: 已 acquire（自己原本就持鎖、或剛剛搶到）
     - ok=False, locker=<User>: 別人持有未過期鎖，呼叫端應回 409
+
+    Checklist 走 item-level lock，note-level 不適用 — 永遠允許 mutation。
     """
+    if getattr(note, "note_type", None) == "checklist":
+        return True, None
     from models import User
     if not note.locked_by or not note.locked_at:
         # 沒人持鎖
@@ -719,6 +730,9 @@ def heartbeat_lock(note_id):
     if not current_user.is_super_admin():
         if note.store and note.store != current_user.store:
             return jsonify({"status": "error", "message": "無權限"}), 403
+    # Checklist 不走 note-level lock — heartbeat 直接 no-op
+    if note.note_type == "checklist":
+        return jsonify({"status": "ok", "skipped": "checklist"})
     if note.locked_by == current_user.id:
         note.locked_at = datetime.utcnow()
         db.session.commit()
@@ -751,6 +765,9 @@ def release_lock_endpoint(note_id):
     if not current_user.is_super_admin():
         if note.store and note.store != current_user.store:
             return jsonify({"status": "error", "message": "無權限"}), 403
+    # Checklist 不走 note-level lock — release 直接 no-op
+    if note.note_type == "checklist":
+        return jsonify({"status": "ok", "skipped": "checklist"})
     data = request.get_json(silent=True) or {}
     force = bool(data.get("force"))
     if force:

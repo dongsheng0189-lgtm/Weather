@@ -548,6 +548,7 @@ function stopHeartbeat() { if (_hbTimer) { clearInterval(_hbTimer); _hbTimer = n
 function releaseLock() {
   // 只有真正持鎖時才送 release（避免「看一眼」就誤觸 release 端點）
   if (!NOTE_ID || _lockOwnedByMe !== true) return;
+  if (EDITOR_TYPE === 'checklist') return;  // checklist 走 item-level lock
   try {
     navigator.sendBeacon && navigator.sendBeacon('/notes/api/' + NOTE_ID + '/lock/release', new Blob(['{}'], { type: 'application/json' }));
   } catch (e) {}
@@ -557,6 +558,7 @@ function releaseLock() {
 // 重用 /lock/heartbeat endpoint — 它的邏輯就是「沒鎖→acquire / 自己→pass / 別人→409」
 function tryAcquireLock() {
   if (!NOTE_ID || _lockOwnedByMe === true || IS_READONLY) return;  // 已持鎖或被鎖不重複
+  if (EDITOR_TYPE === 'checklist') return;  // checklist 走 item-level lock，不 acquire note-level
   fetch('/notes/api/' + NOTE_ID + '/lock/heartbeat', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'}
