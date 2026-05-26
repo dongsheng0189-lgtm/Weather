@@ -10,6 +10,21 @@
 #title-input { font-size: 1.3rem; font-weight: 700; border: none; border-bottom: 2px solid #eee; border-radius: 0; padding: 0.4rem 0; margin-bottom: .5rem; }
 #title-input:focus { border-color: #3498db; }
 #content-area { min-height: 60vh; resize: vertical; font-size: 1rem; line-height: 1.6; }
+
+/* Review mode — 從 AI 摘要 link 過來時，整張 editor 內所有可編輯控制都鎖住，
+   避免 review 時誤改資料。CSS 覆蓋掉 DOM 上「全部」editor.wrap 內的互動 widget，
+   連帶涵蓋 async render 出來的 checklist items / tag chips。
+   「← 返回」鈕在 .editor-wrap 外面、不受影響。 */
+body.review-mode .editor-wrap input,
+body.review-mode .editor-wrap textarea,
+body.review-mode .editor-wrap select,
+body.review-mode .editor-wrap button {
+  pointer-events: none;
+  opacity: 0.55;
+  cursor: not-allowed !important;
+}
+#review-mode-banner { display: none; }
+body.review-mode #review-mode-banner { display: flex; }
 .ai-panel { margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem; }
 .ai-result { background: #f8f9fa; border-radius: 6px; padding: 1rem; margin-top: .5rem; font-size: .9rem; white-space: pre-wrap; }
 .save-status { font-size: .85rem; color: #aaa; margin-left: auto; }
@@ -118,6 +133,9 @@
           style="background:#fff;border:1.5px solid #5d4037;color:#5d4037;border-radius:14px;
                  padding:.3rem .7rem;font-size:.82rem;cursor:pointer;line-height:1;font-weight:600;"
           title="返回上一頁">← 返回</button>
+</div>
+<div id="review-mode-banner" style="background:#e8f4fd;border:1px solid #b3d9f5;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#1f4e79;align-items:center;gap:.5rem;flex-wrap:wrap;">
+  🔒 <strong>檢視模式</strong>：從 AI 摘要進入、僅供交接 review、不可編輯。按上方「← 返回」回到摘要繼續討論。
 </div>
 {# F2: checklist mode 完全不參與 note-level lock UI #}
 {% set _editor_type = note.note_type if note else (note_type or 'note') %}
@@ -713,14 +731,17 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// `?from=/n/<id>(#b-<n>)?` 從 AI 摘要 link 點過來時，把「← 返回」鈕重指回
-// 那張摘要 (含 bullet 錨點)，讓 review 流程能連續討論且回到原 scroll 位置。
+// `?from=/n/<id>(#b-<n>)?` 從 AI 摘要 link 點過來時：
+// 1. 把「← 返回」鈕重指回那張摘要 (含 bullet 錨點)，讓 review 流程能連續討論
+// 2. 整頁進「review mode」— CSS 鎖住 .editor-wrap 內所有可編輯控制 + 顯示
+//    檢視模式提示 banner，避免 review 時誤改資料
 // Strict whitelist /n/\d+ + optional #b-\d+ anchor 防 XSS。
 document.addEventListener('DOMContentLoaded', function() {
   var from = new URLSearchParams(location.search).get('from');
   if (!from || !/^\/n\/\d+(#b-\d+)?$/.test(from)) return;
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.setAttribute('href', from);
+  document.body.classList.add('review-mode');
 });
 
 // `/n/<id>#item-<id>` 從 AI 摘要點過來時，scroll 到該 item 並加 flash 高亮。
