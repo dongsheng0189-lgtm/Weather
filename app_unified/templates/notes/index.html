@@ -246,6 +246,14 @@
 <div class="notes-grid">
   {% for note in notes %}
   <div class="note-card" onclick="location.href='{{ url_for('notes.edit_note', note_id=note.id, sort=current_sort, q=current_keyword) }}'" {% if note.note_type == 'checklist' %}style="border-left-color:#27ae60;"{% endif %}>
+    {% set _ntags = note_tag_map.get(note.id, []) %}
+    {% if _ntags %}
+    <div class="note-card-tags">
+      {% for t in _ntags %}
+      <span class="tag-chip" style="--tag-bg:{{ t.color }};--tag-fg:{{ t.color|pick_fg }};">{{ t.name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
     <h3>{% if note.note_type == 'checklist' %}☑ {% else %}📝 {% endif %}{{ (note.title or '（未命名）') | highlight(current_keyword) }}</h3>
     {% if note.note_type == 'checklist' %}
     {% set _active_items = note.active_checklist_items %}

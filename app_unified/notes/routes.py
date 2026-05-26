@@ -425,6 +425,17 @@ def index():
     ann_times = {a.id: tw_str(a.updated_at, "%Y-%m-%d %H:%M") for a in announcements}
     ann_edited_ids = {a.id for a in announcements if a.updated_at != a.created_at}
 
+    # Preload note tags (avoid N+1)
+    from models import Tag as _Tag, NoteTag as _NoteTag
+    note_ids = [n.id for n in pagination.items]
+    note_tag_map = {}
+    if note_ids:
+        rows = db.session.query(_NoteTag.note_id, _Tag).join(
+            _Tag, _NoteTag.tag_id == _Tag.id
+        ).filter(_NoteTag.note_id.in_(note_ids)).all()
+        for nid, tag in rows:
+            note_tag_map.setdefault(nid, []).append(tag)
+
     return render_template("notes/index.html", notes=pagination.items, pagination=pagination,
                            stores=stores,
                            current_store=store_filter,
@@ -445,7 +456,8 @@ def index():
                            announcements=announcements,
                            editable_ann_ids=editable_ann_ids,
                            ann_times=ann_times,
-                           ann_edited_ids=ann_edited_ids)
+                           ann_edited_ids=ann_edited_ids,
+                           note_tag_map=note_tag_map)
 
 
 @notes_bp.route("/new", methods=["GET"])
