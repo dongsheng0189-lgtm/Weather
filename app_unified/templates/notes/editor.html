@@ -216,6 +216,17 @@
       <h3 id="item-modal-title" style="margin-bottom:1rem;">新增項目</h3>
       <input type="hidden" id="item-modal-id">
       <div style="margin-bottom:.75rem;">
+        <label style="font-size:.85rem;font-weight:600;">標籤</label>
+        <div style="margin-top:.3rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+          <button type="button" id="item-modal-tag-btn"
+                  onclick="openItemModalTagPicker()"
+                  style="font-size:.85rem;padding:.4rem .8rem;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer;">
+            🏷️ 選擇標籤 <span id="item-modal-tag-count">(0/5)</span>
+          </button>
+          <div id="item-modal-tag-chips" style="display:flex;flex-wrap:wrap;gap:.2rem;"></div>
+        </div>
+      </div>
+      <div style="margin-bottom:.75rem;">
         <label style="font-size:.85rem;font-weight:600;">項目內容</label>
         <textarea id="item-modal-text" rows="8" class="form-control" placeholder="輸入項目內容..." style="resize:vertical;min-height:40vh;"></textarea>
       </div>
@@ -227,17 +238,6 @@
           <span id="item-upload-status" style="font-size:.8rem;color:#888;margin-left:.5rem;"></span>
         </div>
         <div id="item-attachment-list" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem;"></div>
-      </div>
-      <div style="margin-bottom:.75rem;">
-        <label style="font-size:.85rem;font-weight:600;">標籤</label>
-        <div style="margin-top:.3rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
-          <button type="button" id="item-modal-tag-btn"
-                  onclick="openItemModalTagPicker()"
-                  style="font-size:.85rem;padding:.4rem .8rem;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer;">
-            🏷️ 選擇標籤 <span id="item-modal-tag-count">(0/5)</span>
-          </button>
-          <div id="item-modal-tag-chips" style="display:flex;flex-wrap:wrap;gap:.2rem;"></div>
-        </div>
       </div>
       <button class="btn btn-primary" onclick="saveItemFromDialog()" style="width:100%;background:#27ae60;">完成</button>
       <div id="item-modal-msg" style="font-size:.85rem;margin-top:.5rem;min-height:1.2em;"></div>
