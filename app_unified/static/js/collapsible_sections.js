@@ -74,6 +74,13 @@
     bindSectionBar(section);
   }
 
+  function initTagManagementSection() {
+    var section = document.querySelector('.collapsible[data-section="tag-management"]');
+    if (!section) return;
+    setSectionExpanded(section, false);
+    bindSectionBar(section);
+  }
+
   var FILTER_KEY = 'notes_filter_panel_open';
 
   function initFilterSection() {
@@ -106,6 +113,7 @@
   function init() {
     initAnnouncementSection();
     initAiSummarySection();
+    initTagManagementSection();
     initFilterSection();
   }
 
