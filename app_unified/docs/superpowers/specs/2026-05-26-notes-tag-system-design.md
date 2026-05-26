@@ -69,10 +69,10 @@ class ChecklistItemTag(db.Model):
 - 釘選 per-store 上限 3 個（軟限、route-level enforce、DB schema 不限）
 - 每個 item 上限 5 個 tag（route-level enforce）
 
-**Schema repair 3-file 對齊**（按 [[feedback_inline_schema_repair]]）:
+**Schema 建立**:
 1. `models.py` — 加 3 個 class
-2. `app.py` schema repair block — 加 inline ALTER + CREATE TABLE (PG-safe)
-3. `migrations/versions/2026-05-26-tag-system.py` — alembic migration (本機 dev 用)
+2. `migrations/versions/2026-05-26-tag-system.py` — alembic migration (本機 / 未來新環境用)
+3. **不需要** `app.py` inline ALTER：`feedback_inline_schema_repair` 是針對「加 column 到既有 table」(SQLAlchemy `db.create_all()` 不會 ALTER 既有 table)。此次新增 3 張全新 table、`db.create_all()` 啟動時會自動 CREATE TABLE (PG + SQLite 都支援、idempotent)。Deploy 順序：push → GHA build → Zeabur Redeploy → app.py 啟動跑 `db.create_all()` → 自動建 3 張 table、user 不必手動下 SQL
 
 ### B. 清單頁 layout 改造：filter panel collapsible
 
@@ -311,9 +311,9 @@ class ChecklistItemTag(db.Model):
 
 1. Branch `feat/notes-tag-system`（已開）
 2. 實作分階段（spec 寫完看 plan 怎麼切、預估拆 2-3 個 PR）
-3. 按 [[feedback_inline_schema_repair]]：models.py + app.py inline ALTER + migrations/ 3-file 同步加
+3. Schema：models.py 加 class + migrations/ 加 alembic file（**不必動 app.py**，純新 table 走 `db.create_all()`）
 4. 按 [[feedback_local_test_before_push]] 本機驗 OK → push
-5. Push 後 GHA build → Zeabur Redeploy → user prod 實機驗
+5. Push 後 GHA build → Zeabur Redeploy → app.py 啟動自動建 3 張新 table → user prod 實機驗
 6. SW v23 → v24 bump（新 CSS/JS asset）
 
 ## Risks 與 mitigation
@@ -325,7 +325,7 @@ class ChecklistItemTag(db.Model):
 | filter panel 預設摺疊、老 user 一開始找不到 filter | 中 | 低 | URL 帶 filter 強制展開、user 首次 toggle 後記住 |
 | 顏色 + 文字 contrast 在手機螢幕上仍看不清 | 低 | 中 | palette 10 色都過 WCAG AA 4.5:1、上線後 user 反映個別色再微調 |
 | Tag picker modal 在編輯頁開、跟 lock 機制衝突 | 低 | 中 | picker 是純 UI 操作、不 acquire lock；確定後送 PUT 才走既有 lock check |
-| schema repair 漏改 app.py 導致 prod ISE | **高（學過教訓）** | 高 | 寫進 plan Task 0「3-file grep check」、按 [[feedback_inline_schema_repair]] 必做 |
+| 新 table 沒被 prod 建出來導致 ISE | 低 | 高 | 純新 table、`db.create_all()` 啟動時自動 CREATE、不需 inline ALTER；plan 加 deploy verification「prod REPL 查 `SELECT * FROM tags LIMIT 1` 不爆」 |
 
 ## 未來延伸（不在本 scope）
 
