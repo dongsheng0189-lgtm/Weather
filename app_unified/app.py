@@ -596,4 +596,11 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # 用 socketio.run 而非 app.run：flask_socketio 在 async_mode="gevent" 下
+    # 會啟 gevent.pywsgi server，整個 process 跑在 gevent loop 內。這樣
+    # 路由 handler 內的 gevent.spawn(...) 才會被 schedule（werkzeug threading
+    # 下 spawn 後 request thread 結束、greenlet 掛在死掉的 hub 上、永遠不執行
+    # → AI 摘要 task 卡 processing 60 秒被 sweeper 改 任務逾時 ←本機踩到）。
+    # debug=True 仍開啟 auto-reload + traceback page。
+    from extensions import socketio
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
