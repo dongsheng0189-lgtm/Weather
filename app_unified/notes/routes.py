@@ -1797,7 +1797,20 @@ def edit_note(note_id):
     # 編輯鎖：GET 不 acquire；前端在 title/content focus 或 status/category 切換時才 acquire
     # 別人持鎖 → readonly + banner；沒人持鎖且自己沒動 → 不 acquire（純看不鎖）
     is_locked, locker = _lock_status(note)
+    # Tag context for picker / item chips
+    from models import NoteTag as _NT, ChecklistItemTag as _CIT, Tag as _Tag
+    current_tag_ids = [nt.tag_id for nt in _NT.query.filter_by(note_id=note.id).all()]
+    item_tag_ids_map = {}
+    if note.note_type == 'checklist':
+        active_item_ids = [it.id for it in note.active_checklist_items]
+        if active_item_ids:
+            for r in _CIT.query.filter(_CIT.item_id.in_(active_item_ids)).all():
+                item_tag_ids_map.setdefault(r.item_id, []).append(r.tag_id)
+    all_store_tags = _Tag.query.filter_by(store=note.store).all()
     return render_template("notes/editor.html", note=note, stores=stores,
                            status_choices=STATUS_CHOICES,
                            is_readonly=is_locked,
-                           locker_name=locker.username if locker else None)
+                           locker_name=locker.username if locker else None,
+                           current_tag_ids=current_tag_ids,
+                           item_tag_ids_map=item_tag_ids_map,
+                           all_store_tags=all_store_tags)

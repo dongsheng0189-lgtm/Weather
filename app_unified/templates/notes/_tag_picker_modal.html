@@ -1,0 +1,21 @@
+{# Tag picker modal — include once on editor.html #}
+<div class="tag-picker-modal" data-role="tag-picker">
+  <div class="panel">
+    <div class="panel-header">
+      <span>🏷️ 選擇標籤 (<span data-role="count">0</span>/5)</span>
+      <button type="button" class="close" data-role="close">✕</button>
+    </div>
+    <div class="panel-body">
+      <div class="picker-list" data-role="list"></div>
+      <div style="margin-top:.85rem;">
+        <button type="button" class="btn btn-secondary" data-role="new-tag-toggle"
+                style="font-size:.85rem;padding:.4rem .8rem;">+ 新增標籤</button>
+        <div data-role="new-tag-form-host"></div>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button type="button" class="btn btn-secondary" data-role="cancel">取消</button>
+      <button type="button" class="btn btn-primary" data-role="save">確定</button>
+    </div>
+  </div>
+</div>

@@ -158,6 +158,13 @@
   <div class="editor-toolbar">
     <button class="btn btn-primary" id="btn-save" onclick="doSave()">💾 儲存</button>
     {% if note %}
+    <button type="button" id="open-tag-picker"
+            data-target-type="note" data-target-id="{{ note.id }}"
+            data-current-tag-ids="{{ current_tag_ids|tojson|safe if current_tag_ids is defined else '[]' }}"
+            style="font-size:.85rem;padding:.4rem .8rem;border-radius:6px;
+                   border:1px solid #ddd;background:#fff;cursor:pointer;">
+      🏷️ 標籤 <span id="note-tag-count">(0/5)</span>
+    </button>
     <button class="btn btn-danger" id="btn-delete" onclick="doDelete()" style="margin-left:auto;">刪除</button>
     {% endif %}
   </div>
@@ -1445,4 +1452,9 @@ if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();
 if (!IS_READONLY) EditKeepalive.init();
 
 </script>
+{% if note %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/tag_system.css') }}">
+{% include 'notes/_tag_picker_modal.html' %}
+<script src="{{ url_for('static', filename='js/tag_system.js') }}" defer></script>
+{% endif %}
 {% endblock %}
