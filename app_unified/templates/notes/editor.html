@@ -291,6 +291,18 @@ function _renderAiSummary() {
       throw new Error('marked/DOMPurify not loaded');
     }
     rendered.innerHTML = DOMPurify.sanitize(marked.parse(md));
+    // 給每個 link 加 ?from=/n/<NOTE_ID>，讓被連到的 editor「← 返回」鈕能
+    // 跳回這張 AI 摘要筆記、不是回 /notes/ 列表
+    if (typeof NOTE_ID !== 'undefined' && NOTE_ID) {
+      var fromParam = '/n/' + NOTE_ID;
+      rendered.querySelectorAll('a[href^="/n/"]').forEach(function(a) {
+        try {
+          var u = new URL(a.getAttribute('href'), window.location.origin);
+          u.searchParams.set('from', fromParam);
+          a.setAttribute('href', u.pathname + u.search + u.hash);
+        } catch (e) { /* malformed href — leave as-is */ }
+      });
+    }
   } catch (e) {
     // CDN 失敗 fallback — 顯示純文字
     rendered.style.whiteSpace = 'pre-wrap';
@@ -685,6 +697,15 @@ document.addEventListener('DOMContentLoaded', function() {
     var el = document.getElementById(id);
     if (el) el.addEventListener('focus', tryAcquireLock);
   });
+});
+
+// `?from=/n/<id>` 從 AI 摘要 link 點過來時，把「← 返回」鈕重指回那張摘要、
+// 不是 /notes/ 列表，讓 review 流程能連續討論。Strict whitelist /n/\d+ 防 XSS。
+document.addEventListener('DOMContentLoaded', function() {
+  var from = new URLSearchParams(location.search).get('from');
+  if (!from || !/^\/n\/\d+$/.test(from)) return;
+  var backBtn = document.getElementById('btn-back');
+  if (backBtn) backBtn.setAttribute('href', from);
 });
 
 // `/n/<id>#item-<id>` 從 AI 摘要點過來時，scroll 到該 item 並加 flash 高亮。
