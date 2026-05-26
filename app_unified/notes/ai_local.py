@@ -7,11 +7,26 @@
 4. 每 cluster 取最詳細那筆作代表 + 標狀態詞（✓ 已完成 / 🟡 跟進中）
 
 無「店長視角總結」段（extractive 做不到 LLM 級重組）。
+
+## Import 時序注意 ──
+sentence_transformers / numpy / sklearn 必須在 **module top-level** import，
+不可放進 function body lazy import。原因：transformers → torch → cuda.pathfinder
+init 會呼叫 `ctypes.util.find_library('dl')`，內部用 subprocess.Popen 跑
+ldconfig。若 import 發生在 gevent threadpool worker 內，worker hub ≠ default
+hub，libev 拒建 child watcher → TypeError。
+
+搭配 gunicorn.conf.py 的 post_worker_init 預載 (worker fork 完、accept 前在
+main thread / default hub import 此 module)，subprocess child watcher 在
+default loop 建立 OK。
 """
 import logging
 import re
 from collections import defaultdict
 from datetime import timezone
+
+import numpy as np
+from sklearn.cluster import DBSCAN
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger("ai_local")
 
@@ -30,11 +45,13 @@ _model = None
 
 
 def _get_model():
-    """Lazy load — only first call. Subsequent calls reuse cached instance."""
+    """Lazy load model weights — only first call. Subsequent calls reuse cached instance.
+    注意：SentenceTransformer class 已在 module top import (見上方時序註解)，
+    這裡只是 instantiate（會 HTTP 拉 weights ~470MB，純 requests 不會 subprocess）。
+    """
     global _model
     if _model is None:
         logger.warning("[ai_local] loading sentence-transformer model (first call, ~5-15 sec)...")
-        from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         logger.warning("[ai_local] model loaded.")
     return _model
@@ -151,9 +168,6 @@ def _cluster_items(items, eps=0.4):
     """同一事件聚類。回傳 list[list[item]]，每子 list 是一群。"""
     if len(items) <= 1:
         return [[it] for it in items]
-
-    import numpy as np
-    from sklearn.cluster import DBSCAN
 
     texts = [_embed_text(it) for it in items]
     model = _get_model()
