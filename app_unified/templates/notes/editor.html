@@ -228,6 +228,17 @@
         </div>
         <div id="item-attachment-list" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem;"></div>
       </div>
+      <div style="margin-bottom:.75rem;">
+        <label style="font-size:.85rem;font-weight:600;">標籤</label>
+        <div style="margin-top:.3rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+          <button type="button" id="item-modal-tag-btn"
+                  onclick="openItemModalTagPicker()"
+                  style="font-size:.85rem;padding:.4rem .8rem;border-radius:6px;border:1px solid #ddd;background:#fff;cursor:pointer;">
+            🏷️ 選擇標籤 <span id="item-modal-tag-count">(0/5)</span>
+          </button>
+          <div id="item-modal-tag-chips" style="display:flex;flex-wrap:wrap;gap:.2rem;"></div>
+        </div>
+      </div>
       <button class="btn btn-primary" onclick="saveItemFromDialog()" style="width:100%;background:#27ae60;">完成</button>
       <div id="item-modal-msg" style="font-size:.85rem;margin-top:.5rem;min-height:1.2em;"></div>
     </div>
@@ -1276,6 +1287,41 @@ function deleteChecklistItem(itemId) {
 var _currentEditItemId = null;
 var _itemLockHeartbeatTimer = null;
 
+// item modal 的當前選中 tag_ids buffer
+var _itemModalTagIds = [];
+
+function refreshItemModalTagUI() {
+  var countEl = document.getElementById('item-modal-tag-count');
+  if (countEl) countEl.textContent = '(' + _itemModalTagIds.length + '/5)';
+  var chipsEl = document.getElementById('item-modal-tag-chips');
+  if (!chipsEl) return;
+  chipsEl.innerHTML = '';
+  if (!window.ALL_STORE_TAGS || !window.__tag_system) return;
+  _itemModalTagIds.forEach(function(tid) {
+    var tag = window.ALL_STORE_TAGS.find(function(t) { return t.id === tid; });
+    if (!tag) return;
+    var fg = window.__tag_system.pickFg(tag.color);
+    var chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.style.setProperty('--tag-bg', tag.color);
+    chip.style.setProperty('--tag-fg', fg);
+    chip.textContent = tag.name;
+    chipsEl.appendChild(chip);
+  });
+}
+
+function openItemModalTagPicker() {
+  if (!window.__tag_system || !window.__tag_system.openPicker) {
+    alert('標籤功能尚未載入');
+    return;
+  }
+  // item picker 不需 targetId — 用 null pre-save mode、save 時帶進 POST
+  window.__tag_system.openPicker('item', null, _itemModalTagIds.slice(), function(ids) {
+    _itemModalTagIds = ids.slice();
+    refreshItemModalTagUI();
+  });
+}
+
 function openAddItemDialog() {
   document.getElementById('item-modal-id').value = '';
   document.getElementById('item-modal-title').textContent = '新增項目';
@@ -1285,6 +1331,8 @@ function openAddItemDialog() {
   document.getElementById('item-modal-msg').textContent = '';
   _itemAttachmentsPending = [];
   _itemAttachmentsSaved = [];
+  _itemModalTagIds = [];
+  refreshItemModalTagUI();
   document.getElementById('item-modal').style.display = 'flex';
 }
 
@@ -1314,6 +1362,9 @@ function openEditItemDialog(item) {
       _itemAttachmentsPending = [];
       _itemAttachmentsSaved = (item.attachments || []).slice();
       renderItemAttachmentList();
+      _itemModalTagIds = (window.ITEM_TAG_IDS_MAP && window.ITEM_TAG_IDS_MAP[item.id]) || [];
+      _itemModalTagIds = _itemModalTagIds.slice();
+      refreshItemModalTagUI();
       document.getElementById('item-modal').style.display = 'flex';
       _currentEditItemId = item.id;
       _itemLockHeartbeatTimer = setInterval(function() {
@@ -1444,18 +1495,20 @@ function saveItemFromDialog() {
 
   ensureNoteExists().then(function() {
     // 新增 or 更新項目
-    var url, method;
+    var url, method, payload;
     if (itemId) {
       url = '/notes/api/items/' + itemId;
       method = 'PATCH';
+      payload = { text: text };
     } else {
       url = '/notes/api/' + NOTE_ID + '/items';
       method = 'POST';
+      payload = { text: text, tag_ids: _itemModalTagIds.slice() };
     }
     return fetch(url, {
       method: method,
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ text: text })
+      body: JSON.stringify(payload)
     }).then(function(r) {
       return r.json().catch(function() { return {}; }).then(function(j) { return [r, j]; });
     }).then(function(pair) {
@@ -1464,6 +1517,16 @@ function saveItemFromDialog() {
       if (d.status !== 'ok') throw new Error(d.message || '儲存失敗');
       return d.item.id;
     });
+  }).then(function(savedItemId) {
+    // 編輯 item：tag_ids 改動 → PUT tags endpoint (新增已在 POST 內 inline 處理)
+    if (itemId) {
+      return fetch('/notes/api/items/' + savedItemId + '/tags', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ tag_ids: _itemModalTagIds.slice() })
+      }).then(function() { return savedItemId; }).catch(function() { return savedItemId; });
+    }
+    return savedItemId;
   }).then(function(savedItemId) {
     // 上傳待上傳的附件
     if (_itemAttachmentsPending.length === 0) return savedItemId;

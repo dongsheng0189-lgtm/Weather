@@ -1543,6 +1543,15 @@ def create_checklist_item(note_id):
     note.updated_at = now
     note.updated_by = current_user.id
     db.session.commit()
+    # 處理 inline tag_ids（新增 item 同時掛標籤）
+    tag_ids = data.get("tag_ids") or []
+    if isinstance(tag_ids, list) and tag_ids and note.store:
+        from models import Tag as _Tag, ChecklistItemTag as _CIT
+        tag_ids = list(set(int(x) for x in tag_ids if isinstance(x, (int, str)) and str(x).isdigit()))[:5]
+        valid_tags = _Tag.query.filter(_Tag.id.in_(tag_ids), _Tag.store == note.store).all()
+        for t in valid_tags:
+            db.session.add(_CIT(item_id=item.id, tag_id=t.id))
+        db.session.commit()
     return jsonify({"status": "ok", "item": _checklist_item_json(item)}), 201
 
 
