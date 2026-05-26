@@ -76,6 +76,14 @@
   z-index: 10000; font-size: .95rem;
   box-shadow: 0 4px 12px rgba(0,0,0,.3);
 }
+@keyframes flash-hl-fade {
+  0%   { background: #fff3cd; box-shadow: 0 0 0 4px #ffeaa7; }
+  100% { background: transparent; box-shadow: none; }
+}
+.flash-hl {
+  animation: flash-hl-fade 2s ease-out;
+  border-radius: 6px;
+}
 </style>
 {% endblock %}
 {% block content %}
@@ -629,6 +637,24 @@ document.addEventListener('DOMContentLoaded', function() {
     var el = document.getElementById(id);
     if (el) el.addEventListener('focus', tryAcquireLock);
   });
+});
+
+// `/n/<id>#item-<id>` 從 AI 摘要點過來時，scroll 到該 item 並加 flash 高亮。
+// querySelector / target 檢查擺在 setTimeout 內 — checklist items 是 async
+// (loadChecklistItems) render，DOMContentLoaded 那刻通常還沒 inject 到 DOM。
+document.addEventListener('DOMContentLoaded', function() {
+  var m = (location.hash || '').match(/^#item-(\d+)$/);
+  if (!m) return;
+  var iid = m[1];
+  setTimeout(function() {
+    var target = document.querySelector('#checklist-items > [data-item-id="' + iid + '"]');
+    if (!target) return;  // item 被刪 / 權限不同 → silent fail
+    target.scrollIntoView({behavior: 'smooth', block: 'center'});
+    target.classList.add('flash-hl');
+    setTimeout(function() {
+      target.classList.remove('flash-hl');
+    }, 2200);  // 2s animation + 200ms margin
+  }, 300);  // give loadChecklistItems' fetch + render time on initial load
 });
 
 {% if note and note.updated_by %}
