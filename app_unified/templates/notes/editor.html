@@ -1563,6 +1563,12 @@ function saveItemFromDialog() {
     }
     return savedItemId;
   }).then(function(savedItemId) {
+    // Sync window.ITEM_TAG_IDS_MAP → 下次 render 立刻看到 chip、不必 reload page
+    if (window.ITEM_TAG_IDS_MAP) {
+      window.ITEM_TAG_IDS_MAP[savedItemId] = _itemModalTagIds.slice();
+    }
+    return savedItemId;
+  }).then(function(savedItemId) {
     // 上傳待上傳的附件
     if (_itemAttachmentsPending.length === 0) return savedItemId;
     var uploads = _itemAttachmentsPending.map(function(file) {
