@@ -26,6 +26,19 @@
   background: #fff3cd;
   cursor: pointer;
 }
+/* 手機破框防呆：rendered markdown 內任何長字串都允許強制換行；pre/code 區塊
+   有自己的橫向 scroll、不撐爆容器 */
+#ai-summary-rendered {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+#ai-summary-rendered pre, #ai-summary-rendered code {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* Review mode — 從 AI 摘要 link 過來時，整張 editor 內所有可編輯控制都鎖住，
    避免 review 時誤改資料。CSS 覆蓋掉 DOM 上「全部」editor.wrap 內的互動 widget，
