@@ -291,17 +291,31 @@ function _renderAiSummary() {
       throw new Error('marked/DOMPurify not loaded');
     }
     rendered.innerHTML = DOMPurify.sanitize(marked.parse(md));
-    // 給每個 link 加 ?from=/n/<NOTE_ID>，讓被連到的 editor「← 返回」鈕能
-    // 跳回這張 AI 摘要筆記、不是回 /notes/ 列表
+    // 給每個 link 加：
+    //   1. 唯一 id (b-<idx>) 當錨點
+    //   2. ?from=/n/<NOTE_ID>#b-<idx> query — 讓被連到的 editor「← 返回」鈕
+    //      回到「這條 bullet 的位置」，不是回 /notes/ 列表也不是回最上面
     if (typeof NOTE_ID !== 'undefined' && NOTE_ID) {
-      var fromParam = '/n/' + NOTE_ID;
-      rendered.querySelectorAll('a[href^="/n/"]').forEach(function(a) {
+      rendered.querySelectorAll('a[href^="/n/"]').forEach(function(a, idx) {
         try {
+          var anchorId = 'b-' + idx;
+          a.id = anchorId;
           var u = new URL(a.getAttribute('href'), window.location.origin);
-          u.searchParams.set('from', fromParam);
+          u.searchParams.set('from', '/n/' + NOTE_ID + '#' + anchorId);
           a.setAttribute('href', u.pathname + u.search + u.hash);
         } catch (e) { /* malformed href — leave as-is */ }
       });
+    }
+    // 從別張筆記按「← 返回」回到這張摘要時，URL 帶 #b-N 錨點。
+    // 但 browser 嘗試 scroll 時 element 還沒 inject (DOMContentLoaded 早於
+    // _renderAiSummary 才剛產生 link)，要在 render 完手動 scroll。
+    if (location.hash && /^#b-\d+$/.test(location.hash)) {
+      var target = document.getElementById(location.hash.slice(1));
+      if (target) {
+        setTimeout(function() {
+          target.scrollIntoView({behavior: 'smooth', block: 'center'});
+        }, 50);
+      }
     }
   } catch (e) {
     // CDN 失敗 fallback — 顯示純文字
@@ -699,11 +713,12 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// `?from=/n/<id>` 從 AI 摘要 link 點過來時，把「← 返回」鈕重指回那張摘要、
-// 不是 /notes/ 列表，讓 review 流程能連續討論。Strict whitelist /n/\d+ 防 XSS。
+// `?from=/n/<id>(#b-<n>)?` 從 AI 摘要 link 點過來時，把「← 返回」鈕重指回
+// 那張摘要 (含 bullet 錨點)，讓 review 流程能連續討論且回到原 scroll 位置。
+// Strict whitelist /n/\d+ + optional #b-\d+ anchor 防 XSS。
 document.addEventListener('DOMContentLoaded', function() {
   var from = new URLSearchParams(location.search).get('from');
-  if (!from || !/^\/n\/\d+$/.test(from)) return;
+  if (!from || !/^\/n\/\d+(#b-\d+)?$/.test(from)) return;
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.setAttribute('href', from);
 });
