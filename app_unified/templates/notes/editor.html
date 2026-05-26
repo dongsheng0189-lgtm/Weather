@@ -25,6 +25,7 @@ body.review-mode .editor-wrap button {
 }
 #review-mode-banner { display: none; }
 body.review-mode #review-mode-banner { display: flex; }
+body.review-mode #review-back-widget { display: inline-flex; }
 .ai-panel { margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem; }
 .ai-result { background: #f8f9fa; border-radius: 6px; padding: 1rem; margin-top: .5rem; font-size: .9rem; white-space: pre-wrap; }
 .save-status { font-size: .85rem; color: #aaa; margin-left: auto; }
@@ -135,8 +136,16 @@ body.review-mode #review-mode-banner { display: flex; }
           title="返回上一頁">← 返回</button>
 </div>
 <div id="review-mode-banner" style="background:#e8f4fd;border:1px solid #b3d9f5;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#1f4e79;align-items:center;gap:.5rem;flex-wrap:wrap;">
-  🔒 <strong>檢視模式</strong>：從 AI 摘要進入、僅供交接 review、不可編輯。按上方「← 返回」回到摘要繼續討論。
+  🔒 <strong>檢視模式</strong>：從 AI 摘要進入、僅供交接 review、不可編輯。按右下「← 返回摘要」回到摘要繼續討論。
 </div>
+{# review-back floating widget — 跟 search-hit-widget 同款 fixed position，
+   讓 user 滑到頁面底端時也能一鍵返回摘要、不用 scroll 回最上面 #}
+<a id="review-back-widget" href="#"
+   style="display:none;position:fixed;bottom:20px;right:20px;z-index:1000;
+          align-items:center;gap:.4rem;padding:.65rem 1.1rem;
+          background:#1f4e79;color:#fff;border-radius:24px;
+          font-size:.95rem;font-weight:600;text-decoration:none;
+          box-shadow:0 4px 12px rgba(0,0,0,.25);">← 返回摘要</a>
 {# F2: checklist mode 完全不參與 note-level lock UI #}
 {% set _editor_type = note.note_type if note else (note_type or 'note') %}
 {% if _editor_type != 'checklist' %}
@@ -741,6 +750,9 @@ document.addEventListener('DOMContentLoaded', function() {
   if (!from || !/^\/n\/\d+(#b-\d+)?$/.test(from)) return;
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.setAttribute('href', from);
+  // 浮動「返回摘要」widget — 跟頂上 btn-back 同 href，user 不用滑回頁首
+  var floatBack = document.getElementById('review-back-widget');
+  if (floatBack) floatBack.setAttribute('href', from);
   document.body.classList.add('review-mode');
 });
 
