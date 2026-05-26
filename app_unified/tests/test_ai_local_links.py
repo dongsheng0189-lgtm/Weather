@@ -54,14 +54,17 @@ def test_format_cluster_single_note_emits_markdown_link():
         "author": "婉婷",
     }]
     line = _format_cluster(cluster)
-    # 預期：開頭 [【婉婷】冰箱漏水 — 已約23號開刀](/n/42)
-    assert "[【婉婷】冰箱漏水" in line
-    assert "(/n/42)" in line
-    assert line.startswith("[")  # markdown link 從第一個字元開始
+    # 預期：【[婉婷](/n/42)】冰箱漏水 — 已約23號開刀（只 author 是 link）
+    assert "[婉婷](/n/42)" in line
+    assert line.startswith("【[")
+    # title/content 在 link 外面（純文字、不在 [ ] 內）
+    assert "冰箱漏水" in line
+    assert "已約23號開刀" in line
 
 
 def test_format_cluster_checklist_item_uses_fragment_anchor():
-    """Checklist item 需要 fragment anchor `#item-<id>` 才能滾到該 row。"""
+    """Checklist item 需要 fragment anchor `#item-<id>` 才能滾到該 row。
+    Author link 包 fragment、不是整條 bullet。"""
     cluster = [{
         "note_id": 42,
         "item_id": 99,
@@ -70,29 +73,30 @@ def test_format_cluster_checklist_item_uses_fragment_anchor():
         "author": "小明",
     }]
     line = _format_cluster(cluster)
-    assert "(/n/42#item-99)" in line
+    assert "[小明](/n/42#item-99)" in line
 
 
 def test_format_cluster_multi_item_tail_has_per_author_links():
-    """Cluster ≥2 筆時，尾註的 author 名單每個都各自 link 到自己那筆 note。"""
+    """Cluster ≥2 筆時，主 label 用 rep author、尾註列「其他 author」(跳過 rep)。"""
     cluster = [
         {"note_id": 10, "title": "冰箱漏水", "content": "詳細內容很長很長很長", "author": "婉婷"},
         {"note_id": 20, "title": "冰箱漏水", "content": "短", "author": "小明"},
         {"note_id": 30, "title": "冰箱漏水", "content": "也短", "author": "阿華"},
     ]
     line = _format_cluster(cluster)
-    # 代表是最長的（婉婷）
-    assert "(/n/10)" in line
-    # 尾註：每個 author 個別 link 到 own note
-    assert "[婉婷](/n/10)" in line or "[小明](/n/20)" in line
+    # rep 是內容最長的婉婷 — 主 label
+    assert "[婉婷](/n/10)" in line
+    # 尾註：跳過 rep（婉婷）→ 只列小明、阿華
     assert "[小明](/n/20)" in line
     assert "[阿華](/n/30)" in line
     assert "（3 筆" in line
+    # 婉婷 只在主 label 出現一次、tail 不重複列
+    assert line.count("婉婷") == 1
 
 
 def test_format_cluster_escapes_brackets_in_title_and_content():
-    """Title / content 含 [ ] \\ 必須 escape，否則 markdown parser 切錯
-    link 邊界 → 整條 bullet 變壞 link 或失去 link（prod 已踩到）。"""
+    """Title / content 含 [ ] \\ 必須 escape，否則 marked 解析摘要時可能誤判
+    `[abc](xyz)` 形式的內文當成另一個 link、跑出非預期 URL。"""
     cluster = [{
         "note_id": 42,
         "title": "客訴 [桌號 3]",
@@ -100,9 +104,8 @@ def test_format_cluster_escapes_brackets_in_title_and_content():
         "author": "婉婷",
     }]
     line = _format_cluster(cluster)
-    # 結構應該還是合法 markdown：開頭 [ ... ](/n/42)，內部 [ ] 都被 \\ 跳過
-    assert line.startswith("[")
-    assert "(/n/42)" in line
+    # author link 結構：[婉婷](/n/42)
+    assert "[婉婷](/n/42)" in line
     # 內部 [ 應該被 escape 成 \[
     assert "\\[桌號 3\\]" in line
     # 反斜線本身也被 escape 成 \\\\

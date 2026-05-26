@@ -11,20 +11,30 @@
 #title-input:focus { border-color: #3498db; }
 #content-area { min-height: 60vh; resize: vertical; font-size: 1rem; line-height: 1.6; }
 
-/* AI 摘要筆記內 link 視覺：預設看起來像一般文字 (color/text-decoration 都 inherit)，
-   hover 時才出現黃底 + cursor:pointer 提示「這條可點」。減少視覺雜訊、保持摘要
-   閱讀順暢，但 click 行為仍正常運作。 */
+/* AI 摘要筆記內 author link 視覺：保留瀏覽器預設藍色底線當「可點」提示，
+   配合 ai_local._format_cluster 「只【author】是 link」的設計、剛好成為視覺
+   定位點，整段不會看起來亂。 */
 #ai-summary-rendered a[href^="/n/"] {
-  color: inherit;
-  text-decoration: none;
-  border-radius: 3px;
-  padding: 1px 2px;
-  margin: -1px -2px;
-  transition: background .12s;
+  color: #1f4e79;
+  text-decoration: underline;
 }
 #ai-summary-rendered a[href^="/n/"]:hover {
   background: #fff3cd;
+  border-radius: 3px;
   cursor: pointer;
+}
+/* 手機破框防呆：rendered markdown 內任何長字串都允許強制換行；pre/code 區塊
+   有自己的橫向 scroll、不撐爆容器 */
+#ai-summary-rendered {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+#ai-summary-rendered pre, #ai-summary-rendered code {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Review mode — 從 AI 摘要 link 過來時，整張 editor 內所有可編輯控制都鎖住，
