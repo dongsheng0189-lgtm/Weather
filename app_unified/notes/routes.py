@@ -485,9 +485,13 @@ def new_note():
     shift_glue = f"{shift}" if shift else ""
     default_title = f"{today} {shift_glue}{CATEGORY_LABELS[category]}"
 
-    # 新增筆記也要 picker 用：拉當前使用者 store 的所有標籤
+    # 新增筆記也要 picker 用：super_admin 用 ?store= query、其他 user 用自己 store
     from models import Tag as _Tag
-    _user_store = current_user.store
+    query_store = request.args.get("store")
+    if current_user.role == 'super_admin' and query_store in stores:
+        _user_store = query_store
+    else:
+        _user_store = current_user.store
     all_store_tags = _Tag.query.filter_by(store=_user_store).all() if _user_store else []
     return render_template("notes/editor.html", note=None, stores=stores,
                            status_choices=STATUS_CHOICES,
@@ -497,6 +501,7 @@ def new_note():
                            note_type=note_type,
                            default_category=category,
                            default_shift=shift,
+                           default_store=_user_store,
                            current_tag_ids=[],
                            item_tag_ids_map={},
                            all_store_tags=all_store_tags)

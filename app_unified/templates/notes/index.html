@@ -416,6 +416,9 @@ function confirmCreate() {
   var qs = '?type=' + encodeURIComponent(_pendingType) +
            '&category=' + encodeURIComponent(_selCategory) +
            '&shift=' + encodeURIComponent(_selShift);
+  // 帶 store=current_store 給 super_admin（page var 在 template render 時設）
+  var __cs = {{ (current_store or '')|tojson }};
+  if (__cs) qs += '&store=' + encodeURIComponent(__cs);
   window.location.href = '/notes/new' + qs;
 }
 
