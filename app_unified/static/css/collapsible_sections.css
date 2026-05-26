@@ -64,11 +64,8 @@
 .ann-bullet {
   display: block;
   padding: .35rem .25rem;
-  cursor: pointer;
   font-size: .88rem;
   color: #555;
-  border-radius: 4px;
-  transition: background .12s ease;
 }
 .ann-bullet::before {
   content: "• ";
@@ -76,10 +73,3 @@
   font-weight: bold;
   margin-right: .3rem;
 }
-.ann-bullet:hover { background: #fff5e0; color: #333; }
-
-/* 個別公告 ─ ann-item 預設 collapsed (show bullet、hide card) */
-.ann-item > .ann-bullet { display: block; }
-.ann-item > .announcement-card { display: none; }
-.ann-item.is-expanded > .ann-bullet { display: none; }
-.ann-item.is-expanded > .announcement-card { display: block; }

@@ -55,7 +55,7 @@ def test_announcement_section_has_collapsible_wrapper_and_max_id(client, db):
     assert m and int(m.group(1)) > 0
 
 
-def test_each_announcement_has_bullet_and_card_wrappers(client, db):
+def test_each_announcement_has_bullet_and_card(client, db):
     sa = _make_user(db, "super_admin", username="sa_collap_each_seed")
     u = _make_user(db, "user", store="B店", username="u_collap_each")
     _login(client, sa)
@@ -66,10 +66,10 @@ def test_each_announcement_has_bullet_and_card_wrappers(client, db):
     _login(client, u)
     r = client.get("/notes/")
     html = r.get_data(as_text=True)
-    # ann-item wrapper appears once per announcement (in body)
-    assert html.count('class="ann-item ') >= 2
-    # ann-bullet appears twice per announcement (preview + body)
-    assert html.count('class="ann-bullet"') >= 4
+    # bullet 在 preview 區、一個 ann 一個
+    assert html.count('class="ann-bullet"') >= 2
+    # 每個 ann 都有 .announcement-card
+    assert html.count('class="announcement-card') >= 2
     assert 'FIRST' in html
     assert 'SECOND' in html
 

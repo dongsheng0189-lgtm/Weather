@@ -54,46 +54,17 @@
     bar.addEventListener('click', function() { toggleSection(section); });
   }
 
-  function bindAnnBullets(section) {
-    section.querySelectorAll('.ann-bullet[data-ann-id]').forEach(function(bullet) {
-      bullet.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var annId = bullet.getAttribute('data-ann-id');
-        var item = section.querySelector('.ann-item[data-ann-id="' + annId + '"]');
-        if (!item) return;
-        var isInPreview = !item.contains(bullet);
-        if (isInPreview) {
-          // Bullet 在 preview 區（section currently collapsed）
-          // → open section + expand only this item
-          section.querySelectorAll('.ann-item').forEach(function(it) {
-            if (it !== item) it.classList.remove('is-expanded');
-            else it.classList.add('is-expanded');
-          });
-          setSectionExpanded(section, true);
-        } else {
-          // Bullet 在 body 內某個 collapsed ann-item 上
-          // → expand 該 item
-          item.classList.add('is-expanded');
-        }
-      });
-    });
-  }
-
   function initAnnouncementSection() {
     var section = document.querySelector('.collapsible[data-section="announcements"]');
     if (!section) return;
     var maxAnnId = parseInt(section.getAttribute('data-max-ann-id') || '0', 10);
-    var auto = shouldAutoExpandAnn(maxAnnId);
-    if (auto) {
+    if (shouldAutoExpandAnn(maxAnnId)) {
       setSectionExpanded(section, true);
-      section.querySelectorAll('.ann-item').forEach(function(it) { it.classList.add('is-expanded'); });
       writeLastSeen(todayStr(), maxAnnId);
     } else {
       setSectionExpanded(section, false);
-      section.querySelectorAll('.ann-item').forEach(function(it) { it.classList.remove('is-expanded'); });
     }
     bindSectionBar(section);
-    bindAnnBullets(section);
   }
 
   function initAiSummarySection() {
