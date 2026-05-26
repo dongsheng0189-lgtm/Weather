@@ -189,6 +189,11 @@ th { background: #f8f9fa; font-weight: 700; }
     <thead><tr><th style="width:30px;"><input type="checkbox" id="select-all-devices" onchange="toggleAllDevices(this)"></th><th>設備</th><th>狀態</th><th>綁定帳號</th><th>店別</th><th>首次出現</th><th>最後上線</th><th>操作</th></tr></thead>
     <tbody id="devices-tbody"></tbody>
   </table>
+  <div id="devices-pagination" style="display:none;margin-top:.6rem;align-items:center;gap:.5rem;font-size:.85rem;color:#555;">
+    <button type="button" class="btn btn-secondary" id="devices-prev" style="font-size:.8rem;padding:.3rem .7rem;">← 上一頁</button>
+    <span id="devices-page-info">第 1 / 1 頁（共 0 個）</span>
+    <button type="button" class="btn btn-secondary" id="devices-next" style="font-size:.8rem;padding:.3rem .7rem;">下一頁 →</button>
+  </div>
 </div>
 
 <!-- 綁定舊帳號 Modal（開啟後自動開鏡頭，輸入 PIN 4 位即自動拍臉+送出） -->
@@ -639,43 +644,77 @@ function _renderReauthHint(d) {
        + '</details>';
 }
 
+var _allDevices = [];
+var _devicesPage = 1;
+var _devicesPageSize = 20;
+
 function loadDevices() {
   var storeEl = document.getElementById('filter-device-store');
   var storeVal = storeEl ? storeEl.value : '';
   var url = '/admin/devices' + (storeVal ? '?store=' + encodeURIComponent(storeVal) : '');
   fetch(url).then(function(r) { return r.json(); }).then(function(devices) {
+    _allDevices = devices || [];
+    _devicesPage = 1;
     document.getElementById('devices-table').style.display = 'table';
-    var tbody = document.getElementById('devices-tbody');
-    tbody.innerHTML = devices.map(function(d) {
-      var statusBadge = d.is_revoked
-        ? '<span class="badge badge-inactive">已掛失</span>'
-        : (d.is_approved ? '<span class="badge badge-active">已核准</span>' : '<span class="badge badge-user">待核准</span>');
-      statusBadge += _renderReauthHint(d);
-      var actions = '';
-      if (!d.is_approved && !d.is_revoked) {
-        actions += '<button class="btn btn-primary" style="font-size:.8rem;padding:.3rem .7rem;" onclick="openApproveModal(' + d.id + ')">設定並核准</button>';
-        actions += ' <button class="btn btn-success" style="font-size:.8rem;padding:.3rem .7rem;" onclick="openRebindModal(' + d.id + ')">綁定舊帳號</button>';
-      }
-      if (d.is_approved && !d.is_revoked) {
-        actions += '<button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;color:#dc3545;" onclick="revokeDevice(' + d.id + ')">掛失</button>';
-      }
-      if (d.is_revoked) {
-        actions += '<button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;" onclick="unrevokeDevice(' + d.id + ')">恢復</button>';
-      }
-      actions += ' <button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;color:#dc3545;" onclick="deleteDevice(' + d.id + ')">刪除</button>';
-      return '<tr>'
-        + '<td>' + (d.is_approved ? '' : '<input type="checkbox" class="device-checkbox" value="' + d.id + '" onchange="updateBatchCount()">') + '</td>'
-        + '<td>' + d.device_name + ' - id=' + d.id + '</td>'
-        + '<td>' + statusBadge + '</td>'
-        + '<td>' + (d.username || '—') + '</td>'
-        + '<td>' + (d.store || '—') + '</td>'
-        + '<td style="font-size:.8rem;">' + d.created_at + '</td>'
-        + '<td style="font-size:.8rem;">' + d.last_seen_at + '</td>'
-        + '<td>' + actions + '</td>'
-        + '</tr>';
-    }).join('');
+    renderDevicesPage();
   });
 }
+
+function renderDevicesPage() {
+  var total = _allDevices.length;
+  var totalPages = Math.max(1, Math.ceil(total / _devicesPageSize));
+  if (_devicesPage > totalPages) _devicesPage = totalPages;
+  if (_devicesPage < 1) _devicesPage = 1;
+  var start = (_devicesPage - 1) * _devicesPageSize;
+  var pageDevices = _allDevices.slice(start, start + _devicesPageSize);
+  var tbody = document.getElementById('devices-tbody');
+  tbody.innerHTML = pageDevices.map(function(d) {
+    var statusBadge = d.is_revoked
+      ? '<span class="badge badge-inactive">已掛失</span>'
+      : (d.is_approved ? '<span class="badge badge-active">已核准</span>' : '<span class="badge badge-user">待核准</span>');
+    statusBadge += _renderReauthHint(d);
+    var actions = '';
+    if (!d.is_approved && !d.is_revoked) {
+      actions += '<button class="btn btn-primary" style="font-size:.8rem;padding:.3rem .7rem;" onclick="openApproveModal(' + d.id + ')">設定並核准</button>';
+      actions += ' <button class="btn btn-success" style="font-size:.8rem;padding:.3rem .7rem;" onclick="openRebindModal(' + d.id + ')">綁定舊帳號</button>';
+    }
+    if (d.is_approved && !d.is_revoked) {
+      actions += '<button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;color:#dc3545;" onclick="revokeDevice(' + d.id + ')">掛失</button>';
+    }
+    if (d.is_revoked) {
+      actions += '<button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;" onclick="unrevokeDevice(' + d.id + ')">恢復</button>';
+    }
+    actions += ' <button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;color:#dc3545;" onclick="deleteDevice(' + d.id + ')">刪除</button>';
+    return '<tr>'
+      + '<td>' + (d.is_approved ? '' : '<input type="checkbox" class="device-checkbox" value="' + d.id + '" onchange="updateBatchCount()">') + '</td>'
+      + '<td>' + d.device_name + ' - id=' + d.id + '</td>'
+      + '<td>' + statusBadge + '</td>'
+      + '<td>' + (d.username || '—') + '</td>'
+      + '<td>' + (d.store || '—') + '</td>'
+      + '<td style="font-size:.8rem;">' + d.created_at + '</td>'
+      + '<td style="font-size:.8rem;">' + d.last_seen_at + '</td>'
+      + '<td>' + actions + '</td>'
+      + '</tr>';
+  }).join('');
+  // Pagination controls
+  var pagWrap = document.getElementById('devices-pagination');
+  if (total > _devicesPageSize) {
+    pagWrap.style.display = 'flex';
+    document.getElementById('devices-page-info').textContent =
+      '第 ' + _devicesPage + ' / ' + totalPages + ' 頁（共 ' + total + ' 個）';
+    document.getElementById('devices-prev').disabled = (_devicesPage <= 1);
+    document.getElementById('devices-next').disabled = (_devicesPage >= totalPages);
+  } else {
+    pagWrap.style.display = 'none';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var prev = document.getElementById('devices-prev');
+  var next = document.getElementById('devices-next');
+  if (prev) prev.addEventListener('click', function() { _devicesPage--; renderDevicesPage(); window.scrollTo({top: document.getElementById('devices-table').offsetTop - 20, behavior: 'smooth'}); });
+  if (next) next.addEventListener('click', function() { _devicesPage++; renderDevicesPage(); window.scrollTo({top: document.getElementById('devices-table').offsetTop - 20, behavior: 'smooth'}); });
+});
 
 function checkApproveReady() {
   var username = document.getElementById('approve-username').value.trim();

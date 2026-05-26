@@ -100,12 +100,16 @@
             background:#fff8e1;border:2px solid #ffb300;border-radius:24px;
             font-size:.95rem;color:#5d4037;font-weight:600;
             box-shadow:0 4px 12px rgba(0,0,0,.18);">
-  <span>🔍 <span id="search-hit-counter">0/0</span> 命中</span>
+  <span><span id="search-hit-icon">🔍</span> <span id="search-hit-counter">0/0</span> 命中</span>
   <button type="button" id="search-hit-next"
           style="background:#ffb300;border:none;color:#fff;border-radius:50%;
                  width:32px;height:32px;font-size:1rem;cursor:pointer;line-height:1;
                  display:flex;align-items:center;justify-content:center;"
-          title="下一個命中">▶</button>
+          title="下一個">▶</button>
+  <button type="button" id="search-hit-back"
+          style="background:#fff;border:1.5px solid #5d4037;color:#5d4037;border-radius:14px;
+                 padding:.3rem .7rem;font-size:.82rem;cursor:pointer;line-height:1;font-weight:600;"
+          title="返回上一頁">← 返回</button>
 </div>
 {# F2: checklist mode 完全不參與 note-level lock UI #}
 {% set _editor_type = note.note_type if note else (note_type or 'note') %}
@@ -332,6 +336,8 @@ function buildSearchHits() {
   // Widget 只在 checklist 顯示（regular note 用 textarea 選取就夠了），
   // 而且 hits > 0 才出現。
   var widget = document.getElementById('search-hit-widget');
+  var iconEl = document.getElementById('search-hit-icon');
+  if (iconEl) iconEl.textContent = '🔍';
   if (_searchHits.length === 0 || EDITOR_TYPE !== 'checklist') {
     widget.style.display = 'none';
     if (EDITOR_TYPE !== 'checklist' && _searchHits.length > 0) {
@@ -373,6 +379,13 @@ document.addEventListener('DOMContentLoaded', function() {
   if (nextBtn) {
     nextBtn.addEventListener('click', function() {
       jumpToHit(_currentHit + 1);
+    });
+  }
+  // 返回上一頁按鈕 — 給 keyword + tag 兩種 jump 共用
+  var backBtn = document.getElementById('search-hit-back');
+  if (backBtn) {
+    backBtn.addEventListener('click', function() {
+      window.history.back();
     });
   }
   // regular note 立刻 build；checklist 等 items 載完才 build
@@ -1041,24 +1054,32 @@ function _renderChecklistItemsFromCache() {
   });
   if (IS_READONLY) applyReadonly();
   if (SEARCH_Q) buildSearchHits();
-  // URL ?tag=X → 高亮含該 tag 的 items + scroll 到第一個
+  // URL ?tag=X → 高亮含該 tag 的 items + 用 jump widget 跳轉
   var qsTagId = parseInt(new URLSearchParams(window.location.search).get('tag') || '0', 10);
   if (qsTagId && window.ITEM_TAG_IDS_MAP) {
-    var firstMatch = null;
-    document.querySelectorAll('#checklist-items > div[data-item-id]').forEach(function(row) {
-      var itemId = parseInt(row.dataset.itemId, 10);
-      var itemTags = window.ITEM_TAG_IDS_MAP[itemId] || [];
-      if (itemTags.indexOf(qsTagId) !== -1) {
-        row.classList.add('tag-highlight');
-        if (!firstMatch) firstMatch = row;
-      }
-    });
-    if (firstMatch) {
-      setTimeout(function() {
-        firstMatch.scrollIntoView({behavior: 'smooth', block: 'center'});
-      }, 100);
-    }
+    buildTagHits(qsTagId);
   }
+}
+
+function buildTagHits(tagId) {
+  _searchHits = [];
+  document.querySelectorAll('#checklist-items > div[data-item-id]').forEach(function(row) {
+    var itemId = parseInt(row.dataset.itemId, 10);
+    var itemTags = (window.ITEM_TAG_IDS_MAP && window.ITEM_TAG_IDS_MAP[itemId]) || [];
+    if (itemTags.indexOf(tagId) !== -1) {
+      row.classList.add('tag-highlight');
+      _searchHits.push(row);
+    }
+  });
+  var widget = document.getElementById('search-hit-widget');
+  var iconEl = document.getElementById('search-hit-icon');
+  if (_searchHits.length === 0 || !widget) {
+    if (widget) widget.style.display = 'none';
+    return;
+  }
+  if (iconEl) iconEl.textContent = '🏷️';
+  widget.style.display = 'flex';
+  jumpToHit(0);
 }
 
 function _updateCompletionTabUI() {
