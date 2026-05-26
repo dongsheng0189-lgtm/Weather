@@ -25,8 +25,20 @@ from collections import defaultdict
 from datetime import timezone
 
 import numpy as np
-from sklearn.cluster import DBSCAN
-from sentence_transformers import SentenceTransformer
+
+# Heavy ML deps：prod Docker image 預裝 (Dockerfile 33-34)；local dev venv 故意
+# 不裝（700MB+ 太重）。Missing 時 module 仍可 import 成功 — _cluster_items 會
+# 退化成「每筆獨立一群」(no semantic merging)，link / bucket / format 邏輯不受
+# 影響，local dev 可完整 smoke test 摘要 UI flow。
+try:
+    from sklearn.cluster import DBSCAN
+    from sentence_transformers import SentenceTransformer
+    _ML_DEPS_OK = True
+except ImportError as _e:
+    _ML_DEPS_OK = False
+    _ML_DEPS_IMPORT_ERR = _e
+    DBSCAN = None
+    SentenceTransformer = None
 
 logger = logging.getLogger("ai_local")
 
@@ -48,6 +60,9 @@ def _get_model():
     """Lazy load model weights — only first call. Subsequent calls reuse cached instance.
     注意：SentenceTransformer class 已在 module top import (見上方時序註解)，
     這裡只是 instantiate（會 HTTP 拉 weights ~470MB，純 requests 不會 subprocess）。
+    Local dev 無 deps 時 caller (_cluster_items) 應該已先檢查 _ML_DEPS_OK，
+    不會走到這支；若意外走到、會 NameError on SentenceTransformer → 上層
+    routes.py 的 except Exception 接住。
     """
     global _model
     if _model is None:
@@ -96,6 +111,7 @@ def _categorize_notes(notes, since, until):
 
         author = n.author_name or (n.author.username if n.author else "?")
         buckets[cat][target].append({
+            "note_id": n.id,
             "title": n.title or "",
             "content": n.content or "",
             "author": author,
@@ -143,6 +159,8 @@ def _categorize_checklists(notes, since, until):
 
             who = (item.checked_by_name if is_checked else "") or "?"
             buckets[cat][target].append({
+                "note_id": n.id,
+                "item_id": item.id,
                 "title": f"[{note_title}] {text}" if note_title else text,
                 "content": "",
                 "author": who,
@@ -165,8 +183,17 @@ def _embed_text(item):
 
 
 def _cluster_items(items, eps=0.4):
-    """同一事件聚類。回傳 list[list[item]]，每子 list 是一群。"""
+    """同一事件聚類。回傳 list[list[item]]，每子 list 是一群。
+
+    Local dev 無 sentence_transformers / sklearn 時退化成每筆獨立一群（no
+    semantic merging），其餘 pipeline / link / format 邏輯仍正常運作。
+    """
     if len(items) <= 1:
+        return [[it] for it in items]
+    if not _ML_DEPS_OK:
+        # Local dev fallback：每筆自己一群，不做語意 merge
+        logger.warning("[ai_local] ML deps unavailable (%s); skipping clustering, "
+                       "each item becomes its own cluster", _ML_DEPS_IMPORT_ERR)
         return [[it] for it in items]
 
     texts = [_embed_text(it) for it in items]
@@ -184,33 +211,70 @@ def _cluster_items(items, eps=0.4):
     return list(cluster_to_items.values())
 
 
+def _cluster_item_url(item):
+    """從 bucket item 組 URL：note 用 /n/<id>，checklist item 用 /n/<id>#item-<item_id>。"""
+    nid = item.get("note_id")
+    iid = item.get("item_id")
+    if nid is None:
+        return None  # 防呆：bucket 沒帶 id 時退回純文字
+    if iid is not None:
+        return f"/n/{nid}#item-{iid}"
+    return f"/n/{nid}"
+
+
 def _format_cluster(cluster):
-    """從 cluster 抽代表 + 狀態標記，回傳 bullet 字串"""
+    """從 cluster 抽代表 + 狀態標記，回傳 markdown bullet 字串（含 link）。
+
+    Output 範例：
+      single: [【婉婷】冰箱漏水 — 已約23號開刀](/n/42) 🟡
+      multi:  [【婉婷】冰箱漏水 — 已約23號開刀](/n/10) ✓（3 筆 / [婉婷](/n/10)、[小明](/n/20)、[阿華](/n/30)）
+    """
     rep = max(cluster, key=lambda x: len(x["title"]) + len(x["content"]))
     title = rep["title"]
     content = rep["content"]
     author = rep["author"]
 
-    line = f"【{author}】{title}"
-
+    # 主 label（會包進 markdown link）
+    label = f"【{author}】{title}"
     if content:
         first = content.strip().split("\n")[0].strip()
         if first and first != title:
             if len(first) > 100:
                 first = first[:100] + "…"
-            line += f" — {first}"
+            label += f" — {first}"
 
+    rep_url = _cluster_item_url(rep)
+    if rep_url:
+        line = f"[{label}]({rep_url})"
+    else:
+        line = label  # 防呆 fallback
+
+    # 狀態符號放在 link 外
     full = (title or "") + " " + (content or "")
     if DONE_PAT.search(full):
         line += " ✓"
     elif PROGRESS_PAT.search(full):
         line += " 🟡"
 
+    # 多筆 cluster：尾註每個 author link 到自己那筆
     if len(cluster) > 1:
-        names = sorted({c["author"] for c in cluster if c.get("author")})
+        # 用 note_id 去重（同 note_id 多 author 只列一次；不同 note 同 author 也只列 author 一次）
+        seen_nids = set()
+        author_links = []
+        for c in cluster:
+            nid = c.get("note_id")
+            ca = c.get("author") or "?"
+            if nid in seen_nids:
+                continue
+            seen_nids.add(nid)
+            url = _cluster_item_url(c)
+            if url:
+                author_links.append(f"[{ca}]({url})")
+            else:
+                author_links.append(ca)
         line += f"（{len(cluster)} 筆"
-        if len(names) > 1:
-            line += f" / {', '.join(names)}"
+        if author_links:
+            line += f" / {'、'.join(author_links)}"
         line += "）"
 
     return line

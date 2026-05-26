@@ -10,6 +10,23 @@
 #title-input { font-size: 1.3rem; font-weight: 700; border: none; border-bottom: 2px solid #eee; border-radius: 0; padding: 0.4rem 0; margin-bottom: .5rem; }
 #title-input:focus { border-color: #3498db; }
 #content-area { min-height: 60vh; resize: vertical; font-size: 1rem; line-height: 1.6; }
+
+/* Review mode — 從 AI 摘要 link 過來時，整張 editor 內所有可編輯控制都鎖住，
+   避免 review 時誤改資料。CSS 覆蓋掉 DOM 上「全部」editor.wrap 內的互動 widget，
+   連帶涵蓋 async render 出來的 checklist items / tag chips。
+   「← 返回」鈕在 .editor-wrap 外面、不受影響。 */
+body.review-mode .editor-wrap input,
+body.review-mode .editor-wrap textarea,
+body.review-mode .editor-wrap select,
+body.review-mode .editor-wrap button {
+  pointer-events: none;
+  opacity: 0.55;
+  cursor: not-allowed !important;
+}
+#review-mode-banner { display: none; }
+body.review-mode #review-mode-banner { display: flex; }
+#review-back-widget { display: none; }
+body.review-mode #review-back-widget { display: inline-flex; }
 .ai-panel { margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem; }
 .ai-result { background: #f8f9fa; border-radius: 6px; padding: 1rem; margin-top: .5rem; font-size: .9rem; white-space: pre-wrap; }
 .save-status { font-size: .85rem; color: #aaa; margin-left: auto; }
@@ -76,6 +93,14 @@
   z-index: 10000; font-size: .95rem;
   box-shadow: 0 4px 12px rgba(0,0,0,.3);
 }
+@keyframes flash-hl-fade {
+  0%   { background: #fff3cd; box-shadow: 0 0 0 4px #ffeaa7; }
+  100% { background: transparent; box-shadow: none; }
+}
+.flash-hl {
+  animation: flash-hl-fade 2s ease-out;
+  border-radius: 6px;
+}
 </style>
 {% endblock %}
 {% block content %}
@@ -111,6 +136,17 @@
                  padding:.3rem .7rem;font-size:.82rem;cursor:pointer;line-height:1;font-weight:600;"
           title="返回上一頁">← 返回</button>
 </div>
+<div id="review-mode-banner" style="background:#e8f4fd;border:1px solid #b3d9f5;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#1f4e79;align-items:center;gap:.5rem;flex-wrap:wrap;">
+  🔒 <strong>檢視模式</strong>：從 AI 摘要進入、僅供交接 review、不可編輯。按右下「← 返回摘要」回到摘要繼續討論。
+</div>
+{# review-back floating widget — 跟 search-hit-widget 同款 fixed position，
+   讓 user 滑到頁面底端時也能一鍵返回摘要、不用 scroll 回最上面 #}
+<a id="review-back-widget" href="#"
+   style="position:fixed;bottom:20px;right:20px;z-index:1000;
+          align-items:center;gap:.4rem;padding:.65rem 1.1rem;
+          background:#1f4e79;color:#fff;border-radius:24px;
+          font-size:.95rem;font-weight:600;text-decoration:none;
+          box-shadow:0 4px 12px rgba(0,0,0,.25);">← 返回摘要</a>
 {# F2: checklist mode 完全不參與 note-level lock UI #}
 {% set _editor_type = note.note_type if note else (note_type or 'note') %}
 {% if _editor_type != 'checklist' %}
@@ -188,8 +224,14 @@
   <div id="content-wrap" style="position:relative;">
     {% if note and note.is_ai_summary %}
     <button type="button" class="summary-fullscreen-toggle" onclick="document.getElementById('content-wrap').classList.toggle('summary-fullscreen')" title="全螢幕">⛶</button>
-    {% endif %}
+    <!-- AI 摘要筆記：render markdown 成 clickable HTML 給 review 用。
+         textarea 仍存在但隱藏，按「✎ 編輯」可切回 raw markdown 編輯模式。 -->
+    <div id="ai-summary-rendered" style="background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:1rem;font-size:.95rem;line-height:1.7;min-height:60vh;"></div>
+    <button type="button" id="btn-toggle-ai-edit" onclick="_toggleAiSummaryEdit()" style="margin-top:.5rem;font-size:.8rem;padding:.3rem .6rem;background:#fff;border:1px solid #ccc;border-radius:6px;cursor:pointer;">✎ 編輯原始 markdown</button>
+    <textarea id="content-area" placeholder="開始輸入筆記內容…" style="display:none;">{{ note.content if note else '' }}</textarea>
+    {% else %}
     <textarea id="content-area" placeholder="開始輸入筆記內容…">{{ note.content if note else '' }}</textarea>
+    {% endif %}
   </div>
 
   <!-- 附件區（一般筆記）-->
@@ -261,6 +303,74 @@
 </div>
 {% endblock %}
 {% block scripts %}
+{% if note and note.is_ai_summary %}
+<!-- AI 摘要筆記 markdown 渲染：marked 解析、DOMPurify 防 XSS。
+     失敗 fallback 看 _toggleAiSummaryEdit 內 try/catch。 -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js" crossorigin="anonymous"></script>
+<script>
+function _renderAiSummary() {
+  var ta = document.getElementById('content-area');
+  var rendered = document.getElementById('ai-summary-rendered');
+  if (!ta || !rendered) return;
+  var md = ta.value;
+  try {
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+      throw new Error('marked/DOMPurify not loaded');
+    }
+    rendered.innerHTML = DOMPurify.sanitize(marked.parse(md));
+    // 給每個 link 加：
+    //   1. 唯一 id (b-<idx>) 當錨點
+    //   2. ?from=/n/<NOTE_ID>#b-<idx> query — 讓被連到的 editor「← 返回」鈕
+    //      回到「這條 bullet 的位置」，不是回 /notes/ 列表也不是回最上面
+    if (typeof NOTE_ID !== 'undefined' && NOTE_ID) {
+      rendered.querySelectorAll('a[href^="/n/"]').forEach(function(a, idx) {
+        try {
+          var anchorId = 'b-' + idx;
+          a.id = anchorId;
+          var u = new URL(a.getAttribute('href'), window.location.origin);
+          u.searchParams.set('from', '/n/' + NOTE_ID + '#' + anchorId);
+          a.setAttribute('href', u.pathname + u.search + u.hash);
+        } catch (e) { /* malformed href — leave as-is */ }
+      });
+    }
+    // 從別張筆記按「← 返回」回到這張摘要時，URL 帶 #b-N 錨點。
+    // 但 browser 嘗試 scroll 時 element 還沒 inject (DOMContentLoaded 早於
+    // _renderAiSummary 才剛產生 link)，要在 render 完手動 scroll。
+    if (location.hash && /^#b-\d+$/.test(location.hash)) {
+      var target = document.getElementById(location.hash.slice(1));
+      if (target) {
+        setTimeout(function() {
+          target.scrollIntoView({behavior: 'smooth', block: 'center'});
+        }, 50);
+      }
+    }
+  } catch (e) {
+    // CDN 失敗 fallback — 顯示純文字
+    rendered.style.whiteSpace = 'pre-wrap';
+    rendered.textContent = md;
+  }
+}
+function _toggleAiSummaryEdit() {
+  var ta = document.getElementById('content-area');
+  var rendered = document.getElementById('ai-summary-rendered');
+  var btn = document.getElementById('btn-toggle-ai-edit');
+  if (ta.style.display === 'none') {
+    // 切到編輯模式
+    ta.style.display = '';
+    rendered.style.display = 'none';
+    btn.textContent = '✓ 完成編輯（重新 render）';
+  } else {
+    // 切回 render 模式
+    ta.style.display = 'none';
+    rendered.style.display = '';
+    btn.textContent = '✎ 編輯原始 markdown';
+    _renderAiSummary();  // user 可能改過 textarea → 重 render
+  }
+}
+document.addEventListener('DOMContentLoaded', _renderAiSummary);
+</script>
+{% endif %}
 <script src="{{ url_for('static', filename='js/fullscreen_viewer.js') }}"></script>
 <script>
 var NOTE_ID = {{ (note.id if note else None)|tojson }};
@@ -629,6 +739,40 @@ document.addEventListener('DOMContentLoaded', function() {
     var el = document.getElementById(id);
     if (el) el.addEventListener('focus', tryAcquireLock);
   });
+});
+
+// `?from=/n/<id>(#b-<n>)?` 從 AI 摘要 link 點過來時：
+// 1. 把「← 返回」鈕重指回那張摘要 (含 bullet 錨點)，讓 review 流程能連續討論
+// 2. 整頁進「review mode」— CSS 鎖住 .editor-wrap 內所有可編輯控制 + 顯示
+//    檢視模式提示 banner，避免 review 時誤改資料
+// Strict whitelist /n/\d+ + optional #b-\d+ anchor 防 XSS。
+document.addEventListener('DOMContentLoaded', function() {
+  var from = new URLSearchParams(location.search).get('from');
+  if (!from || !/^\/n\/\d+(#b-\d+)?$/.test(from)) return;
+  var backBtn = document.getElementById('btn-back');
+  if (backBtn) backBtn.setAttribute('href', from);
+  // 浮動「返回摘要」widget — 跟頂上 btn-back 同 href，user 不用滑回頁首
+  var floatBack = document.getElementById('review-back-widget');
+  if (floatBack) floatBack.setAttribute('href', from);
+  document.body.classList.add('review-mode');
+});
+
+// `/n/<id>#item-<id>` 從 AI 摘要點過來時，scroll 到該 item 並加 flash 高亮。
+// querySelector / target 檢查擺在 setTimeout 內 — checklist items 是 async
+// (loadChecklistItems) render，DOMContentLoaded 那刻通常還沒 inject 到 DOM。
+document.addEventListener('DOMContentLoaded', function() {
+  var m = (location.hash || '').match(/^#item-(\d+)$/);
+  if (!m) return;
+  var iid = m[1];
+  setTimeout(function() {
+    var target = document.querySelector('#checklist-items > [data-item-id="' + iid + '"]');
+    if (!target) return;  // item 被刪 / 權限不同 → silent fail
+    target.scrollIntoView({behavior: 'smooth', block: 'center'});
+    target.classList.add('flash-hl');
+    setTimeout(function() {
+      target.classList.remove('flash-hl');
+    }, 2200);  // 2s animation + 200ms margin
+  }, 300);  // give loadChecklistItems' fetch + render time on initial load
 });
 
 {% if note and note.updated_by %}

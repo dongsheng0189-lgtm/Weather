@@ -31,6 +31,9 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/collapsible_sections.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tag_system.css') }}">
 <style>
+/* AI 摘要預覽 link 視覺與互動失效 — 摘要本身只是預覽、不該被點。link 行為
+   發生在「儲存為筆記」之後、editor.html 渲染存出來的 markdown 那邊。 */
+#ai-summary-output a { color: inherit; text-decoration: none; pointer-events: none; cursor: text; }
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .note-card { background: #fff; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.07); cursor: pointer; transition: box-shadow .2s; border-left: 4px solid #3498db; }
 .note-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
@@ -453,6 +456,10 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {% endblock %}
 {% block scripts %}
+<!-- AI 摘要 markdown 渲染（marked） + XSS 防護（DOMPurify）。
+     失敗 fallback 看 generateSummary 內 try/catch — 退回 textContent pre-wrap。 -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js" crossorigin="anonymous"></script>
 <script src="{{ url_for('static', filename='js/fullscreen_viewer.js') }}"></script>
 <script>
 function pollAiTask(taskId, onDone, onError, onTick) {
@@ -490,6 +497,24 @@ function selectBusinessDay(bd) {
   y.style.cssText = 'font-size:.82rem;padding:.35rem .65rem;border-radius:6px;border:2px solid;cursor:pointer;font-weight:600;' + (bd === 'yesterday' ? on : off);
 }
 
+// Helper：預覽用 — 把 markdown render 成 HTML，但 link 視覺與互動都「失效」
+// (CSS 把 a 變成跟一般文字一樣、pointer-events:none 不可點)。原 raw markdown
+// 存在 dataset.markdown，按「儲存為筆記」時送出，存到 DB 後 editor 才會 render
+// 成可點 link 給 review 流程用。摘要本身不留 sessionStorage、redirect 走後預覽
+// 自然清空。
+function _renderSummary(md) {
+  var outputEl = document.getElementById('ai-summary-output');
+  outputEl.dataset.markdown = md;
+  try {
+    if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+      throw new Error('marked/DOMPurify not loaded');
+    }
+    outputEl.innerHTML = DOMPurify.sanitize(marked.parse(md));
+  } catch (e) {
+    outputEl.textContent = md;  // CDN 失敗 fallback
+  }
+}
+
 function generateSummary() {
   var store = document.getElementById('ai-store-select').value;
   var btn = document.getElementById('btn-ai-summary');
@@ -518,7 +543,7 @@ function generateSummary() {
     if (data.business_day_date) _summaryBusinessDate = data.business_day_date;
     if (data.status === 'accepted' && data.task_id) {
       pollAiTask(data.task_id, function(result) {
-        outputEl.textContent = result;
+        _renderSummary(result);
         wrapEl.style.display = 'block';
         saveBtn.style.display = 'inline-block';
         statusEl.textContent = '完成';
@@ -530,7 +555,7 @@ function generateSummary() {
         statusEl.textContent = 'AI 整理中… 已等待 ' + sec + ' 秒';
       });
     } else if (data.status === 'ok') {
-      outputEl.textContent = data.summary;
+      _renderSummary(data.summary);
       wrapEl.style.display = 'block';
       saveBtn.style.display = 'inline-block';
       statusEl.textContent = '';
@@ -547,7 +572,9 @@ function generateSummary() {
 
 function saveSummaryAsNote() {
   var store = document.getElementById('ai-store-select').value;
-  var content = document.getElementById('ai-summary-output').textContent;
+  var outputEl = document.getElementById('ai-summary-output');
+  // 優先用 dataset.markdown（保留 link syntax）；fallback textContent (CDN 載入失敗時)
+  var content = outputEl.dataset.markdown || outputEl.textContent;
   var saveBtn = document.getElementById('btn-save-summary');
   var dateStr = _summaryBusinessDate;
   if (!dateStr) {
@@ -584,6 +611,7 @@ function saveSummaryAsNote() {
     saveBtn.disabled = false;
   });
 }
+
 </script>
 <script>
 // ── 3 分鐘隱私黑幕 ──

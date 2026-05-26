@@ -5,6 +5,7 @@ Key mocks:
   - face_recognition: returns a fixed 128-dim vector (no dlib needed)
   - anthropic client: returns fixed text (no API cost)
   - R2 storage: no-op upload
+  - sentence_transformers + sklearn: heavy ML deps not in local venv (mocked at sys.modules level)
 """
 import sys
 import os
@@ -33,6 +34,24 @@ mock_boto3.client.return_value = mock_s3_client
 sys.modules['boto3'] = mock_boto3
 sys.modules['botocore'] = MagicMock()
 sys.modules['botocore.exceptions'] = MagicMock()
+
+# ── Mock sentence_transformers + sklearn (heavy ML deps, only present in
+# prod Docker image; local venv intentionally doesn't install them) ────────
+mock_st = MagicMock()
+mock_sentence_model = MagicMock()
+mock_sentence_model.encode.side_effect = lambda texts, **kw: np.zeros(
+    (len(texts) if hasattr(texts, '__len__') else 1, 384), dtype=np.float32
+)
+mock_st.SentenceTransformer.return_value = mock_sentence_model
+sys.modules['sentence_transformers'] = mock_st
+
+mock_sklearn = MagicMock()
+mock_sklearn_cluster = MagicMock()
+# DBSCAN.fit(...).labels_ — 預設回 single-cluster label 0；單元測試會 override
+mock_sklearn_cluster.DBSCAN.return_value.fit.return_value.labels_ = np.array([0])
+mock_sklearn.cluster = mock_sklearn_cluster
+sys.modules['sklearn'] = mock_sklearn
+sys.modules['sklearn.cluster'] = mock_sklearn_cluster
 
 
 @pytest.fixture(scope='session')
