@@ -101,6 +101,35 @@ def update_tag(tag_id):
     return jsonify({'tag': _tag_to_dict(t, include_usage=True)})
 
 
+@notes_bp.route('/api/tags/<int:tag_id>/pin', methods=['POST'])
+@login_required
+def pin_tag(tag_id):
+    t = db.session.get(Tag, tag_id)
+    if not t:
+        abort(404)
+    _require_same_store(t)
+    if t.pinned:
+        return jsonify({'tag': _tag_to_dict(t, include_usage=True)})
+    pinned_count = Tag.query.filter_by(store=t.store, pinned=True).count()
+    if pinned_count >= PIN_LIMIT:
+        return jsonify({'error': f'釘選已滿 {PIN_LIMIT} 個、先取消其他釘選'}), 400
+    t.pinned = True
+    db.session.commit()
+    return jsonify({'tag': _tag_to_dict(t, include_usage=True)})
+
+
+@notes_bp.route('/api/tags/<int:tag_id>/pin', methods=['DELETE'])
+@login_required
+def unpin_tag(tag_id):
+    t = db.session.get(Tag, tag_id)
+    if not t:
+        abort(404)
+    _require_same_store(t)
+    t.pinned = False
+    db.session.commit()
+    return jsonify({'tag': _tag_to_dict(t, include_usage=True)})
+
+
 @notes_bp.route('/api/tags/<int:tag_id>', methods=['DELETE'])
 @login_required
 def delete_tag(tag_id):

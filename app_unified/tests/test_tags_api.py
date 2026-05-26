@@ -101,6 +101,49 @@ def test_delete_tag_returns_cascade_count(client, db):
     assert r.get_json()['cascaded'] == 1
 
 
+def test_pin_tag(client, db):
+    u = _mk_user(db, username=_uniq('u'))
+    _login(client, u)
+    r = client.post('/notes/api/tags', json={'name': _uniq('P'), 'color': '#E74C3C'})
+    tid = r.get_json()['tag']['id']
+    r2 = client.post(f'/notes/api/tags/{tid}/pin')
+    assert r2.status_code == 200
+    assert r2.get_json()['tag']['pinned'] is True
+
+
+def test_pin_limit_3(client, db):
+    # 用唯一 store 避免跟其他 test 的 pinned tag 共用 store 撞 limit
+    store = f'PSx_{uuid.uuid4().hex[:4]}'
+    u = _mk_user(db, store=store, username=_uniq('u'))
+    _login(client, u)
+    ids = []
+    for i in range(4):
+        r = client.post('/notes/api/tags',
+                        json={'name': _uniq(f'P{i}'), 'color': '#E74C3C'})
+        ids.append(r.get_json()['tag']['id'])
+    for tid in ids[:3]:
+        assert client.post(f'/notes/api/tags/{tid}/pin').status_code == 200
+    r = client.post(f'/notes/api/tags/{ids[3]}/pin')
+    assert r.status_code == 400
+    assert '釘選已滿' in r.get_json()['error']
+
+
+def test_unpin_then_pin_new(client, db):
+    store = f'PSy_{uuid.uuid4().hex[:4]}'
+    u = _mk_user(db, store=store, username=_uniq('u'))
+    _login(client, u)
+    ids = []
+    for i in range(4):
+        r = client.post('/notes/api/tags',
+                        json={'name': _uniq(f'U{i}'), 'color': '#E74C3C'})
+        ids.append(r.get_json()['tag']['id'])
+    for tid in ids[:3]:
+        client.post(f'/notes/api/tags/{tid}/pin')
+    client.delete(f'/notes/api/tags/{ids[0]}/pin')
+    r = client.post(f'/notes/api/tags/{ids[3]}/pin')
+    assert r.status_code == 200
+
+
 def test_update_cross_store_forbidden(client, db):
     from models import Tag
     u = _mk_user(db, store='B店', username=_uniq('u'))
