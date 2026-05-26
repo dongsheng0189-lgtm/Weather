@@ -31,6 +31,9 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/collapsible_sections.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tag_system.css') }}">
 <style>
+/* AI 摘要預覽 link 視覺與互動失效 — 摘要本身只是預覽、不該被點。link 行為
+   發生在「儲存為筆記」之後、editor.html 渲染存出來的 markdown 那邊。 */
+#ai-summary-output a { color: inherit; text-decoration: none; pointer-events: none; cursor: text; }
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .note-card { background: #fff; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.07); cursor: pointer; transition: box-shadow .2s; border-left: 4px solid #3498db; }
 .note-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
@@ -131,7 +134,6 @@
     <div style="font-size:.75rem;color:#888;margin-top:.35rem;">ⓘ 以早上 8 點為營業日分界。8 點後要看 8 點前的事項請選「昨天」。</div>
     <div id="ai-summary-wrap" style="display:none;position:relative;margin-top:.75rem;">
       <button type="button" class="summary-fullscreen-toggle" onclick="toggleSummaryFullscreen('ai-summary-wrap')" title="全螢幕">⛶</button>
-      <div id="summary-timestamp" style="font-size:.78rem;color:#666;margin-bottom:.4rem;"></div>
       <div id="ai-summary-output" style="background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:1rem;padding-right:3rem;white-space:pre-wrap;font-size:.88rem;line-height:1.6;"></div>
     </div>
     <button id="btn-save-summary" class="btn btn-success" style="display:none;margin-top:.5rem;font-size:.85rem;padding:.4rem .8rem;" onclick="saveSummaryAsNote()">💾 儲存為筆記</button>
@@ -495,37 +497,22 @@ function selectBusinessDay(bd) {
   y.style.cssText = 'font-size:.82rem;padding:.35rem .65rem;border-radius:6px;border:2px solid;cursor:pointer;font-weight:600;' + (bd === 'yesterday' ? on : off);
 }
 
-// Helper：md → sanitized HTML，並把 raw markdown 存 dataset 給 saveSummaryAsNote 用
-function _renderSummary(md, generatedAtIso) {
+// Helper：預覽用 — 把 markdown render 成 HTML，但 link 視覺與互動都「失效」
+// (CSS 把 a 變成跟一般文字一樣、pointer-events:none 不可點)。原 raw markdown
+// 存在 dataset.markdown，按「儲存為筆記」時送出，存到 DB 後 editor 才會 render
+// 成可點 link 給 review 流程用。摘要本身不留 sessionStorage、redirect 走後預覽
+// 自然清空。
+function _renderSummary(md) {
   var outputEl = document.getElementById('ai-summary-output');
-  var tsEl = document.getElementById('summary-timestamp');
-  outputEl.dataset.markdown = md;  // 保存 raw markdown 供 saveSummaryAsNote 取
+  outputEl.dataset.markdown = md;
   try {
     if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
       throw new Error('marked/DOMPurify not loaded');
     }
     outputEl.innerHTML = DOMPurify.sanitize(marked.parse(md));
   } catch (e) {
-    // CDN 載入失敗 — fallback pre-wrap 純文字（link 失效但摘要可讀）
-    outputEl.textContent = md;
+    outputEl.textContent = md;  // CDN 失敗 fallback
   }
-  if (tsEl && generatedAtIso) {
-    var dt = new Date(generatedAtIso);
-    var hh = String(dt.getHours()).padStart(2, '0');
-    var mm = String(dt.getMinutes()).padStart(2, '0');
-    var ageMin = (Date.now() - dt.getTime()) / 60000;
-    var stale = ageMin > 60;
-    tsEl.innerHTML = '此摘要產生於 ' + hh + ':' + mm
-      + (stale ? ' <span style="color:#c0392b;">⚠ 超過 1 小時、建議重新產生</span>' : '');
-  }
-}
-function _saveSummaryToSession(store, businessDay, markdown, generatedAtIso, businessDayDate) {
-  try {
-    sessionStorage.setItem(
-      'notes_summary_' + store + '_' + businessDay,
-      JSON.stringify({markdown: markdown, generated_at_iso: generatedAtIso, business_day_date: businessDayDate})
-    );
-  } catch (e) { /* QuotaExceeded / disabled — silent */ }
 }
 
 function generateSummary() {
@@ -556,14 +543,11 @@ function generateSummary() {
     if (data.business_day_date) _summaryBusinessDate = data.business_day_date;
     if (data.status === 'accepted' && data.task_id) {
       pollAiTask(data.task_id, function(result) {
-        var nowIso = new Date().toISOString();
-        _renderSummary(result, nowIso);
+        _renderSummary(result);
         wrapEl.style.display = 'block';
         saveBtn.style.display = 'inline-block';
         statusEl.textContent = '完成';
         btn.disabled = false;
-        // 存 sessionStorage 給 back 還原用
-        _saveSummaryToSession(store, _aiBusinessDay, result, nowIso, _summaryBusinessDate);
       }, function(msg) {
         statusEl.textContent = '錯誤：' + msg;
         btn.disabled = false;
@@ -571,13 +555,11 @@ function generateSummary() {
         statusEl.textContent = 'AI 整理中… 已等待 ' + sec + ' 秒';
       });
     } else if (data.status === 'ok') {
-      var nowIso2 = new Date().toISOString();
-      _renderSummary(data.summary, nowIso2);
+      _renderSummary(data.summary);
       wrapEl.style.display = 'block';
       saveBtn.style.display = 'inline-block';
       statusEl.textContent = '';
       btn.disabled = false;
-      _saveSummaryToSession(store, _aiBusinessDay, data.summary, nowIso2, _summaryBusinessDate);
     } else {
       statusEl.textContent = data.message || '錯誤';
       btn.disabled = false;
@@ -630,32 +612,6 @@ function saveSummaryAsNote() {
   });
 }
 
-// Page load 時，若 sessionStorage 有上次 review session 的摘要 → 還原
-document.addEventListener('DOMContentLoaded', function() {
-  try {
-    var storeEl = document.getElementById('ai-store-select');
-    if (!storeEl || !storeEl.value) return;  // 還沒選店 → 沒摘要可還原
-    var key = 'notes_summary_' + storeEl.value + '_' + (typeof _aiBusinessDay !== 'undefined' ? _aiBusinessDay : 'today');
-    var raw = sessionStorage.getItem(key);
-    if (!raw) return;
-    var data = JSON.parse(raw);
-    if (!data.markdown) return;
-    var wrapEl = document.getElementById('ai-summary-wrap');
-    var saveBtn = document.getElementById('btn-save-summary');
-    _renderSummary(data.markdown, data.generated_at_iso);
-    // 改 timestamp 顯示為「已恢復」前綴
-    var tsEl = document.getElementById('summary-timestamp');
-    if (tsEl && tsEl.innerHTML) {
-      tsEl.innerHTML = '↻ 已恢復 ' + tsEl.innerHTML;
-    }
-    wrapEl.style.display = 'block';
-    if (saveBtn) saveBtn.style.display = 'inline-block';
-    // 還原 business_day_date 變數讓 saveSummaryAsNote 仍能用
-    if (typeof _summaryBusinessDate !== 'undefined' && data.business_day_date) {
-      window._summaryBusinessDate = data.business_day_date;
-    }
-  } catch (e) { /* malformed JSON / disabled — silent */ }
-});
 </script>
 <script>
 // ── 3 分鐘隱私黑幕 ──
