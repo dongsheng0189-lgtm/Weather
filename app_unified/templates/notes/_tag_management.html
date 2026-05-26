@@ -1,0 +1,18 @@
+{# Tag management collapsible section — after AI summary section #}
+<section class="collapsible" data-section="tag-management">
+  <div class="collapsible-bar" data-role="section-bar">
+    <span class="bar-title">🏷️ 標籤管理 <span data-role="count"></span></span>
+    <span class="bar-chevron">▶</span>
+  </div>
+  <div class="collapsible-body">
+    <button type="button" class="btn btn-primary" data-role="new-tag-btn"
+            style="margin-bottom:.5rem;font-size:.85rem;padding:.4rem .8rem;">
+      + 新增標籤
+    </button>
+    <div data-role="new-tag-form-host"></div>
+    <div class="tag-mgmt-subheader">📌 釘選 <span data-role="pin-count">(0/3)</span></div>
+    <div class="tag-mgmt-list" data-role="pinned-list"></div>
+    <div class="tag-mgmt-subheader">其他標籤</div>
+    <div class="tag-mgmt-list" data-role="other-list"></div>
+  </div>
+</section>

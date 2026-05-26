@@ -29,6 +29,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/announcements.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/fullscreen_viewer.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/collapsible_sections.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/tag_system.css') }}">
 <style>
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .note-card { background: #fff; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.07); cursor: pointer; transition: box-shadow .2s; border-left: 4px solid #3498db; }
@@ -135,6 +136,10 @@
     <button id="btn-save-summary" class="btn btn-success" style="display:none;margin-top:.5rem;font-size:.85rem;padding:.4rem .8rem;" onclick="saveSummaryAsNote()">💾 儲存為筆記</button>
   </div>
 </section>
+{% endif %}
+
+{% if not current_keyword %}
+{% include 'notes/_tag_management.html' %}
 {% endif %}
 
 {% if current_user.is_super_admin() %}
@@ -656,4 +661,5 @@ document.getElementById('enroll-submit').onclick = async () => {
 };
 </script>
 <script src="{{ url_for('static', filename='js/collapsible_sections.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/tag_system.js') }}" defer></script>
 {% endblock %}
