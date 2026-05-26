@@ -25,6 +25,7 @@ body.review-mode .editor-wrap button {
 }
 #review-mode-banner { display: none; }
 body.review-mode #review-mode-banner { display: flex; }
+#review-back-widget { display: none; }
 body.review-mode #review-back-widget { display: inline-flex; }
 .ai-panel { margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem; }
 .ai-result { background: #f8f9fa; border-radius: 6px; padding: 1rem; margin-top: .5rem; font-size: .9rem; white-space: pre-wrap; }
@@ -141,7 +142,7 @@ body.review-mode #review-back-widget { display: inline-flex; }
 {# review-back floating widget — 跟 search-hit-widget 同款 fixed position，
    讓 user 滑到頁面底端時也能一鍵返回摘要、不用 scroll 回最上面 #}
 <a id="review-back-widget" href="#"
-   style="display:none;position:fixed;bottom:20px;right:20px;z-index:1000;
+   style="position:fixed;bottom:20px;right:20px;z-index:1000;
           align-items:center;gap:.4rem;padding:.65rem 1.1rem;
           background:#1f4e79;color:#fff;border-radius:24px;
           font-size:.95rem;font-weight:600;text-decoration:none;
