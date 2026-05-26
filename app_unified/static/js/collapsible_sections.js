@@ -74,9 +74,39 @@
     bindSectionBar(section);
   }
 
+  var FILTER_KEY = 'notes_filter_panel_open';
+
+  function initFilterSection() {
+    var section = document.querySelector('.collapsible[data-section="filters"]');
+    if (!section) return;
+    var activeCount = parseInt(section.getAttribute('data-active-count') || '0', 10);
+    var stored;
+    try { stored = localStorage.getItem(FILTER_KEY); } catch (e) { stored = null; }
+    var shouldExpand;
+    if (activeCount > 0) {
+      shouldExpand = true;  // URL 有 active filter → 強制展開
+    } else if (stored === '1') {
+      shouldExpand = true;
+    } else {
+      shouldExpand = false;  // '0' 或沒設過 → 摺疊
+    }
+    setSectionExpanded(section, shouldExpand);
+    var bar = section.querySelector('.collapsible-bar[data-role="section-bar"]');
+    if (bar) {
+      bar.addEventListener('click', function() {
+        toggleSection(section);
+        try {
+          localStorage.setItem(FILTER_KEY,
+            section.classList.contains('is-expanded') ? '1' : '0');
+        } catch (e) {}
+      });
+    }
+  }
+
   function init() {
     initAnnouncementSection();
     initAiSummarySection();
+    initFilterSection();
   }
 
   if (document.readyState === 'loading') {
