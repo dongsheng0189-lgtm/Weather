@@ -1024,6 +1024,24 @@ function _renderChecklistItemsFromCache() {
   });
   if (IS_READONLY) applyReadonly();
   if (SEARCH_Q) buildSearchHits();
+  // URL ?tag=X → 高亮含該 tag 的 items + scroll 到第一個
+  var qsTagId = parseInt(new URLSearchParams(window.location.search).get('tag') || '0', 10);
+  if (qsTagId && window.ITEM_TAG_IDS_MAP) {
+    var firstMatch = null;
+    document.querySelectorAll('#checklist-items > div[data-item-id]').forEach(function(row) {
+      var itemId = parseInt(row.dataset.itemId, 10);
+      var itemTags = window.ITEM_TAG_IDS_MAP[itemId] || [];
+      if (itemTags.indexOf(qsTagId) !== -1) {
+        row.classList.add('tag-highlight');
+        if (!firstMatch) firstMatch = row;
+      }
+    });
+    if (firstMatch) {
+      setTimeout(function() {
+        firstMatch.scrollIntoView({behavior: 'smooth', block: 'center'});
+      }, 100);
+    }
+  }
 }
 
 function _updateCompletionTabUI() {

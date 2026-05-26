@@ -3,8 +3,10 @@
   'use strict';
 
   var PALETTE = [
-    "#E74C3C","#E67E22","#F39C12","#F1C40F","#27AE60",
-    "#16A085","#3498DB","#2C3E50","#9B59B6","#E91E63"
+    "#E74C3C","#C0392B","#E67E22","#D35400",
+    "#F39C12","#F1C40F","#2ECC71","#27AE60",
+    "#16A085","#1ABC9C","#3498DB","#2980B9",
+    "#2C3E50","#9B59B6","#E91E63","#7F8C8D"
   ];
 
   function pickFg(hex) {
@@ -350,14 +352,21 @@
           fetchJson('/notes/api/tags',
                     {method: 'POST', body: JSON.stringify({name: name, color: color})})
             .then(function(r) {
-              if (r.ok) {
-                newHost.innerHTML = '';
-                return reloadTags().then(function() {
-                  selected.add(r.data.tag.id);
-                  refreshList();
-                  modal.querySelector('[data-role="count"]').textContent = selected.size;
-                });
-              } else alert(r.data.error || '建立失敗');
+              if (!r.ok) { alert(r.data.error || '建立失敗'); return; }
+              newHost.innerHTML = '';
+              // 新建的 tag id auto-add 進 selected (尊重 5 個上限)
+              var newTagId = r.data.tag.id;
+              return reloadTags().then(function() {
+                // 同步 window.ALL_STORE_TAGS 給 editor.html item rendering 用
+                if (window.ALL_STORE_TAGS) {
+                  window.ALL_STORE_TAGS.push({
+                    id: r.data.tag.id, name: r.data.tag.name, color: r.data.tag.color
+                  });
+                }
+                if (selected.size < 5) selected.add(newTagId);
+                refreshList();
+                modal.querySelector('[data-role="count"]').textContent = selected.size;
+              });
             });
         }
       });

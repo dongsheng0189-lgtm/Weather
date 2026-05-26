@@ -2,8 +2,8 @@
 from notes.tag_palette import PALETTE, is_valid_color, pick_fg
 
 
-def test_palette_has_10_colors():
-    assert len(PALETTE) == 10
+def test_palette_has_16_colors():
+    assert len(PALETTE) == 16
     assert all(c.startswith('#') and len(c) == 7 for c in PALETTE)
 
 

@@ -18,15 +18,39 @@
 .tag-chip.is-button {
   cursor: pointer;
   user-select: none;
-  border: 1.5px solid transparent;
-  transition: opacity .12s, border-color .12s;
+  border: 2px solid transparent;
+  transition: opacity .12s, border-color .12s, box-shadow .12s, transform .12s;
 }
 .tag-chip.is-button:not(.is-active) {
-  opacity: .55;
+  opacity: .5;
+  filter: grayscale(.3);
 }
-.tag-chip.is-button:hover { opacity: 1; }
-.tag-chip.is-button.is-active { opacity: 1; border-color: rgba(0,0,0,.18); }
-.tag-chip.is-disabled { opacity: .3; cursor: not-allowed; }
+.tag-chip.is-button:hover { opacity: .85; filter: none; }
+.tag-chip.is-button.is-active {
+  opacity: 1;
+  filter: none;
+  border-color: #2c3e50;
+  box-shadow: 0 0 0 3px rgba(44, 62, 80, .25), 0 2px 6px rgba(0, 0, 0, .2);
+  transform: scale(1.05);
+}
+.tag-chip.is-button.is-active::before {
+  content: "✓ ";
+  font-weight: 900;
+}
+.tag-chip.is-disabled { opacity: .25; cursor: not-allowed; filter: grayscale(.6); }
+.tag-chip.is-disabled:hover { opacity: .25; }
+
+/* checklist item with matching tag filter highlight */
+.cl-item.tag-highlight {
+  background: #fff5e0 !important;
+  border-color: #f39c12 !important;
+  box-shadow: 0 0 0 2px rgba(243, 156, 18, .35);
+  animation: tag-pulse 1.2s ease-out 1;
+}
+@keyframes tag-pulse {
+  0% { box-shadow: 0 0 0 4px rgba(243, 156, 18, .65); }
+  100% { box-shadow: 0 0 0 2px rgba(243, 156, 18, .35); }
+}
 
 /* Tag filter row on listing page */
 .tag-filter-row {

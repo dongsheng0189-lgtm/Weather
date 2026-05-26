@@ -52,6 +52,32 @@ def test_notes_index_filter_by_tag(client, db):
     assert no_title not in html
 
 
+def test_notes_index_filter_by_item_level_tag(client, db):
+    """item-level tag 應該也會讓 note 出現在 filter 結果。"""
+    from models import Tag, Note, ChecklistItem, ChecklistItemTag
+    u = _mk_user(db)
+    title_match = _uniq('CL_HAS_ITEM')
+    title_other = _uniq('CL_NO_ITEM')
+    n1 = Note(user_id=u.id, store='B店', title=title_match,
+              content='', note_type='checklist')
+    n2 = Note(user_id=u.id, store='B店', title=title_other,
+              content='', note_type='checklist')
+    db.session.add_all([n1, n2])
+    db.session.commit()
+    it1 = ChecklistItem(note_id=n1.id, text='item-w-tag', is_checked=False)
+    it2 = ChecklistItem(note_id=n2.id, text='item-no-tag', is_checked=False)
+    t = Tag(store='B店', name=_uniq('IF'), color='#E74C3C')
+    db.session.add_all([it1, it2, t])
+    db.session.commit()
+    db.session.add(ChecklistItemTag(item_id=it1.id, tag_id=t.id))
+    db.session.commit()
+    _login(client, u)
+    r = client.get(f'/notes/?tag={t.id}&range=all')
+    html = r.get_data(as_text=True)
+    assert title_match in html
+    assert title_other not in html
+
+
 def test_notes_index_no_tag_returns_all(client, db):
     from models import Note
     u = _mk_user(db)

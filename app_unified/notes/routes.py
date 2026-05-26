@@ -386,8 +386,14 @@ def index():
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
         if tag_id:
-            from models import NoteTag
-            query = query.join(NoteTag, NoteTag.note_id == Note.id).filter(NoteTag.tag_id == tag_id)
+            from models import NoteTag, ChecklistItem as _CI, ChecklistItemTag as _CIT
+            # 同時 match note-level tag 跟 checklist item-level tag (UNION via subquery)
+            note_via_note = db.session.query(NoteTag.note_id).filter(NoteTag.tag_id == tag_id)
+            note_via_item = db.session.query(_CI.note_id).join(
+                _CIT, _CIT.item_id == _CI.id
+            ).filter(_CIT.tag_id == tag_id)
+            matching_note_ids = note_via_note.union(note_via_item).subquery()
+            query = query.filter(Note.id.in_(db.session.query(matching_note_ids)))
         if not range_param:
             range_param = 'today'
         query = _date_filter(query, range_param)
