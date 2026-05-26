@@ -234,43 +234,52 @@ def _md_link_escape(s):
 
 
 def _format_cluster(cluster):
-    """從 cluster 抽代表 + 狀態標記，回傳 markdown bullet 字串（含 link）。
+    """從 cluster 抽代表 + 狀態標記，回傳 markdown bullet 字串。
+
+    視覺設計：**只 author 名是 markdown link**、其餘 title / content 純文字。
+    減少 review 時的視覺雜訊（user feedback：全文字都 link 看起來亂）。
 
     Output 範例：
-      single: [【婉婷】冰箱漏水 — 已約23號開刀](/n/42) 🟡
-      multi:  [【婉婷】冰箱漏水 — 已約23號開刀](/n/10) ✓（3 筆 / [婉婷](/n/10)、[小明](/n/20)、[阿華](/n/30)）
+      single: 【[婉婷](/n/42)】冰箱漏水 — 已約23號開刀 🟡
+      multi:  【[婉婷](/n/10)】冰箱漏水 — 詳細內容 ✓（3 筆 / [小明](/n/20)、[阿華](/n/30)）
+                                                       ↑ tail 跳過 rep author 避免重複
     """
     rep = max(cluster, key=lambda x: len(x["title"]) + len(x["content"]))
     title = rep["title"]
     content = rep["content"]
     author = rep["author"]
 
-    # 主 label（會包進 markdown link）— escape [/]/\\ 防止 marked 切錯
-    label = f"【{_md_link_escape(author)}】{_md_link_escape(title)}"
+    # author 包進 markdown link（escape 防 marked 切錯）；【】+ 其餘文字純 plain
+    rep_url = _cluster_item_url(rep)
+    if rep_url:
+        author_part = f"【[{_md_link_escape(author)}]({rep_url})】"
+    else:
+        author_part = f"【{_md_link_escape(author)}】"
+
+    # title / content first line 也 escape — 避免 user 寫 `[abc](xyz)` 被誤當 link
+    rest = _md_link_escape(title)
     if content:
         first = content.strip().split("\n")[0].strip()
         if first and first != title:
             if len(first) > 100:
                 first = first[:100] + "…"
-            label += f" — {_md_link_escape(first)}"
+            rest += f" — {_md_link_escape(first)}"
 
-    rep_url = _cluster_item_url(rep)
-    if rep_url:
-        line = f"[{label}]({rep_url})"
-    else:
-        line = label  # 防呆 fallback
+    line = author_part + rest
 
-    # 狀態符號放在 link 外
+    # 狀態符號
     full = (title or "") + " " + (content or "")
     if DONE_PAT.search(full):
         line += " ✓"
     elif PROGRESS_PAT.search(full):
         line += " 🟡"
 
-    # 多筆 cluster：尾註每個 author link 到自己那筆
+    # 多筆 cluster 尾註：列「其他 author」(跳過 rep，避免主 label + 尾註重複出現同人)
     if len(cluster) > 1:
-        # 用 note_id 去重（同 note_id 多 author 只列一次；不同 note 同 author 也只列 author 一次）
+        rep_nid = rep.get("note_id")
         seen_nids = set()
+        if rep_nid is not None:
+            seen_nids.add(rep_nid)  # rep 自己 author 已在主 label 出現、tail 不再列
         author_links = []
         for c in cluster:
             nid = c.get("note_id")
@@ -282,7 +291,7 @@ def _format_cluster(cluster):
             if url:
                 author_links.append(f"[{_md_link_escape(ca)}]({url})")
             else:
-                author_links.append(ca)
+                author_links.append(_md_link_escape(ca))
         line += f"（{len(cluster)} 筆"
         if author_links:
             line += f" / {'、'.join(author_links)}"
