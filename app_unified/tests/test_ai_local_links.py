@@ -88,3 +88,22 @@ def test_format_cluster_multi_item_tail_has_per_author_links():
     assert "[小明](/n/20)" in line
     assert "[阿華](/n/30)" in line
     assert "（3 筆" in line
+
+
+def test_format_cluster_escapes_brackets_in_title_and_content():
+    """Title / content 含 [ ] \\ 必須 escape，否則 markdown parser 切錯
+    link 邊界 → 整條 bullet 變壞 link 或失去 link（prod 已踩到）。"""
+    cluster = [{
+        "note_id": 42,
+        "title": "客訴 [桌號 3]",
+        "content": "看到 \\n 反斜線",
+        "author": "婉婷",
+    }]
+    line = _format_cluster(cluster)
+    # 結構應該還是合法 markdown：開頭 [ ... ](/n/42)，內部 [ ] 都被 \\ 跳過
+    assert line.startswith("[")
+    assert "(/n/42)" in line
+    # 內部 [ 應該被 escape 成 \[
+    assert "\\[桌號 3\\]" in line
+    # 反斜線本身也被 escape 成 \\\\
+    assert "\\\\n" in line
