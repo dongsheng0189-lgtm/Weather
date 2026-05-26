@@ -239,6 +239,15 @@
       {% endfor %}
     </div>
     {% endif %}
+    {% if active_filter_count > 0 %}
+    <div style="margin-top:.65rem;display:flex;justify-content:flex-end;">
+      <a href="{{ url_for('notes.index', store=current_store) }}"
+         class="btn btn-secondary"
+         style="font-size:.82rem;padding:.35rem .8rem;display:inline-flex;align-items:center;gap:.3rem;background:#fff;border:1px solid #e74c3c;color:#e74c3c;">
+        ↺ 重設 filter
+      </a>
+    </div>
+    {% endif %}
   </div>
 </section>
 

@@ -80,7 +80,15 @@
 {% endblock %}
 {% block content %}
 <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
-  <a href="{{ url_for('notes.index', q=request.args.get('q')) }}" class="btn btn-secondary" id="btn-back">← 返回</a>
+  <a href="{{ url_for('notes.index',
+                       q=request.args.get('q'),
+                       tag=request.args.get('tag'),
+                       category=request.args.get('category'),
+                       shift=request.args.get('shift'),
+                       range=request.args.get('range'),
+                       status=request.args.get('status'),
+                       sort=request.args.get('sort'),
+                       store=request.args.get('store')) }}" class="btn btn-secondary" id="btn-back">← 返回</a>
   <span class="save-status" id="save-status"></span>
 </div>
 {# 關鍵字命中跳轉 widget (checklist only) — fixed position 右下角浮動、長駐畫面、
@@ -266,9 +274,18 @@ var CURRENT_SORT = (new URLSearchParams(window.location.search).get('sort')) || 
 // 從 URL 拿 q 參數（關鍵字搜尋上下文），存／刪／取消後 redirect 回 /notes/ 時帶回去，
 // 讓使用者按返回／按儲存後不會掉出搜尋結果頁
 var SEARCH_Q = new URLSearchParams(window.location.search).get('q') || '';
-var NOTES_INDEX_URL = SEARCH_Q
-  ? '/notes/?q=' + encodeURIComponent(SEARCH_Q)
-  : '/notes/';
+// 保留全部 filter context 進 index URL — 不只是 q
+var NOTES_INDEX_URL = (function() {
+  var qs = new URLSearchParams(window.location.search);
+  var keep = ['q', 'tag', 'category', 'shift', 'range', 'status', 'sort', 'store'];
+  var out = new URLSearchParams();
+  keep.forEach(function(k) {
+    var v = qs.get(k);
+    if (v) out.set(k, v);
+  });
+  var s = out.toString();
+  return s ? '/notes/?' + s : '/notes/';
+})();
 
 // ── 關鍵字命中跳轉 (2026-05-11) ─────────────────────────────────────────
 // regular note (textarea): hits = [{start, end}] offsets，setSelectionRange 顯示
