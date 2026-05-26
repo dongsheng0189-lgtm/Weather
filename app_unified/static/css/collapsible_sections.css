@@ -1,0 +1,85 @@
+/* ===== Collapsible sections (公告 + AI 摘要) ===== */
+
+.collapsible {
+  margin-bottom: 1rem;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  border: 1px solid #e0e0e0;
+}
+
+.collapsible-bar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .65rem .9rem;
+  cursor: pointer;
+  user-select: none;
+  background: #f8f9fa;
+  transition: background .15s ease;
+}
+.collapsible-bar:hover { background: #f0f2f5; }
+.collapsible-bar:active { background: #e8ebef; }
+
+.collapsible-bar .bar-title {
+  flex: 1;
+  font-size: .95rem;
+  font-weight: 600;
+  color: #333;
+}
+.collapsible-bar .bar-chevron {
+  font-size: .85rem;
+  color: #888;
+  transition: transform .2s ease;
+  display: inline-block;
+}
+.collapsible.is-expanded > .collapsible-bar .bar-chevron {
+  transform: rotate(90deg);
+}
+
+/* preview = bullet list、永遠出現在 collapsed 狀態 */
+.collapsible-preview {
+  padding: .4rem .9rem .65rem;
+  border-top: 1px dashed #e0e0e0;
+}
+.collapsible.is-expanded > .collapsible-preview {
+  display: none;
+}
+
+.collapsible-body {
+  display: none;
+  padding: .75rem .9rem;
+}
+.collapsible.is-expanded > .collapsible-body {
+  display: block;
+}
+
+/* 公告 bullet 列表 */
+.ann-bullet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ann-bullet {
+  display: block;
+  padding: .35rem .25rem;
+  cursor: pointer;
+  font-size: .88rem;
+  color: #555;
+  border-radius: 4px;
+  transition: background .12s ease;
+}
+.ann-bullet::before {
+  content: "• ";
+  color: #f39c12;
+  font-weight: bold;
+  margin-right: .3rem;
+}
+.ann-bullet:hover { background: #fff5e0; color: #333; }
+
+/* 個別公告 ─ ann-item 預設 collapsed (show bullet、hide card) */
+.ann-item > .ann-bullet { display: block; }
+.ann-item > .announcement-card { display: none; }
+.ann-item.is-expanded > .ann-bullet { display: none; }
+.ann-item.is-expanded > .announcement-card { display: block; }
