@@ -115,7 +115,7 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
   {# ═══ AI 摘要（僅會議） ═══ #}
   {% if note_type == 'meeting' %}
   <div class="ai-box">
-    <h4>🤖 AI 會議摘要</h4>
+    <h4>🤖 AI 聊聊摘要</h4>
     <p style="font-size:.82rem;color:#666;margin-bottom:.25rem;">產生後可下載截圖（PNG）分享給與會人</p>
     <div class="ai-actions">
       <button class="btn btn-primary" id="btn-ai" onclick="generateAISummary()">產生摘要</button>
@@ -670,7 +670,7 @@ function downloadSummaryPng() {
     useCORS: true,
     letterRendering: true,
   }).then(function(canvas){
-    var title = (document.getElementById('title-input').value.trim() || '會議摘要');
+    var title = (document.getElementById('title-input').value.trim() || '聊聊摘要');
     var dateStr = new Date().toISOString().slice(0,10);
     var link = document.createElement('a');
     link.download = title + '_' + dateStr + '.png';

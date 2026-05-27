@@ -563,16 +563,16 @@ def summarize_meeting(title: str, content: str) -> str:  # noqa: ARG001
     """
     text = (content or "").strip()
     if not text:
-        return "# 會議摘要\n\n（無內文）\n"
+        return "# 聊聊摘要\n\n（無內文）\n"
 
     sections = _split_sections(text)  # list[(name, body)] — ordered, allows duplicates
     if not sections:
         return (
-            "# 會議摘要\n\n"
+            "# 聊聊摘要\n\n"
             "⚠️ 未偵測到分類，請在會議紀錄加上『店務:』『人員:』標題\n"
         )
 
-    lines: list[str] = ["# 會議摘要", ""]
+    lines: list[str] = ["# 聊聊摘要", ""]
 
     # Merge across repeated section headers — user habit is to scatter
     # 店務 / 人員 / etc. through the note in multiple chunks. Parse each

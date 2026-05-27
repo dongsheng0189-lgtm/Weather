@@ -324,7 +324,7 @@ def test_summarize_meeting_e2e():
 4. 店長 5/12-14 請假
 """.strip()
 
-    expected = """# 會議摘要
+    expected = """# 聊聊摘要
 
 🏪 店務
 1. 外牆修補, 廠商報價 8 萬太貴, 先問其他家
