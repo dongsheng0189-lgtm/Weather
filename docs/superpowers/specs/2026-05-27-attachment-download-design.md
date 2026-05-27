@@ -169,9 +169,10 @@ async function downloadAttachment(attId, endpointPrefix) {
 | Attachment 類別 | 既有 view 權限 | Download 權限（一致） |
 |---|---|---|
 | `NoteAttachment` | 同 store user/admin、super_admin 跨店 | 同 |
-| `AnnouncementAttachment` | 同 store 登入 user | 同 |
+| `AnnouncementAttachment` | `_can_view()` (announcement_routes.py L42)：super_admin 跨店、其他人 `store == user.store` **OR** `store IS NULL`（全站公告） | 同 |
 
-不開新的權限級別 — 能看就能下載（current viewer 已等同下載）。
+不開新的權限級別 — 能看就能下載（current viewer 已等同下載）。super_admin 既然能跨店查看附件、就能跨店下載。
+Backend download endpoint 直接呼叫既有的 `_can_view(announcement)` / NoteAttachment 同店檢查 helper、複用同一條 auth path、不重寫權限邏輯。
 
 ## Filename handling
 
