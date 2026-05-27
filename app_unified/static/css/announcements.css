@@ -70,8 +70,8 @@
 
 /* ── Thumbnail download icon overlay ─────────────────────────────────────── */
 .att-thumb-wrap {
-  position: relative;
   display: inline-block;
+  text-align: right;
 }
 .att-thumb-wrap img,
 .att-thumb-wrap video {
@@ -79,40 +79,28 @@
   max-width: 100%;
 }
 .att-download-btn {
-  position: absolute;
-  bottom: 6px;
-  right: 6px;
-  background: rgba(0, 0, 0, 0.55);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+  background: #2c3e50;
   color: white;
   border: none;
   border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  font-size: 14px;
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 0;
-  z-index: 5;
   -webkit-tap-highlight-color: transparent;
 }
 .att-download-btn:hover, .att-download-btn:focus {
-  background: rgba(0, 0, 0, 0.75);
+  background: #1a2530;
 }
 .att-download-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.95);
 }
 .att-download-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: wait;
-}
-@media (hover: hover) {
-  .att-download-btn {
-    opacity: 0.55;
-  }
-  .att-thumb-wrap:hover .att-download-btn {
-    opacity: 1;
-  }
 }
