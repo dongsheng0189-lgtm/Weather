@@ -1848,11 +1848,11 @@ def download_attachment_api(attachment_id):
 
     attachment = NoteAttachment.query.get(attachment_id)
     if not attachment:
-        return jsonify({"error": "not_found"}), 404
+        return jsonify({"status": "error", "message": "附件不存在"}), 404
 
     note = Note.active().filter_by(id=attachment.note_id).first()
     if not note:
-        return jsonify({"error": "not_found"}), 404
+        return jsonify({"status": "error", "message": "筆記不存在"}), 404
 
     can_view = False
     if current_user.is_super_admin():
@@ -1861,7 +1861,7 @@ def download_attachment_api(attachment_id):
         can_view = True
 
     if not can_view:
-        return jsonify({"error": "forbidden"}), 403
+        return jsonify({"status": "error", "message": "無權限下載"}), 403
 
     url = get_download_url(
         object_key=attachment.object_key,
@@ -1869,7 +1869,7 @@ def download_attachment_api(attachment_id):
         content_type=attachment.content_type,
     )
     if not url:
-        return jsonify({"error": "storage_unavailable"}), 503
+        return jsonify({"status": "error", "message": "儲存服務暫時無法使用"}), 503
 
     return jsonify({"url": url, "expires_in": 300})
 

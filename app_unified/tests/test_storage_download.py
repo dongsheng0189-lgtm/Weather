@@ -1,45 +1,19 @@
 """Tests for storage.get_download_url — presigned URL with attachment disposition."""
 import urllib.parse
-from unittest.mock import MagicMock
 
 import pytest
 
-
-def _make_presigned_url(params, expires_in):
-    """Build a realistic-looking presigned URL from generate_presigned_url Params."""
-    bucket = params["Bucket"]
-    key = params["Key"]
-    # safe="%" preserves existing percent-encoded sequences (e.g. %E7%8F%BE)
-    # so the Chinese filename is encoded once, not double-encoded.
-    disposition = urllib.parse.quote(params.get("ResponseContentDisposition", ""), safe="%")
-    content_type = urllib.parse.quote(params.get("ResponseContentType", ""), safe="%")
-    return (
-        f"https://fake-r2.example.com/{bucket}/{key}"
-        f"?X-Amz-Algorithm=AWS4-HMAC-SHA256"
-        f"&X-Amz-Expires={expires_in}"
-        f"&response-content-disposition={disposition}"
-        f"&response-content-type={content_type}"
-        f"&X-Amz-Signature=fakesig"
-    )
+from tests._r2_fixture import install_r2_mock
 
 
 @pytest.fixture(autouse=True)
 def r2_configured(app, monkeypatch):
-    """Ensure app.config has R2 settings and _get_client returns a realistic mock."""
-    import storage as storage_mod
+    """Ensure app.config has R2 settings and _get_client returns a realistic mock.
 
-    monkeypatch.setitem(app.config, "R2_ENDPOINT_URL", "https://fake-r2.example.com")
-    monkeypatch.setitem(app.config, "R2_ACCESS_KEY_ID", "fake-key-id")
-    monkeypatch.setitem(app.config, "R2_SECRET_ACCESS_KEY", "fake-secret")
-    monkeypatch.setitem(app.config, "R2_BUCKET_NAME", "test-bucket")
-
-    mock_client = MagicMock()
-
-    def fake_generate_presigned_url(op, Params, ExpiresIn):
-        return _make_presigned_url(Params, ExpiresIn)
-
-    mock_client.generate_presigned_url.side_effect = fake_generate_presigned_url
-    monkeypatch.setattr(storage_mod, "_get_client", lambda: mock_client)
+    Yields the mock_client so individual tests can override side_effect (e.g.
+    for ClientError simulation).
+    """
+    yield install_r2_mock(monkeypatch, app)
 
 
 def test_get_download_url_returns_presigned_with_attachment_disposition(app):
@@ -110,7 +84,7 @@ def test_get_download_url_returns_none_for_empty_object_key(app):
         ) is None
 
 
-def test_get_download_url_returns_none_on_client_error(monkeypatch, app):
+def test_get_download_url_returns_none_on_client_error(monkeypatch, app, r2_configured):
     """If boto3 raises ClientError (e.g. R2 outage / bad creds), helper
     must swallow and return None — caller will surface storage_unavailable
     to the user."""
@@ -126,9 +100,7 @@ def test_get_download_url_returns_none_on_client_error(monkeypatch, app):
     monkeypatch.setattr(storage, "ClientError", FakeClientError)
 
     with app.app_context():
-        mock_client = MagicMock()
-        mock_client.generate_presigned_url.side_effect = FakeClientError
-        monkeypatch.setattr(storage, "_get_client", lambda: mock_client)
+        r2_configured.generate_presigned_url.side_effect = FakeClientError
         result = storage.get_download_url(
             object_key="attachments/1/abc.jpg",
             filename="x.jpg",

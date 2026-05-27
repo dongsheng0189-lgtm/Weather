@@ -1,29 +1,13 @@
 """Integration tests for GET /notes/api/attachments/<id>/download endpoint."""
 import time
 import uuid
-import urllib.parse
-from unittest.mock import MagicMock
 
 import pytest
 
+from tests._r2_fixture import install_r2_mock
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
-
-def _make_presigned_url(params, expires_in):
-    """Build a realistic-looking presigned URL from generate_presigned_url Params."""
-    bucket = params["Bucket"]
-    key = params["Key"]
-    disposition = urllib.parse.quote(params.get("ResponseContentDisposition", ""), safe="%")
-    content_type = urllib.parse.quote(params.get("ResponseContentType", ""), safe="%")
-    return (
-        f"https://fake-r2.example.com/{bucket}/{key}"
-        f"?X-Amz-Algorithm=AWS4-HMAC-SHA256"
-        f"&X-Amz-Expires={expires_in}"
-        f"&response-content-disposition={disposition}"
-        f"&response-content-type={content_type}"
-        f"&X-Amz-Signature=fakesig"
-    )
-
 
 def _login(client, user):
     """Bypass Flask-Login auth routes and set session directly."""
@@ -70,21 +54,12 @@ def _create_store_user_note_attachment(db_session, store_name, role="user"):
 
 @pytest.fixture(autouse=True)
 def r2_configured(app, monkeypatch):
-    """Ensure app.config has R2 settings and _get_client returns a realistic mock."""
-    import storage as storage_mod
+    """Ensure app.config has R2 settings and _get_client returns a realistic mock.
 
-    monkeypatch.setitem(app.config, "R2_ENDPOINT_URL", "https://fake-r2.example.com")
-    monkeypatch.setitem(app.config, "R2_ACCESS_KEY_ID", "fake-key-id")
-    monkeypatch.setitem(app.config, "R2_SECRET_ACCESS_KEY", "fake-secret")
-    monkeypatch.setitem(app.config, "R2_BUCKET_NAME", "test-bucket")
-
-    mock_client = MagicMock()
-
-    def fake_generate_presigned_url(op, Params, ExpiresIn):
-        return _make_presigned_url(Params, ExpiresIn)
-
-    mock_client.generate_presigned_url.side_effect = fake_generate_presigned_url
-    monkeypatch.setattr(storage_mod, "_get_client", lambda: mock_client)
+    Yields the mock_client so individual tests can override side_effect when
+    needed (e.g. to simulate R2 outage for the 503 test).
+    """
+    yield install_r2_mock(monkeypatch, app)
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
@@ -126,7 +101,7 @@ def test_note_attachment_download_super_admin_cross_store_returns_url(app, clien
 
 
 def test_note_attachment_download_cross_store_user_returns_403(app, client, db_session):
-    """User from a different store gets 403."""
+    """User from a different store gets 403 with project-standard error shape."""
     from models import User
     store_a = f"A-{uuid.uuid4().hex[:6]}"
     store_b = f"B-{uuid.uuid4().hex[:6]}"
@@ -143,7 +118,9 @@ def test_note_attachment_download_cross_store_user_returns_403(app, client, db_s
     _login(client, other_user)
     resp = client.get(f"/notes/api/attachments/{attachment.id}/download")
     assert resp.status_code == 403
-    assert resp.get_json()["error"] == "forbidden"
+    body = resp.get_json()
+    assert body.get("status") == "error"
+    assert "權限" in body.get("message", "")
 
 
 def test_note_attachment_download_unauthenticated_returns_401(app, client, db_session):
@@ -158,7 +135,7 @@ def test_note_attachment_download_unauthenticated_returns_401(app, client, db_se
 
 
 def test_note_attachment_download_nonexistent_id_returns_404(app, client, db_session):
-    """Non-existent attachment ID returns 404."""
+    """Non-existent attachment ID returns 404 with project-standard error shape."""
     from models import User
     user = User(username=f"u404-{uuid.uuid4().hex[:6]}", role="super_admin")
     user.set_password("pw")
@@ -168,3 +145,24 @@ def test_note_attachment_download_nonexistent_id_returns_404(app, client, db_ses
     _login(client, user)
     resp = client.get("/notes/api/attachments/99999999/download")
     assert resp.status_code == 404
+    body = resp.get_json()
+    assert body.get("status") == "error"
+    assert body.get("message") == "附件不存在"
+
+
+def test_note_attachment_download_storage_unavailable_returns_503(
+    monkeypatch, app, client, db_session, r2_configured
+):
+    """get_download_url returning None (R2 misconfigured / outage) → 503."""
+    store_name = f"503-{uuid.uuid4().hex[:6]}"
+    user, attachment = _create_store_user_note_attachment(db_session, store_name)
+    _login(client, user)
+
+    # Blank out R2 endpoint to force get_download_url → None
+    monkeypatch.setitem(app.config, "R2_ENDPOINT_URL", "")
+
+    resp = client.get(f"/notes/api/attachments/{attachment.id}/download")
+    assert resp.status_code == 503
+    body = resp.get_json()
+    assert body.get("status") == "error"
+    assert "儲存" in body.get("message", "") or "服務" in body.get("message", "")

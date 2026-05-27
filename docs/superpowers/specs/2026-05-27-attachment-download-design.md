@@ -185,9 +185,10 @@ Backend download endpoint 直接呼叫既有的 `_can_view(announcement)` / Note
 
 | Error | 行為 |
 |---|---|
-| Attachment id 不存在 | 404 + JSON `{"error": "not_found"}` |
-| 權限不足（跨 store user） | 403 + JSON `{"error": "forbidden"}` |
-| R2 unavailable / boto3 timeout | 503 + JSON `{"error": "storage_unavailable"}`、前端 showToast |
+| Attachment id 不存在 | 404 + JSON `{"status": "error", "message": "附件不存在"}` |
+| Note 不存在（soft-deleted） | 404 + JSON `{"status": "error", "message": "筆記不存在"}` |
+| 權限不足（跨 store user） | 403 + JSON `{"status": "error", "message": "無權限下載"}` |
+| R2 unavailable / boto3 timeout | 503 + JSON `{"status": "error", "message": "儲存服務暫時無法使用"}`、前端 showToast |
 | 未登入 | 401（既有 `@login_required` 行為） |
 
 Frontend 任何 non-2xx → `showToast('下載失敗')` + 不觸發 navigation。
