@@ -60,6 +60,8 @@ def test_get_download_url_returns_presigned_with_attachment_disposition(app):
         # Chinese filename percent-encoded
         encoded_filename = urllib.parse.quote("現場照片.jpg", safe="")
         assert encoded_filename in url
+        # ResponseContentType is forwarded correctly
+        assert "response-content-type=image%2fjpeg" in url.lower()
 
 
 def test_get_download_url_default_expires_in_300(app):
@@ -106,3 +108,30 @@ def test_get_download_url_returns_none_for_empty_object_key(app):
             filename="x.jpg",
             content_type="image/jpeg",
         ) is None
+
+
+def test_get_download_url_returns_none_on_client_error(monkeypatch, app):
+    """If boto3 raises ClientError (e.g. R2 outage / bad creds), helper
+    must swallow and return None — caller will surface storage_unavailable
+    to the user."""
+    import storage
+
+    # conftest mocks botocore.exceptions as a plain MagicMock, so
+    # storage.ClientError is a MagicMock instance rather than a real exception
+    # class.  Replace it with a real exception subclass for the duration of
+    # this test so the except-branch in get_download_url is actually reachable.
+    class FakeClientError(Exception):
+        pass
+
+    monkeypatch.setattr(storage, "ClientError", FakeClientError)
+
+    with app.app_context():
+        mock_client = MagicMock()
+        mock_client.generate_presigned_url.side_effect = FakeClientError
+        monkeypatch.setattr(storage, "_get_client", lambda: mock_client)
+        result = storage.get_download_url(
+            object_key="attachments/1/abc.jpg",
+            filename="x.jpg",
+            content_type="image/jpeg",
+        )
+        assert result is None

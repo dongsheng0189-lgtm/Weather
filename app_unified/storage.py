@@ -2,6 +2,7 @@
 import os
 import io
 import uuid
+import urllib.parse
 from flask import current_app
 
 try:
@@ -127,7 +128,8 @@ def get_download_url(object_key: str, filename: str, content_type: str,
     Content-Disposition: attachment + the user-supplied filename (RFC 5987
     UTF-8 encoded). Used by the new attachment download endpoints.
 
-    Returns None when R2 is not configured or object_key is empty.
+    Returns None when R2 is not configured, boto3 is unavailable, or
+    object_key is empty.
     """
     if not BOTO3_AVAILABLE or not object_key:
         return None
@@ -136,7 +138,6 @@ def get_download_url(object_key: str, filename: str, content_type: str,
     if not cfg.get("R2_ENDPOINT_URL"):
         return None
 
-    import urllib.parse
     safe_filename = filename or f"attachment_{uuid.uuid4().hex}"
     encoded = urllib.parse.quote(safe_filename, safe="")
     disposition = f"attachment; filename*=UTF-8''{encoded}"
