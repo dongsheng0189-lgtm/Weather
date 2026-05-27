@@ -1,8 +1,10 @@
 /* Shared fullscreen viewer — F6 spec: docs/superpowers/specs/2026-05-25-announcement-media-viewer.md
  *
  * Public API:
- *   window.openFullscreen(url)  — 顯示 image fullscreen + ✕ + pinch zoom + dblclick + drag
- *   window.closeFullscreen()    — 關閉
+ *   window.openFullscreen(url, opts)  — 顯示 image fullscreen + ✕ + pinch zoom + dblclick + drag
+ *                                       opts.downloadHref: optional endpoint URL for ⬇️ button
+ *   window.closeFullscreen()          — 關閉
+ *   window.downloadAttachment(endpointUrl) — 下載附件（fetch presigned URL → hidden <a> click）
  *
  * 第一次 openFullscreen 自動 dynamic inject overlay markup 到 document.body (idempotent)。
  * 抽自 notes/editor.html line 914-1067、原本 inline 在 editor template + 用 inline HTML overlay。
@@ -132,9 +134,15 @@
     overlay.innerHTML =
       '<div class="fs-stage" id="fs-stage"><img id="fullscreen-img" src=""></div>' +
       '<button type="button" class="fs-close" aria-label="關閉">✕</button>' +
+      '<button type="button" class="fs-download" id="fs-download" aria-label="下載原檔" style="display:none;">⬇️</button>' +
       '<div class="fs-hint">雙指縮放 · 雙擊放大 · 拖曳移動</div>';
     document.body.appendChild(overlay);
     overlay.querySelector('.fs-close').addEventListener('click', closeFullscreen);
+    overlay.querySelector('.fs-download').addEventListener('click', function(e) {
+      e.stopPropagation();
+      var href = this.dataset.href;
+      if (href) downloadAttachment(href);
+    });
   }
 
   function _fsInit() {
@@ -159,11 +167,22 @@
     });
   }
 
-  function openFullscreen(url) {
+  function openFullscreen(url, opts) {
+    opts = opts || {};
     _fsInit();
     _fsReset();
     document.getElementById('fullscreen-img').src = url;
     document.getElementById('fullscreen-overlay').classList.add('open');
+    var dlBtn = document.getElementById('fs-download');
+    if (dlBtn) {
+      if (opts.downloadHref) {
+        dlBtn.style.display = '';
+        dlBtn.dataset.href = opts.downloadHref;
+      } else {
+        dlBtn.style.display = 'none';
+        dlBtn.dataset.href = '';
+      }
+    }
   }
 
   function closeFullscreen() {
@@ -175,6 +194,37 @@
     _fsReset();
   }
 
+  function downloadAttachment(endpointUrl) {
+    fetch(endpointUrl, { credentials: 'same-origin' })
+      .then(function(res) {
+        if (!res.ok) {
+          return res.json().then(function(j) {
+            throw new Error(j.message ? j.message : 'HTTP ' + res.status);
+          }, function() {
+            throw new Error('HTTP ' + res.status);
+          });
+        }
+        return res.json();
+      })
+      .then(function(j) {
+        var a = document.createElement('a');
+        a.href = j.url;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      })
+      .catch(function(err) {
+        var msg = err && err.message ? err.message : String(err);
+        if (typeof window.showToast === 'function') {
+          window.showToast('下載失敗：' + msg);
+        } else {
+          alert('下載失敗：' + msg);
+        }
+      });
+  }
+
   window.openFullscreen = openFullscreen;
   window.closeFullscreen = closeFullscreen;
+  window.downloadAttachment = downloadAttachment;
 })();
