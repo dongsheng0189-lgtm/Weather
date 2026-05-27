@@ -157,7 +157,13 @@ def _categorize_checklists(notes, since, until):
                 else:
                     target = "hist"
 
-            who = (item.checked_by_name if is_checked else "") or "?"
+            # Checked → 誰勾的 (ground truth)；unchecked → parent note 作者
+            # (ChecklistItem 沒 created_by 欄位、unchecked 沒 checker；以前 fallback "?"
+            # 導致 ❌未完成 / 📜歷史未完成 段每條 bullet 都「【?】」。)
+            if is_checked:
+                who = item.checked_by_name or "?"
+            else:
+                who = n.author_name or (n.author.username if n.author else "?")
             buckets[cat][target].append({
                 "note_id": n.id,
                 "item_id": item.id,

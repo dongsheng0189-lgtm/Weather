@@ -94,6 +94,54 @@ def test_format_cluster_multi_item_tail_has_per_author_links():
     assert line.count("婉婷") == 1
 
 
+def test_categorize_checklists_unchecked_uses_parent_note_author():
+    """Unchecked item 沒人勾過、checked_by_name 是空 — 拿 parent note 的作者填、
+    不應該全部 fallback 成 '?'（prod 5/26 摘要每條 bullet 都「【?】」的根因）。"""
+    item = SimpleNamespace(
+        id=99, text="檢查冰箱", is_checked=False, checked_at=None,
+        updated_at=datetime(2026, 5, 26, 12, 0, 0), checked_by_name=None,
+    )
+    n = _make_note(id=42, title="日檢清單", note_type="checklist",
+                   category="machine", author_name="婉婷")
+    n.checklist_items = [item]
+
+    buckets = _categorize_checklists([n], since=None, until=None)
+    items = buckets["machine"]["undone"]
+    assert items[0]["author"] == "婉婷"
+
+
+def test_categorize_checklists_checked_keeps_checker_name():
+    """Checked item 仍用 checked_by_name (誰勾的是 ground truth)、不被 parent note 覆蓋。"""
+    item = SimpleNamespace(
+        id=99, text="檢查冰箱", is_checked=True,
+        checked_at=datetime(2026, 5, 26, 12, 0, 0),
+        updated_at=datetime(2026, 5, 26, 12, 0, 0), checked_by_name="小明",
+    )
+    n = _make_note(id=42, title="日檢清單", note_type="checklist",
+                   category="machine", author_name="婉婷")
+    n.checklist_items = [item]
+
+    buckets = _categorize_checklists([n], since=None, until=None)
+    items = buckets["machine"]["done"]
+    assert items[0]["author"] == "小明"
+
+
+def test_categorize_checklists_unchecked_fallback_to_author_username():
+    """Parent note 沒 author_name snapshot、但有 author relationship — 拿 username。"""
+    item = SimpleNamespace(
+        id=99, text="檢查冰箱", is_checked=False, checked_at=None,
+        updated_at=datetime(2026, 5, 26, 12, 0, 0), checked_by_name=None,
+    )
+    n = _make_note(id=42, title="日檢清單", note_type="checklist",
+                   category="machine", author_name=None)
+    n.author = SimpleNamespace(username="阿華")
+    n.checklist_items = [item]
+
+    buckets = _categorize_checklists([n], since=None, until=None)
+    items = buckets["machine"]["undone"]
+    assert items[0]["author"] == "阿華"
+
+
 def test_format_cluster_escapes_brackets_in_title_and_content():
     """Title / content 含 [ ] \\ 必須 escape，否則 marked 解析摘要時可能誤判
     `[abc](xyz)` 形式的內文當成另一個 link、跑出非預期 URL。"""
