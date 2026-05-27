@@ -100,27 +100,30 @@ body.review-mode #review-back-widget { display: inline-flex; }
 .att-item video { display: block; max-width: 280px; max-height: 200px; border-radius: 8px; }
 .att-item .att-info { padding: .3rem .5rem; font-size: .75rem; color: #888; }
 .att-item .att-delete { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; font-size: 0.875rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.att-thumb-wrap { display: inline-block; text-align: right; }
+.att-thumb-wrap { position: relative; display: inline-block; }
 .att-thumb-wrap img,
 .att-thumb-wrap video { display: block; max-width: 100%; }
 .att-download-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 6px;
-  background: #2c3e50;
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.65);
   color: white;
   border: none;
   border-radius: 50%;
-  width: 36px;
-  height: 36px;
-  font-size: 16px;
+  width: 32px;
+  height: 32px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
+  z-index: 5;
   -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(2px);
 }
-.att-download-btn:hover, .att-download-btn:focus { background: #1a2530; }
-.att-download-btn:active { transform: scale(0.95); }
+.att-download-btn:hover, .att-download-btn:focus { background: rgba(0, 0, 0, 0.85); }
+.att-download-btn:active { transform: scale(0.92); }
 .att-download-btn:disabled { opacity: 0.5; cursor: wait; }
 
 /* F2 item-level lock 視覺 */
@@ -1042,7 +1045,7 @@ function createAttItem(att) {
     dlBtn1.className = 'att-download-btn';
     dlBtn1.setAttribute('aria-label', '\u4e0b\u8f09\u539f\u6a94');
     dlBtn1.title = '\u4e0b\u8f09\u539f\u6a94';
-    dlBtn1.textContent = '\u2b07\ufe0f';
+    dlBtn1.innerHTML = window.DOWNLOAD_ICON_SVG(20);
     dlBtn1.onclick = function(e) {
       e.stopPropagation();
       if (dlBtn1.disabled) return;
@@ -1066,7 +1069,7 @@ function createAttItem(att) {
     dlBtnV.className = 'att-download-btn';
     dlBtnV.setAttribute('aria-label', '\u4e0b\u8f09\u539f\u6a94');
     dlBtnV.title = '\u4e0b\u8f09\u539f\u6a94';
-    dlBtnV.textContent = '\u2b07\ufe0f';
+    dlBtnV.innerHTML = window.DOWNLOAD_ICON_SVG(20);
     dlBtnV.onclick = function(e) {
       e.stopPropagation();
       if (dlBtnV.disabled) return;
@@ -1486,7 +1489,7 @@ function createItemAttThumb(a) {
       dlBtnA.className = 'att-download-btn';
       dlBtnA.setAttribute('aria-label', '下載原檔');
       dlBtnA.title = '下載原檔';
-      dlBtnA.textContent = '⬇️';
+      dlBtnA.innerHTML = window.DOWNLOAD_ICON_SVG(20);
       dlBtnA.onclick = function(e) {
         e.stopPropagation();
         if (dlBtnA.disabled) return;
@@ -1508,7 +1511,7 @@ function createItemAttThumb(a) {
       dlBtnAV.className = 'att-download-btn';
       dlBtnAV.setAttribute('aria-label', '下載原檔');
       dlBtnAV.title = '下載原檔';
-      dlBtnAV.textContent = '⬇️';
+      dlBtnAV.innerHTML = window.DOWNLOAD_ICON_SVG(20);
       dlBtnAV.onclick = function(e) {
         e.stopPropagation();
         if (dlBtnAV.disabled) return;

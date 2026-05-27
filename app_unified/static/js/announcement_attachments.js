@@ -53,7 +53,7 @@ function _renderMedia(att) {
     dlBtn.className = 'att-download-btn';
     dlBtn.setAttribute('aria-label', '下載原檔');
     dlBtn.title = '下載原檔';
-    dlBtn.textContent = '⬇️';
+    dlBtn.innerHTML = window.DOWNLOAD_ICON_SVG(20);
     dlBtn.onclick = function(e) {
       e.stopPropagation();
       if (dlBtn.disabled) return;

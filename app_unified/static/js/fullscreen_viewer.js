@@ -5,11 +5,25 @@
  *                                       opts.downloadHref: optional endpoint URL for ⬇️ button
  *   window.closeFullscreen()          — 關閉
  *   window.downloadAttachment(endpointUrl) — 下載附件（fetch presigned URL → hidden <a> click）
+ *   window.DOWNLOAD_ICON_SVG(size)    — 共用 download SVG icon、size 預設 20、viewer 用 32
  *
  * 第一次 openFullscreen 自動 dynamic inject overlay markup 到 document.body (idempotent)。
  * 抽自 notes/editor.html line 914-1067、原本 inline 在 editor template + 用 inline HTML overlay。
  */
 (function() {
+  // Feather Icons "download" — 線條清楚、跟 webapp 視覺風格一致
+  function DOWNLOAD_ICON_SVG(size) {
+    var s = size || 20;
+    return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" ' +
+      'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+      'aria-hidden="true">' +
+      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>' +
+      '<polyline points="7 10 12 15 17 10"/>' +
+      '<line x1="12" y1="15" x2="12" y2="3"/>' +
+      '</svg>';
+  }
+  window.DOWNLOAD_ICON_SVG = DOWNLOAD_ICON_SVG;
+
   var _fsState = { scale: 1, tx: 0, ty: 0, minScale: 1, maxScale: 6 };
   var _fsPointers = {};
   var _fsLastDist = 0;
@@ -134,7 +148,7 @@
     overlay.innerHTML =
       '<div class="fs-stage" id="fs-stage"><img id="fullscreen-img" src=""></div>' +
       '<button type="button" class="fs-close" aria-label="關閉">✕</button>' +
-      '<button type="button" class="fs-download" id="fs-download" aria-label="下載原檔" style="display:none;">⬇️</button>' +
+      '<button type="button" class="fs-download" id="fs-download" aria-label="下載原檔" style="display:none;">' + DOWNLOAD_ICON_SVG(32) + '</button>' +
       '<div class="fs-hint">雙指縮放 · 雙擊放大 · 拖曳移動</div>';
     document.body.appendChild(overlay);
     overlay.querySelector('.fs-close').addEventListener('click', closeFullscreen);
