@@ -166,3 +166,155 @@ def test_note_attachment_download_storage_unavailable_returns_503(
     body = resp.get_json()
     assert body.get("status") == "error"
     assert "儲存" in body.get("message", "") or "服務" in body.get("message", "")
+
+
+# ── AnnouncementAttachment download endpoint ───────────────────────────────────
+
+def _create_announcement_attachment(db_session, store=None):
+    """Create User + Announcement + AnnouncementAttachment.
+
+    store=None → global announcement (visible to all logged-in users).
+    store=<str> → store-scoped announcement.
+
+    Returns (user, attachment) where user belongs to the same store
+    (or a fresh store when store=None so the caller can log in as them).
+    """
+    from models import User, Announcement, AnnouncementAttachment
+    suffix = uuid.uuid4().hex[:8]
+
+    # If store is None (global), put the "owner" user in some arbitrary store
+    user_store = store if store is not None else f"OWNER-{suffix}"
+    user = User(username=f"ann-u-{suffix}", store=user_store, role="admin")
+    user.set_password("pw")
+    db_session.add(user)
+    db_session.flush()
+
+    announcement = Announcement(
+        user_id=user.id,
+        author_name=user.username,
+        title=f"Test announcement {suffix}",
+        content="content",
+        store=store,
+    )
+    db_session.add(announcement)
+    db_session.flush()
+
+    attachment = AnnouncementAttachment(
+        announcement_id=announcement.id,
+        user_id=user.id,
+        object_key=f"announcements/{announcement.id}/doc.pdf",
+        filename="doc.pdf",
+        content_type="application/pdf",
+        file_size=2048,
+    )
+    db_session.add(attachment)
+    db_session.commit()
+    return user, attachment
+
+
+def test_ann_attachment_download_same_store_user_returns_url(app, client, db_session):
+    """Same-store user gets 200 with presigned URL + Content-Disposition + expires_in=300."""
+    store_name = f"ANN-ST-{uuid.uuid4().hex[:6]}"
+    from models import User
+    suffix = uuid.uuid4().hex[:8]
+    # Create a regular same-store user (not admin) to download
+    owner, attachment = _create_announcement_attachment(db_session, store=store_name)
+    viewer = User(username=f"viewer-{suffix}", store=store_name, role="user")
+    viewer.set_password("pw")
+    db_session.add(viewer)
+    db_session.commit()
+
+    _login(client, viewer)
+    resp = client.get(f"/notes/announcement/api/attachments/{attachment.id}/download")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "url" in data
+    assert data["url"].startswith("http")
+    assert "response-content-disposition=" in data["url"].lower()
+    assert data["expires_in"] == 300
+
+
+def test_ann_attachment_download_global_store_visible_to_all(app, client, db_session):
+    """Announcement with store=NULL is visible to any logged-in user."""
+    from models import User
+    suffix = uuid.uuid4().hex[:8]
+    _owner, attachment = _create_announcement_attachment(db_session, store=None)
+
+    # A user from some completely unrelated store
+    other_user = User(username=f"other-{suffix}", store=f"OTHER-{suffix}", role="user")
+    other_user.set_password("pw")
+    db_session.add(other_user)
+    db_session.commit()
+
+    _login(client, other_user)
+    resp = client.get(f"/notes/announcement/api/attachments/{attachment.id}/download")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "url" in data
+    assert data["url"].startswith("http")
+
+
+def test_ann_attachment_download_super_admin_cross_store_returns_url(app, client, db_session):
+    """super_admin can download attachments from a different store."""
+    from models import User
+    store_name = f"ANN-SA-{uuid.uuid4().hex[:6]}"
+    _owner, attachment = _create_announcement_attachment(db_session, store=store_name)
+
+    sa = User(username=f"sa-ann-{uuid.uuid4().hex[:6]}", role="super_admin", store=None)
+    sa.set_password("pw")
+    db_session.add(sa)
+    db_session.commit()
+
+    _login(client, sa)
+    resp = client.get(f"/notes/announcement/api/attachments/{attachment.id}/download")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "url" in data
+    assert data["url"].startswith("http")
+
+
+def test_ann_attachment_download_cross_store_non_admin_returns_403(app, client, db_session):
+    """Non-super_admin user from a different store gets 403."""
+    from models import User
+    store_x = f"X-{uuid.uuid4().hex[:6]}"
+    store_y = f"Y-{uuid.uuid4().hex[:6]}"
+
+    _owner, attachment = _create_announcement_attachment(db_session, store=store_x)
+
+    other_user = User(username=f"cross-{uuid.uuid4().hex[:6]}", store=store_y, role="user")
+    other_user.set_password("pw")
+    db_session.add(other_user)
+    db_session.commit()
+
+    _login(client, other_user)
+    resp = client.get(f"/notes/announcement/api/attachments/{attachment.id}/download")
+    assert resp.status_code == 403
+    body = resp.get_json()
+    assert body.get("status") == "error"
+    assert "權限" in body.get("message", "")
+
+
+def test_ann_attachment_download_unauthenticated_returns_401(app, client, db_session):
+    """Unauthenticated request gets 401 or 302 (redirect to login)."""
+    store_name = f"ANN-UN-{uuid.uuid4().hex[:6]}"
+    _owner, attachment = _create_announcement_attachment(db_session, store=store_name)
+
+    fresh_client = app.test_client()
+    resp = fresh_client.get(f"/notes/announcement/api/attachments/{attachment.id}/download")
+    assert resp.status_code in (401, 302)
+
+
+def test_ann_attachment_download_nonexistent_id_returns_404(app, client, db_session):
+    """Non-existent attachment ID returns 404 with project-standard error shape."""
+    from models import User
+    user = User(username=f"ann-u404-{uuid.uuid4().hex[:6]}", role="super_admin")
+    user.set_password("pw")
+    db_session.add(user)
+    db_session.commit()
+
+    _login(client, user)
+    resp = client.get("/notes/announcement/api/attachments/99999999/download")
+    assert resp.status_code == 404
+    body = resp.get_json()
+    assert body.get("status") == "error"
+    assert body.get("message") == "附件不存在"

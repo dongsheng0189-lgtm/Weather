@@ -360,6 +360,37 @@ def announcement_attachment_delete(attachment_id):
     return jsonify({"status": "ok"})
 
 
+@notes_bp.route("/announcement/api/attachments/<int:attachment_id>/download",
+                methods=["GET"])
+@login_required
+def announcement_attachment_download(attachment_id):
+    """Return a 5-minute presigned R2 URL with Content-Disposition: attachment
+    so browser downloads the original file. Auth = `_can_view()` on the parent
+    announcement (super_admin cross-store / same-store / store=NULL global)."""
+    from storage import get_download_url
+
+    attachment = AnnouncementAttachment.query.get(attachment_id)
+    if not attachment:
+        return jsonify({"status": "error", "message": "附件不存在"}), 404
+
+    announcement = attachment.announcement
+    if not announcement:
+        return jsonify({"status": "error", "message": "公告不存在"}), 404
+
+    if not _can_view(announcement):
+        return jsonify({"status": "error", "message": "無權限下載"}), 403
+
+    url = get_download_url(
+        object_key=attachment.object_key,
+        filename=attachment.filename,
+        content_type=attachment.content_type,
+    )
+    if not url:
+        return jsonify({"status": "error", "message": "儲存服務暫時無法使用"}), 503
+
+    return jsonify({"url": url, "expires_in": 300})
+
+
 # ── HTML pages ───────────────────────────────────────────────
 
 @notes_bp.route("/announcement/new", methods=["GET"])
