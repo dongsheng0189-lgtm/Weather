@@ -1837,6 +1837,43 @@ def delete_attachment_api(attachment_id):
     return jsonify({"status": "ok"})
 
 
+@notes_bp.route("/api/attachments/<int:attachment_id>/download", methods=["GET"])
+@login_required
+def download_attachment_api(attachment_id):
+    """Return a 5-minute presigned R2 URL with Content-Disposition: attachment
+    so browser downloads the original file. Auth = existing view permission
+    (same store / super_admin)."""
+    from models import NoteAttachment
+    from storage import get_download_url
+
+    attachment = NoteAttachment.query.get(attachment_id)
+    if not attachment:
+        return jsonify({"error": "not_found"}), 404
+
+    note = Note.active().filter_by(id=attachment.note_id).first()
+    if not note:
+        return jsonify({"error": "not_found"}), 404
+
+    can_view = False
+    if current_user.is_super_admin():
+        can_view = True
+    elif note.store == current_user.store:
+        can_view = True
+
+    if not can_view:
+        return jsonify({"error": "forbidden"}), 403
+
+    url = get_download_url(
+        object_key=attachment.object_key,
+        filename=attachment.filename,
+        content_type=attachment.content_type,
+    )
+    if not url:
+        return jsonify({"error": "storage_unavailable"}), 503
+
+    return jsonify({"url": url, "expires_in": 300})
+
+
 @notes_bp.route("/<int:note_id>")
 @login_required
 def edit_note(note_id):
