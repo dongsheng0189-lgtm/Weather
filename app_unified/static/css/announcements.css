@@ -67,3 +67,52 @@
 }
 .upload-status { margin-top: .5rem; font-size: .8rem; color: #888; }
 .form-actions { margin-top: 1.5rem; display: flex; gap: .5rem; }
+
+/* ── Thumbnail download icon overlay ─────────────────────────────────────── */
+.att-thumb-wrap {
+  position: relative;
+  display: inline-block;
+}
+.att-thumb-wrap img,
+.att-thumb-wrap video {
+  display: block;
+  max-width: 100%;
+}
+.att-download-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 5;
+  -webkit-tap-highlight-color: transparent;
+}
+.att-download-btn:hover, .att-download-btn:focus {
+  background: rgba(0, 0, 0, 0.75);
+}
+.att-download-btn:active {
+  transform: scale(0.92);
+}
+.att-download-btn:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}
+@media (hover: hover) {
+  .att-download-btn {
+    opacity: 0.55;
+  }
+  .att-thumb-wrap:hover .att-download-btn {
+    opacity: 1;
+  }
+}

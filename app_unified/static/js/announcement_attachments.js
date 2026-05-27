@@ -16,26 +16,55 @@ function _formatSize(bytes) {
 }
 
 function _renderMedia(att) {
+  var wrap = document.createElement('div');
+  wrap.className = 'att-thumb-wrap';
+
   if (att.content_type && att.content_type.indexOf('image/') === 0) {
     var img = document.createElement('img');
     img.src = att.url;
     img.alt = att.filename;
-    img.onclick = function(e) { e.stopPropagation(); openFullscreen(att.url); };
-    return img;
-  }
-  if (att.content_type && att.content_type.indexOf('video/') === 0) {
+    img.onclick = function(e) {
+      e.stopPropagation();
+      var endpoint = att.id
+        ? '/notes/announcement/api/attachments/' + att.id + '/download'
+        : null;
+      openFullscreen(att.url, { downloadHref: endpoint });
+    };
+    wrap.appendChild(img);
+  } else if (att.content_type && att.content_type.indexOf('video/') === 0) {
     var video = document.createElement('video');
     video.src = att.url;
     video.controls = true;
     video.preload = 'metadata';
     video.playsInline = true;
-    return video;
+    wrap.appendChild(video);
+  } else {
+    var a = document.createElement('a');
+    a.href = att.url;
+    a.textContent = '📎 ' + att.filename;
+    a.target = '_blank';
+    wrap.appendChild(a);
+    return wrap;
   }
-  var a = document.createElement('a');
-  a.href = att.url;
-  a.textContent = '📎 ' + att.filename;
-  a.target = '_blank';
-  return a;
+
+  if (att.id) {
+    var dlBtn = document.createElement('button');
+    dlBtn.type = 'button';
+    dlBtn.className = 'att-download-btn';
+    dlBtn.setAttribute('aria-label', '下載原檔');
+    dlBtn.title = '下載原檔';
+    dlBtn.textContent = '⬇️';
+    dlBtn.onclick = function(e) {
+      e.stopPropagation();
+      if (dlBtn.disabled) return;
+      dlBtn.disabled = true;
+      window.downloadAttachment('/notes/announcement/api/attachments/' + att.id + '/download')
+        .finally(function() { dlBtn.disabled = false; });
+    };
+    wrap.appendChild(dlBtn);
+  }
+
+  return wrap;
 }
 
 function createAnnAttItem(att) {

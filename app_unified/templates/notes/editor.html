@@ -100,6 +100,36 @@ body.review-mode #review-back-widget { display: inline-flex; }
 .att-item video { display: block; max-width: 280px; max-height: 200px; border-radius: 8px; }
 .att-item .att-info { padding: .3rem .5rem; font-size: .75rem; color: #888; }
 .att-item .att-delete { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.6); color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px; font-size: 0.875rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.att-thumb-wrap { position: relative; display: inline-block; }
+.att-thumb-wrap img,
+.att-thumb-wrap video { display: block; max-width: 100%; }
+.att-download-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 5;
+  -webkit-tap-highlight-color: transparent;
+}
+.att-download-btn:hover, .att-download-btn:focus { background: rgba(0, 0, 0, 0.75); }
+.att-download-btn:active { transform: scale(0.92); }
+.att-download-btn:disabled { opacity: 0.4; cursor: wait; }
+@media (hover: hover) {
+  .att-download-btn { opacity: 0.55; }
+  .att-thumb-wrap:hover .att-download-btn { opacity: 1; }
+}
 
 /* F2 item-level lock 視覺 */
 .cl-item.locked-by-other { opacity: 0.5; cursor: not-allowed; position: relative; }
@@ -1004,18 +1034,56 @@ function createAttItem(att) {
   div.id = 'att-' + att.id;
 
   if (att.content_type.startsWith('image/')) {
+    var wrap = document.createElement('div');
+    wrap.className = 'att-thumb-wrap';
     var img = document.createElement('img');
     img.src = att.url;
     img.alt = att.filename;
-    img.onclick = function() { openFullscreen(att.url); };
-    div.appendChild(img);
+    img.onclick = function() {
+      openFullscreen(att.url, {
+        downloadHref: '/notes/api/attachments/' + att.id + '/download'
+      });
+    };
+    wrap.appendChild(img);
+    var dlBtn1 = document.createElement('button');
+    dlBtn1.type = 'button';
+    dlBtn1.className = 'att-download-btn';
+    dlBtn1.setAttribute('aria-label', '\u4e0b\u8f09\u539f\u6a94');
+    dlBtn1.title = '\u4e0b\u8f09\u539f\u6a94';
+    dlBtn1.textContent = '\u2b07\ufe0f';
+    dlBtn1.onclick = function(e) {
+      e.stopPropagation();
+      if (dlBtn1.disabled) return;
+      dlBtn1.disabled = true;
+      window.downloadAttachment('/notes/api/attachments/' + att.id + '/download')
+        .finally(function() { dlBtn1.disabled = false; });
+    };
+    wrap.appendChild(dlBtn1);
+    div.appendChild(wrap);
   } else if (att.content_type.startsWith('video/')) {
+    var wrapV = document.createElement('div');
+    wrapV.className = 'att-thumb-wrap';
     var video = document.createElement('video');
     video.src = att.url;
     video.controls = true;
     video.preload = 'metadata';
     video.playsInline = true;
-    div.appendChild(video);
+    wrapV.appendChild(video);
+    var dlBtnV = document.createElement('button');
+    dlBtnV.type = 'button';
+    dlBtnV.className = 'att-download-btn';
+    dlBtnV.setAttribute('aria-label', '\u4e0b\u8f09\u539f\u6a94');
+    dlBtnV.title = '\u4e0b\u8f09\u539f\u6a94';
+    dlBtnV.textContent = '\u2b07\ufe0f';
+    dlBtnV.onclick = function(e) {
+      e.stopPropagation();
+      if (dlBtnV.disabled) return;
+      dlBtnV.disabled = true;
+      window.downloadAttachment('/notes/api/attachments/' + att.id + '/download')
+        .finally(function() { dlBtnV.disabled = false; });
+    };
+    wrapV.appendChild(dlBtnV);
+    div.appendChild(wrapV);
   }
 
   var info = document.createElement('div');
@@ -1127,17 +1195,23 @@ function addPendingPreview(file) {
 
   var url = URL.createObjectURL(file);
   if (file.type.startsWith('image/')) {
+    var wrapP = document.createElement('div');
+    wrapP.className = 'att-thumb-wrap';
     var img = document.createElement('img');
     img.src = url;
-    img.onclick = function() { openFullscreen(url); };
-    div.appendChild(img);
+    img.onclick = function() { openFullscreen(url, { downloadHref: null }); };
+    wrapP.appendChild(img);
+    div.appendChild(wrapP);
   } else if (file.type.startsWith('video/')) {
+    var wrapPV = document.createElement('div');
+    wrapPV.className = 'att-thumb-wrap';
     var video = document.createElement('video');
     video.src = url;
     video.controls = true;
     video.preload = 'metadata';
     video.playsInline = true;
-    div.appendChild(video);
+    wrapPV.appendChild(video);
+    div.appendChild(wrapPV);
   }
 
   var info = document.createElement('div');
@@ -1403,19 +1477,56 @@ function renderChecklistItem(item) {
 
 function createItemAttThumb(a) {
   var wrap = document.createElement('div');
+  wrap.className = 'att-thumb-wrap';
   wrap.style.cssText = 'position:relative;';
   if (a.content_type && a.content_type.indexOf('image/') === 0) {
     var img = document.createElement('img');
     img.src = a.url;
     img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #ddd;';
-    img.onclick = function() { openFullscreen(a.url); };
+    img.onclick = function() {
+      openFullscreen(a.url, {
+        downloadHref: '/notes/api/attachments/' + a.id + '/download'
+      });
+    };
     wrap.appendChild(img);
+    if (a.id) {
+      var dlBtnA = document.createElement('button');
+      dlBtnA.type = 'button';
+      dlBtnA.className = 'att-download-btn';
+      dlBtnA.setAttribute('aria-label', '下載原檔');
+      dlBtnA.title = '下載原檔';
+      dlBtnA.textContent = '⬇️';
+      dlBtnA.onclick = function(e) {
+        e.stopPropagation();
+        if (dlBtnA.disabled) return;
+        dlBtnA.disabled = true;
+        window.downloadAttachment('/notes/api/attachments/' + a.id + '/download')
+          .finally(function() { dlBtnA.disabled = false; });
+      };
+      wrap.appendChild(dlBtnA);
+    }
   } else {
     var vid = document.createElement('video');
     vid.src = a.url;
     vid.controls = true;
     vid.style.cssText = 'width:140px;max-height:100px;border-radius:6px;border:1px solid #ddd;';
     wrap.appendChild(vid);
+    if (a.id) {
+      var dlBtnAV = document.createElement('button');
+      dlBtnAV.type = 'button';
+      dlBtnAV.className = 'att-download-btn';
+      dlBtnAV.setAttribute('aria-label', '下載原檔');
+      dlBtnAV.title = '下載原檔';
+      dlBtnAV.textContent = '⬇️';
+      dlBtnAV.onclick = function(e) {
+        e.stopPropagation();
+        if (dlBtnAV.disabled) return;
+        dlBtnAV.disabled = true;
+        window.downloadAttachment('/notes/api/attachments/' + a.id + '/download')
+          .finally(function() { dlBtnAV.disabled = false; });
+      };
+      wrap.appendChild(dlBtnAV);
+    }
   }
   return wrap;
 }

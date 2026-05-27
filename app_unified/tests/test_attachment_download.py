@@ -318,3 +318,38 @@ def test_ann_attachment_download_nonexistent_id_returns_404(app, client, db_sess
     body = resp.get_json()
     assert body.get("status") == "error"
     assert body.get("message") == "附件不存在"
+
+
+# ── Markup smoke tests ───────────────────────────────────────────────────────
+
+import pathlib
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent  # app_unified/
+
+
+def test_announcement_attachments_js_has_download_overlay():
+    """JS source for announcement attachments includes the download icon
+    overlay markup + call into window.downloadAttachment with the
+    /notes/announcement/api/attachments/ endpoint prefix."""
+    src = (_REPO_ROOT / 'static' / 'js' / 'announcement_attachments.js').read_text(encoding='utf-8')
+    assert 'att-download-btn' in src
+    assert 'att-thumb-wrap' in src
+    assert 'downloadAttachment' in src
+    assert '/notes/announcement/api/attachments/' in src
+
+
+def test_fullscreen_viewer_js_exports_downloadAttachment():
+    """fullscreen_viewer.js exposes the shared helper + has the viewer
+    download button element."""
+    src = (_REPO_ROOT / 'static' / 'js' / 'fullscreen_viewer.js').read_text(encoding='utf-8')
+    assert 'window.downloadAttachment' in src
+    assert 'fs-download' in src
+
+
+def test_notes_editor_template_passes_downloadHref():
+    """notes editor template renders attachment thumbnails with a download
+    icon overlay and the openFullscreen calls now carry downloadHref."""
+    src = (_REPO_ROOT / 'templates' / 'notes' / 'editor.html').read_text(encoding='utf-8')
+    assert 'downloadHref' in src
+    assert '/notes/api/attachments/' in src
+    assert 'att-download-btn' in src
