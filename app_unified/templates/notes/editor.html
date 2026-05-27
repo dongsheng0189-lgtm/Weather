@@ -777,19 +777,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // `/n/<id>#item-<id>` 從 AI 摘要點過來時，scroll 到該 item 並加持續黃底
 // 高亮（沿用 .tag-highlight class、跟標籤搜尋一致；review 過程中不消失）。
-// querySelector / target 檢查擺在 setTimeout 內 — checklist items 是 async
-// (loadChecklistItems) render，DOMContentLoaded 那刻通常還沒 inject 到 DOM。
-document.addEventListener('DOMContentLoaded', function() {
+// 不用固定 setTimeout — prod 大 note 的 loadChecklistItems API > 300ms 會 race
+// 失敗（querySelector null）。改 hook 在 _renderChecklistItemsFromCache 末尾、
+// items 一定在 DOM。_hashItemScrolled flag 確保 tab 切換 re-render 不重複觸發。
+var _hashItemScrolled = false;
+function _maybeScrollToHashItem() {
+  if (_hashItemScrolled) return;
   var m = (location.hash || '').match(/^#item-(\d+)$/);
   if (!m) return;
-  var iid = m[1];
-  setTimeout(function() {
-    var target = document.querySelector('#checklist-items > [data-item-id="' + iid + '"]');
-    if (!target) return;  // item 被刪 / 權限不同 → silent fail
-    target.scrollIntoView({behavior: 'smooth', block: 'center'});
-    target.classList.add('tag-highlight');  // 持續黃底 + 1.2s pulse 一次
-  }, 300);  // give loadChecklistItems' fetch + render time on initial load
-});
+  var target = document.querySelector('#checklist-items > [data-item-id="' + m[1] + '"]');
+  if (!target) return;  // item 被刪 / 權限不同 → silent fail
+  _hashItemScrolled = true;
+  target.scrollIntoView({behavior: 'smooth', block: 'center'});
+  target.classList.add('tag-highlight');
+}
 
 {% if note and note.updated_by %}
 fetch('/notes/api/' + NOTE_ID).then(function(r) { return r.json(); }).then(function(data) {
@@ -1221,6 +1222,8 @@ function _renderChecklistItemsFromCache() {
   if (qsTagId && window.ITEM_TAG_IDS_MAP) {
     buildTagHits(qsTagId);
   }
+  // URL #item-N (AI 摘要連過來) → scroll + 黃底高亮（once flag、tab 切換不重觸發）
+  _maybeScrollToHashItem();
 }
 
 function buildTagHits(tagId) {
