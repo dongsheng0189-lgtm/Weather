@@ -725,6 +725,80 @@ def test_summarize_meeting_personnel_without_sub_category_still_buckets():
     assert li < tj, "離職 must render before 調整 per PERSONNEL_ORDER"
 
 
+# ── Empty/dangling sub-cat heading (2026-05-27) ──────────────────────────────
+
+
+def test_summarize_meeting_empty_subcat_at_end_does_not_leak_to_prev():
+    """User writes `其他：` heading with no items beneath. Must NOT be rendered
+    as a continuation/item under the previous sub-cat (### 調整)."""
+    text = """人員:
+    調整:
+         員工A調班
+         結論: 已生效
+    其他:
+"""
+    out = summarize_meeting(title="x", content=text)
+    assert "### 調整" in out
+    assert "1. 員工A調班" in out
+    assert "   → 已生效" in out
+    # The dangling `其他:` must not appear anywhere — not as a continuation
+    # under 員工A調班, not as a numbered item, and not as a heading either.
+    assert "其他" not in out, f"empty 其他 heading must not leak: {out!r}"
+
+
+def test_summarize_meeting_empty_subcat_before_blank_then_next_section():
+    """`其他：` heading followed by blank then a different top-level section
+    (`店務:`) — `其他:` is dangling at end of personnel and must drop cleanly."""
+    text = """人員:
+    調整:
+         員工B升職
+    其他:
+
+店務:
+    宣傳:
+         週末活動
+"""
+    out = summarize_meeting(title="x", content=text)
+    assert "### 調整" in out
+    assert "1. 員工B升職" in out
+    assert "### 宣傳" in out
+    assert "1. 週末活動" in out
+    # 其他 must NOT appear inside the personnel section output
+    personnel_idx = out.index("👥 人員")
+    storeops_idx = out.index("🏪 店務")
+    personnel_block = out[personnel_idx:storeops_idx]
+    assert "其他" not in personnel_block, (
+        f"empty 其他 must not appear in personnel block: {personnel_block!r}"
+    )
+
+
+def test_summarize_meeting_multiple_empty_subcats_at_end():
+    """Defensive: user writes two empty trailing sub-cats. Neither should
+    leak into the previous filled sub-cat."""
+    text = """人員:
+    調整:
+         員工C調班
+    離職:
+    其他:
+"""
+    out = summarize_meeting(title="x", content=text)
+    assert "### 調整" in out
+    assert "1. 員工C調班" in out
+    # The trailing empty 離職 / 其他 headings must not appear as items either.
+    # (They CAN appear as 4-bucket headings if items got classified into them
+    # — but here there are no such items, so they shouldn't appear at all.)
+    assert "其他" not in out
+    # 離職 keyword: trickier because user-written 員工C調班 may NOT contain
+    # 離職 keyword. We only need to assert it's not bleeding as a continuation
+    # under 員工C — check the line right after 員工C is the conclusion line or
+    # next sub-cat heading, not a `   離職：` continuation.
+    調整_line_idx = out.index("1. 員工C調班")
+    後續 = out[調整_line_idx:]
+    # No continuation line that looks like "   離職：" or "   其他："
+    assert "\n   離職" not in 後續, f"離職 must not leak as continuation: {後續!r}"
+    assert "\n   其他" not in 後續, f"其他 must not leak as continuation: {後續!r}"
+
+
 # ── Duplicate section headers merge (2026-05-11 v3) ──────────────────────────
 
 

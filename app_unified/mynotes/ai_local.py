@@ -325,6 +325,30 @@ def _split_items(section_body: str) -> list[str]:
                 if sub_name:
                     current_sub = sub_name
                 continue
+            # Dangling sub-cat heading: `xxx:` at min_indent with no items
+            # of its own. Treat as empty boundary (flush + reset current_sub,
+            # don't emit) so it doesn't leak into the previous sub-cat as a
+            # continuation/item (e.g. empty `其他：` at end was rendering under
+            # ### 調整). Three flavours of "dangling":
+            #   1. End-of-section.
+            #   2. Followed by a preamble visual break.
+            #   3. Followed by a sibling heading at the same indent (ends in
+            #      `:` but is NOT a `結論：` line — that's the `點餐系統:` +
+            #      `結論:J` title-with-conclusion pattern, still falls through).
+            next_is_sibling_heading = (
+                j < len(cells)
+                and cells[j][0] == "indent"
+                and cells[j][1] == indent
+                and (cells[j][2].rstrip().endswith(":")
+                     or cells[j][2].rstrip().endswith("："))
+                and not _TAB_CONCLUSION_PREFIX_RE.match(cells[j][2])
+            )
+            if (j >= len(cells)
+                or cells[j][0] == "preamble"
+                or next_is_sibling_heading):
+                flush()
+                current_sub = None
+                continue
             # else: fall through to regular item handling below
 
         # Regular item content line.
