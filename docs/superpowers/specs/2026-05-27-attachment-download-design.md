@@ -179,7 +179,7 @@ Backend download endpoint 直接呼叫既有的 `_can_view(announcement)` / Note
 - `att.filename` column 存的是 user 上傳時的原檔名（含中文）
 - Content-Disposition 必須用 RFC 5987 `filename*=UTF-8''...` 格式才能正確處理中文檔名
 - `urllib.parse.quote(filename, safe="")` 處理 percent-encoding
-- 防呆：filename 缺失時 fallback `attachment_{att_id}{ext}`，ext 從 `att.content_type` 推導（`image/jpeg` → `.jpg`、`video/mp4` → `.mp4`、其他或解不出 → 不加 ext）
+- 防呆：filename 缺失時 fallback `attachment{ext}`，ext 從 `att.content_type` 推導（`image/jpeg` → `.jpg`、`video/mp4` → `.mp4`、其他或解不出 → 不加 ext）（`_{att_id}` 不加：storage helper 無法取得 ORM id，content_type ext 已足夠讓 browser 辨識格式）
 
 ## Error handling
 

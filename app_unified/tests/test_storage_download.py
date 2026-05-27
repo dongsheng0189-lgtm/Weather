@@ -84,6 +84,42 @@ def test_get_download_url_returns_none_for_empty_object_key(app):
         ) is None
 
 
+def test_get_download_url_filename_fallback_uses_content_type_ext(app, r2_configured):
+    """When filename is empty/None, fallback uses extension derived from
+    content_type (spec §Filename handling Option A)."""
+    import storage
+    with app.app_context():
+        # image/jpeg → attachment.jpg
+        url = storage.get_download_url(
+            object_key="attachments/1/abc",
+            filename="",
+            content_type="image/jpeg",
+        )
+        decoded = urllib.parse.unquote_plus(url)
+        assert "filename*=UTF-8''attachment.jpg" in decoded
+
+        # video/mp4 → attachment.mp4
+        url = storage.get_download_url(
+            object_key="attachments/1/abc",
+            filename=None,
+            content_type="video/mp4",
+        )
+        decoded = urllib.parse.unquote_plus(url)
+        assert "filename*=UTF-8''attachment.mp4" in decoded
+
+        # unknown content_type → bare "attachment" (no extension)
+        url = storage.get_download_url(
+            object_key="attachments/1/abc",
+            filename="",
+            content_type="application/octet-stream",
+        )
+        decoded = urllib.parse.unquote_plus(url)
+        assert "filename*=UTF-8''attachment" in decoded
+        # must NOT have a spurious extension
+        after_name = decoded[decoded.index("filename*=UTF-8''attachment") + len("filename*=UTF-8''attachment"):]
+        assert not after_name.startswith(".")
+
+
 def test_get_download_url_returns_none_on_client_error(monkeypatch, app, r2_configured):
     """If boto3 raises ClientError (e.g. R2 outage / bad creds), helper
     must swallow and return None — caller will surface storage_unavailable

@@ -138,7 +138,23 @@ def get_download_url(object_key: str, filename: str, content_type: str,
     if not cfg.get("R2_ENDPOINT_URL"):
         return None
 
-    safe_filename = filename or f"attachment_{uuid.uuid4().hex}"
+    if filename:
+        safe_filename = filename
+    else:
+        # Spec: filename 缺失時 fallback `attachment{ext}`，ext 從 content_type 推導
+        # (image/jpeg → .jpg, video/mp4 → .mp4, 其他或解不出 → 不加 ext)
+        ext_map = {
+            "image/jpeg": ".jpg",
+            "image/png": ".png",
+            "image/gif": ".gif",
+            "image/webp": ".webp",
+            "video/mp4": ".mp4",
+            "video/quicktime": ".mov",
+            "video/webm": ".webm",
+            "application/pdf": ".pdf",
+        }
+        ext = ext_map.get(content_type or "", "")
+        safe_filename = f"attachment{ext}"
     encoded = urllib.parse.quote(safe_filename, safe="")
     disposition = f"attachment; filename*=UTF-8''{encoded}"
     resp_content_type = content_type or "application/octet-stream"
