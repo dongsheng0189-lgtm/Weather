@@ -5,6 +5,6 @@
 .fullscreen-overlay img { max-width: 100vw; max-height: 100vh; object-fit: contain; transform-origin: center center; will-change: transform; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
 .fullscreen-overlay .fs-close { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; border: none; font-size: 1.375rem; cursor: pointer; z-index: 2; }
 .fullscreen-overlay .fs-hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.7); font-size: .8rem; background: rgba(0,0,0,.4); padding: .35rem .75rem; border-radius: 12px; pointer-events: none; }
-.fs-download { position: fixed; left: 16px; bottom: 24px; z-index: 10001; background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%; width: 48px; height: 48px; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+.fs-download { position: fixed; right: 16px; bottom: 24px; z-index: 10001; background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%; width: 48px; height: 48px; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
 .fs-download:hover, .fs-download:focus { background: rgba(0,0,0,.75); }
 .fs-download:active { transform: scale(0.93); }

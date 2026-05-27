@@ -97,7 +97,7 @@ def get_download_url(object_key: str, filename: str, content_type: str,
 
 ### 2. Frontend — 縮圖 download icon overlay
 
-在現有 attachment grid（`templates/notes/editor.html`、`templates/announcements/edit.html`、`templates/announcements/new.html` 跟 attachment chip 渲染 JS）的每張縮圖右上角加一個小 ⬇️ icon button：
+在現有 attachment grid（`templates/notes/editor.html`、`templates/announcements/edit.html`、`templates/announcements/new.html` 跟 attachment chip 渲染 JS）的每張縮圖右下角加一個小 ⬇️ icon button（跟 viewer 內 ⬇️ button 位置一致、統一右下）：
 
 - 大小：32×32 px、tap target 44×44 px（行動裝置）
 - 樣式：半透明黑底圓（`rgba(0,0,0,0.5)`）+ 白色 icon、跟既有 fullscreen icon 同風格
@@ -115,7 +115,7 @@ def get_download_url(object_key: str, filename: str, content_type: str,
 
 ### 3. Frontend — fullscreen viewer download button
 
-在 `static/js/fullscreen_viewer.js` 的 toolbar 左下角加一個 download button：
+在 `static/js/fullscreen_viewer.js` 的 toolbar 右下角加一個 download button（跟縮圖 ⬇️ icon 同側、統一右下）：
 
 - icon 跟縮圖上的一致
 - 點擊行為跟縮圖 icon 共用一個 JS function
@@ -155,7 +155,7 @@ async function downloadAttachment(attId, endpointPrefix) {
 
 ## Data flow
 
-1. User 點縮圖右上 ⬇️ icon
+1. User 點縮圖右下 ⬇️ icon
 2. JS 攔截 click event、`stopPropagation()` 阻止冒泡開啟 viewer
 3. JS 發 fetch `GET /api/attachments/123/download`
 4. Flask 驗證：login + 該 attachment 所屬 note 的 store 規則
