@@ -119,3 +119,41 @@ def get_signed_url(object_key: str, expires_in: int = 3600) -> str | None:
         return url
     except ClientError:
         return None
+
+
+def get_download_url(object_key: str, filename: str, content_type: str,
+                     expires_in: int = 300) -> str | None:
+    """Generate a presigned URL that forces browser to download the file with
+    Content-Disposition: attachment + the user-supplied filename (RFC 5987
+    UTF-8 encoded). Used by the new attachment download endpoints.
+
+    Returns None when R2 is not configured or object_key is empty.
+    """
+    if not BOTO3_AVAILABLE or not object_key:
+        return None
+
+    cfg = current_app.config
+    if not cfg.get("R2_ENDPOINT_URL"):
+        return None
+
+    import urllib.parse
+    safe_filename = filename or f"attachment_{uuid.uuid4().hex}"
+    encoded = urllib.parse.quote(safe_filename, safe="")
+    disposition = f"attachment; filename*=UTF-8''{encoded}"
+    resp_content_type = content_type or "application/octet-stream"
+
+    client = _get_client()
+    try:
+        url = client.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": cfg["R2_BUCKET_NAME"],
+                "Key": object_key,
+                "ResponseContentDisposition": disposition,
+                "ResponseContentType": resp_content_type,
+            },
+            ExpiresIn=expires_in,
+        )
+        return url
+    except ClientError:
+        return None
