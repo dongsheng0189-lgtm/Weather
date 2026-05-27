@@ -141,7 +141,10 @@
     overlay.querySelector('.fs-download').addEventListener('click', function(e) {
       e.stopPropagation();
       var href = this.dataset.href;
-      if (href) downloadAttachment(href);
+      if (!href || this.disabled) return;
+      var btn = this;
+      btn.disabled = true;
+      downloadAttachment(href).finally(function() { btn.disabled = false; });
     });
   }
 
@@ -195,7 +198,7 @@
   }
 
   function downloadAttachment(endpointUrl) {
-    fetch(endpointUrl, { credentials: 'same-origin' })
+    return fetch(endpointUrl, { credentials: 'same-origin' })
       .then(function(res) {
         if (!res.ok) {
           return res.json().then(function(j) {
@@ -207,6 +210,7 @@
         return res.json();
       })
       .then(function(j) {
+        if (!j.url) throw new Error('missing url');
         var a = document.createElement('a');
         a.href = j.url;
         a.style.display = 'none';
