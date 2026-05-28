@@ -389,6 +389,33 @@ def create_app():
                     ))
                 except Exception:
                     pass
+                # F11: ChecklistItem authorship — creator + last-modifier snapshot
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS created_by INTEGER "
+                        "REFERENCES users(id) ON DELETE SET NULL"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS created_by_name TEXT"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_by INTEGER "
+                        "REFERENCES users(id) ON DELETE SET NULL"
+                    ))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_by_name TEXT"
+                    ))
+                except Exception:
+                    pass
 
                 db.session.commit()
             print("=== db.create_all() OK ===", flush=True)

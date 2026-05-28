@@ -198,6 +198,11 @@ class ChecklistItem(db.Model):
     locked_at = db.Column(db.DateTime, nullable=True)
     deleted_at = db.Column(db.DateTime, nullable=True, index=True)
     deleted_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # F11 authorship tracking: created_by + updated_by (snapshot pattern matches Note.author_name)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_name = db.Column(EncryptedText, nullable=True)
+    updated_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_by_name = db.Column(EncryptedText, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)  # 排序用：新增/編輯/附件變更時 bump
 
@@ -207,6 +212,8 @@ class ChecklistItem(db.Model):
     checker = db.relationship("User", foreign_keys=[checked_by])
     locker = db.relationship("User", foreign_keys=[locked_by])
     deleter = db.relationship("User", foreign_keys=[deleted_by])
+    creator = db.relationship("User", foreign_keys=[created_by])
+    modifier = db.relationship("User", foreign_keys=[updated_by])
     tags = db.relationship(
         "Tag",
         secondary="checklist_item_tags",
