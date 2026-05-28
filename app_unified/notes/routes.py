@@ -1479,6 +1479,10 @@ def _checklist_item_json(item):
         "checked_at": tw_iso(item.checked_at, fallback=None),
         "checked_by_name": item.checked_by_name or (item.checker.username if item.checker else None),
         "created_at": tw_iso(item.created_at),
+        # F11 authorship + updated_at exposure (UI compares checked_at === updated_at for "(完成)" suffix)
+        "created_by_name": item.created_by_name or (item.creator.username if item.creator else None),
+        "updated_by_name": item.updated_by_name or (item.modifier.username if item.modifier else None),
+        "updated_at": tw_iso(item.updated_at, fallback=None),
         "locked_by_username": (locker.username if locker else None) if is_other_locked else None,
         "attachments": [{
             "id": a.id,
