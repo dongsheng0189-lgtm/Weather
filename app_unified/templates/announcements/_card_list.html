@@ -46,7 +46,7 @@ document.querySelectorAll('.ann-attachments[data-ann-id]').forEach(function(hold
     .then(function(r) { return r.json(); })
     .then(function(d) {
       (d.attachments || []).forEach(function(att) {
-        holder.appendChild(renderAnnAttView(att));
+        holder.appendChild(renderAnnAttView(att, d.attachments));
       });
     });
 });

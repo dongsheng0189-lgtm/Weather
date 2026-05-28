@@ -70,7 +70,7 @@ fetch('/notes/announcement/api/{{ announcement.id }}/attachments')
     var list = document.getElementById('ann-attachment-list');
     list.innerHTML = '';
     (d.attachments || []).forEach(function(att) {
-      list.appendChild(createAnnAttItem(att));
+      list.appendChild(createAnnAttItem(att, d.attachments));
     });
   });
 

@@ -1,13 +1,17 @@
 /* 公告附件 UI — createAttItem / renderAttView / file upload.
- * 圖片 fullscreen viewer 走 shared window.openFullscreen
+ * 圖片 fullscreen viewer 走 shared window.openFullscreenGallery
  * (static/js/fullscreen_viewer.js)、template 一定要先引入該檔。
  *
  * 提供：
- *   - createAnnAttItem(att) : 編輯/建立頁的附件 item（含刪除 ×）
- *   - renderAnnAttView(att) : index 卡片唯讀展示（無刪除 ×）
+ *   - createAnnAttItem(att, siblings) : 編輯/建立頁的附件 item（含刪除 ×）
+ *   - renderAnnAttView(att, siblings) : index 卡片唯讀展示（無刪除 ×）
  *   - handleAnnFileUpload(input) : 編輯/建立頁 file input change handler
  *   - uploadAnnPendingFiles(annId, cb) : submit 後逐檔上傳
  * 依賴 window.ANN_ID（編輯頁 = id；建立頁 = null）+ window.ANN_PENDING_FILES。
+ *
+ * 外部 caller（edit.html / _card_list.html）渲染列表時 pass d.attachments
+ * 當 siblings，讓圖片點擊開啟 swipe-able gallery；pending uploads 或
+ * 單一新上傳項目傳 null → 退回單張 gallery。
  */
 
 function _formatSize(bytes) {
@@ -15,7 +19,24 @@ function _formatSize(bytes) {
   return (bytes / 1024).toFixed(0) + ' KB';
 }
 
-function _renderMedia(att) {
+function _toAnnGalleryItem(att) {
+  return {
+    id: att.id,
+    kind: (att.content_type && att.content_type.indexOf('video/') === 0) ? 'video' : 'image',
+    url: att.url,
+    content_type: att.content_type,
+    downloadHref: att.id ? '/notes/announcement/api/attachments/' + att.id + '/download' : null
+  };
+}
+
+function _openAnnGalleryFor(att, siblings) {
+  var list = (siblings && siblings.length) ? siblings : [att];
+  var items = list.map(_toAnnGalleryItem);
+  var idx = items.findIndex(function(it) { return it.id === att.id; });
+  openFullscreenGallery(items, idx >= 0 ? idx : 0);
+}
+
+function _renderMedia(att, siblings) {
   var wrap = document.createElement('div');
   wrap.className = 'att-thumb-wrap';
 
@@ -25,10 +46,7 @@ function _renderMedia(att) {
     img.alt = att.filename;
     img.onclick = function(e) {
       e.stopPropagation();
-      var endpoint = att.id
-        ? '/notes/announcement/api/attachments/' + att.id + '/download'
-        : null;
-      openFullscreen(att.url, { downloadHref: endpoint });
+      _openAnnGalleryFor(att, siblings);
     };
     wrap.appendChild(img);
   } else if (att.content_type && att.content_type.indexOf('video/') === 0) {
@@ -67,11 +85,11 @@ function _renderMedia(att) {
   return wrap;
 }
 
-function createAnnAttItem(att) {
+function createAnnAttItem(att, siblings) {
   var div = document.createElement('div');
   div.className = 'att-item';
   div.id = 'ann-att-' + att.id;
-  div.appendChild(_renderMedia(att));
+  div.appendChild(_renderMedia(att, siblings));
 
   var info = document.createElement('div');
   info.className = 'att-info';
@@ -98,10 +116,10 @@ function createAnnAttItem(att) {
   return div;
 }
 
-function renderAnnAttView(att) {
+function renderAnnAttView(att, siblings) {
   var div = document.createElement('div');
   div.className = 'att-view';
-  div.appendChild(_renderMedia(att));
+  div.appendChild(_renderMedia(att, siblings));
   return div;
 }
 
@@ -119,7 +137,7 @@ function handleAnnFileUpload(input) {
       var div = document.createElement('div');
       div.className = 'att-item';
       var fakeAtt = {url: url, content_type: f.type, filename: f.name, file_size: f.size};
-      div.appendChild(_renderMedia(fakeAtt));
+      div.appendChild(_renderMedia(fakeAtt, null));   // pending preview: single-item gallery fallback
       var info = document.createElement('div');
       info.className = 'att-info';
       info.textContent = f.name + ' (本地預覽，建立後上傳)';
@@ -139,7 +157,7 @@ function handleAnnFileUpload(input) {
       .then(function(pair) {
         var r = pair[0], d = pair[1];
         if (r.status === 201) {
-          list.appendChild(createAnnAttItem(d.attachment));
+          list.appendChild(createAnnAttItem(d.attachment, null));   // fresh upload: single-item gallery fallback
           statusEl.textContent = '';
         } else {
           alert('上傳失敗：' + (d.message || r.statusText));
