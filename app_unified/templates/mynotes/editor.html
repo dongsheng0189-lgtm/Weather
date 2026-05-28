@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ note.title if note else '新增' }} - 私人筆記{% endblock %}
 {% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/fullscreen_viewer.css') }}">
 <script>
 window.IDLE_LIMIT_MS = {{ idle_limit_ms }};
 window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000 : 0;
 </script>
+<script src="{{ url_for('static', filename='js/fullscreen_viewer.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mynotes_privacy.js') }}"></script>
 <script src="{{ url_for('static', filename='js/edit_keepalive.js') }}?v=4"></script>
 <style>
@@ -52,12 +54,6 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
 .ai-output.empty { color: #aaa; font-style: italic; }
 .ai-edit-hint { font-size: .75rem; color: #888; margin-top: .35rem; }
 .ai-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; }
-
-/* fullscreen image */
-.fs-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.95); z-index: 9999; align-items: center; justify-content: center; }
-.fs-overlay.open { display: flex; }
-.fs-overlay img { max-width: 95vw; max-height: 95vh; touch-action: pinch-zoom; }
-.fs-overlay .fs-close { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; border: none; font-size: 1.25rem; cursor: pointer; }
 </style>
 {% endblock %}
 {% block content %}
@@ -128,12 +124,6 @@ window.MN_PRIVACY_AT_MS = (window.IDLE_LIMIT_MS > 5 * 60 * 1000) ? 5 * 60 * 1000
   {% endif %}
 </div>
 
-<!-- fullscreen preview -->
-<div class="fs-overlay" id="fs-overlay" onclick="closeFs()">
-  <img id="fs-img" src="">
-  <button class="fs-close" onclick="event.stopPropagation();closeFs();" aria-label="關閉">✕</button>
-</div>
-
 {% if note_type == 'todo_checklist' %}
 <!-- item modal -->
 <div id="item-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:2rem 0;">
@@ -170,6 +160,24 @@ function setStatus(msg, color) {
   var el = document.getElementById('save-status');
   el.textContent = msg || '';
   el.style.color = color || '#666';
+}
+
+/* ═══ Shared fullscreen gallery helpers (mynotes is private — no download) ═══ */
+function _toMyGalleryItem(att) {
+  return {
+    id: att.id,
+    kind: (att.content_type && att.content_type.indexOf('video/') === 0) ? 'video' : 'image',
+    url: att.url,
+    content_type: att.content_type,
+    downloadHref: null   /* mynotes private — no download exposed */
+  };
+}
+
+function _openMyGalleryFor(att, siblings) {
+  var list = (siblings && siblings.length) ? siblings : [att];
+  var items = list.map(_toMyGalleryItem);
+  var idx = items.findIndex(function(it) { return it.id === att.id; });
+  openFullscreenGallery(items, idx >= 0 ? idx : 0);
 }
 
 var _saveInFlight = null;
@@ -300,7 +308,7 @@ function handleAttUpload(input) {
           .then(function(r){return r.json();}).then(function(d){
             done++;
             statusEl.textContent = '上傳中 ' + done + '/' + files.length;
-            if (d.status === 'ok') addAttachmentToList(d.attachment);
+            if (d.status === 'ok') addAttachmentToList(d.attachment, null);
           });
       });
     }, Promise.resolve()).then(function(){
@@ -311,7 +319,7 @@ function handleAttUpload(input) {
   input.value = '';
 }
 
-function addAttachmentToList(a) {
+function addAttachmentToList(a, siblings) {
   var list = document.getElementById('att-list');
   if (!list) return;
   var wrap = document.createElement('div');
@@ -320,7 +328,7 @@ function addAttachmentToList(a) {
   if (a.content_type && a.content_type.indexOf('image/') === 0) {
     var img = document.createElement('img');
     img.src = a.url;
-    img.onclick = function(){ openFs(a.url); };
+    img.onclick = function(){ _openMyGalleryFor(a, siblings); };
     wrap.appendChild(img);
   } else if (a.content_type === 'application/pdf') {
     var link = document.createElement('a');
@@ -350,7 +358,7 @@ function addAttachmentToList(a) {
 function loadAttachments() {
   if (!NOTE_ID) return;
   fetch('/mynotes/api/' + NOTE_ID).then(function(r){return r.json();}).then(function(data){
-    (data.attachments || []).forEach(addAttachmentToList);
+    (data.attachments || []).forEach(function(a) { addAttachmentToList(a, data.attachments); });
   });
 }
 
@@ -398,7 +406,7 @@ function renderChecklist(items) {
         if (a.content_type && a.content_type.indexOf('image/') === 0) {
           var im = document.createElement('img');
           im.src = a.url;
-          im.onclick = function(){ openFs(a.url); };
+          im.onclick = function(){ _openMyGalleryFor(a, item.attachments); };
           atts.appendChild(im);
         } else if (a.content_type === 'application/pdf') {
           var pl = document.createElement('a');
@@ -493,7 +501,7 @@ function renderItemDialogAtts() {
     if (a.content_type && a.content_type.indexOf('image/') === 0) {
       var img = document.createElement('img');
       img.src = a.url;
-      img.onclick = function(){ openFs(a.url); };
+      img.onclick = function(){ _openMyGalleryFor(a, _itemSavedAtts); };
       wrap.appendChild(img);
     } else if (a.content_type === 'application/pdf') {
       var link = document.createElement('a');
@@ -606,16 +614,6 @@ function saveItemFromDialog() {
     msgEl.textContent = '錯誤：' + (e.message || '');
     msgEl.style.color = '#e74c3c';
   });
-}
-
-/* ═══ Fullscreen preview ═══ */
-function openFs(url) {
-  document.getElementById('fs-img').src = url;
-  document.getElementById('fs-overlay').classList.add('open');
-}
-function closeFs() {
-  document.getElementById('fs-overlay').classList.remove('open');
-  document.getElementById('fs-img').src = '';
 }
 
 /* ═══ AI Summary (meeting only) ═══ */
