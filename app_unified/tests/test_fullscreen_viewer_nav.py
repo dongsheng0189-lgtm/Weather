@@ -15,11 +15,11 @@ def test_scrollend_listener():
 def test_onpagechange_updates_chrome():
     src = VIEWER_JS.read_text(encoding='utf-8')
     assert 'function _onPageChange(' in src
-    # counter text format
-    assert "(idx + 1) + ' / ' + _items.length" in src or "(newIdx + 1) + ' / ' + _items.length" in src
-    # arrow disabled state via id lookups or local vars
-    assert ".disabled = (" in src
+    # counter text format (allow either ' / ' + N or ' / ' + _items.length)
+    assert "(newIdx + 1) + ' / ' + N" in src or "(newIdx + 1) + ' / ' + _items.length" in src
+    # arrows always reset to enabled state (circular wrap — never disabled)
     assert 'fs-prev' in src and 'fs-next' in src
+    assert 'prevBtn.disabled = false' in src and 'nextBtn.disabled = false' in src
 
 
 def test_arrow_button_click_handlers():
@@ -37,10 +37,25 @@ def test_keyboard_handlers():
     assert "'Escape'" in src
 
 
-def test_boundary_stop_not_loop():
-    """_goTo should return early on out-of-bound, not wrap."""
+def test_boundary_wraps_circular():
+    """_goTo wraps via modulo — last+1 → first, first-1 → last."""
     src = VIEWER_JS.read_text(encoding='utf-8')
-    # the _goTo body has early-return for boundary
     goto_section = src.split('function _goTo(')[1].split('function ')[0]
-    assert 'idx < 0' in goto_section
-    assert 'idx >= _items.length' in goto_section
+    # circular modulo wrap pattern
+    assert '((realIdx % N) + N) % N' in goto_section or '% N' in goto_section
+    # no longer early-returns out-of-bound (must not match the old stop-not-loop pattern)
+    assert 'idx >= _items.length' not in goto_section
+
+
+def test_clone_wrap_in_scrollend_handler():
+    """scrollend instant-jumps when landing on a left/right clone slide."""
+    src = VIEWER_JS.read_text(encoding='utf-8')
+    # clones marked via data-clone="left"/"right" in markup
+    assert "data-clone=\"left\"" in src or "'left'" in src
+    assert "data-clone=\"right\"" in src or "'right'" in src
+    # instant scrollLeft jump for wrap (no behavior:'smooth')
+    settled = src.split('function _onScrollSettled')[1].split('function ')[0]
+    assert 'track.scrollLeft' in settled
+    # both wrap branches
+    assert 'domIdx === 0' in settled
+    assert 'domIdx === N + 1' in settled

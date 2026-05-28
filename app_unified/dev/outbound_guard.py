@@ -70,10 +70,32 @@ def _patched_send(self, request, **kw):
 _original_send = requests.Session.send
 
 
+def _install_storage_url_passthrough():
+    """Dev-only: if object_key is already an http(s) URL, return it as-is.
+
+    Lets seed scripts plug placeholder picsum/static URLs into object_key so the
+    UI can render real images locally without R2 wired up. Idempotent.
+    """
+    import storage
+    if getattr(storage.get_signed_url, "_dev_passthrough", False):
+        return
+    _orig = storage.get_signed_url
+
+    def _patched(object_key: str, expires_in: int = 3600):
+        if isinstance(object_key, str) and (object_key.startswith("http://") or object_key.startswith("https://")):
+            return object_key
+        return _orig(object_key, expires_in=expires_in)
+
+    _patched._dev_passthrough = True
+    storage.get_signed_url = _patched
+
+
 def install():
     """Install the patch. Idempotent."""
     if getattr(requests.Session.send, "_dev_guard_installed", False):
         return
     _patched_send._dev_guard_installed = True
     requests.Session.send = _patched_send
+    _install_storage_url_passthrough()
     _LOG.warning("dev/outbound_guard: requests.Session.send patched — non-loopback HTTP blocked.")
+    _LOG.warning("dev/outbound_guard: storage.get_signed_url passthrough for http(s):// object_keys.")

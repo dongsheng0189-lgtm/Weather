@@ -40,7 +40,7 @@
   var _currentIdx = 0;
 
   function _fsApply() {
-    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]');
+    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]:not([data-clone])');
     var track = document.getElementById('fs-track');
     if (track) {
       if (_fsState.scale > 1.01) track.style.overflowX = 'hidden';
@@ -59,7 +59,7 @@
   }
 
   function _fsClampPan() {
-    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]');
+    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]:not([data-clone])');
     if (!slide) return;
     var img = slide.querySelector('.fs-img');
     if (!img) return;
@@ -186,8 +186,16 @@
     });
   }
 
+  /* DOM index helpers for circular wrap. When multi-item we render [last-clone, real0..realN-1, first-clone]
+   * so native scroll-snap can swipe past either end into a clone; scrollend then instant-jumps to the matching real slide. */
+  function _domIdxForReal(realIdx) {
+    return _items.length > 1 ? realIdx + 1 : realIdx;
+  }
+  function _slideWidth() { return window.innerWidth; }
+
   function _bindPinchHandlersToSlide(idx) {
-    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"][data-kind="image"]');
+    /* idx is REAL idx; query the non-clone slide */
+    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"][data-kind="image"]:not([data-clone])');
     if (!slide) return;
     var stage = slide.querySelector('.fs-stage');
     if (!stage || stage._fsBound) return;
@@ -206,10 +214,23 @@
     if (track && !track._fsBound) {
       track._fsBound = true;
 
-      /* page tracking — prefer scrollend, fallback to scroll + 200ms debounce */
+      /* page tracking — prefer scrollend, fallback to scroll + 200ms debounce.
+       * Circular wrap: when DOM idx lands on a clone (0 = clone-of-last, N+1 = clone-of-first),
+       * instant-jump to the matching real slide so swipe loops both ways. */
       function _onScrollSettled() {
-        var idx = Math.round(track.scrollLeft / window.innerWidth);
-        if (idx !== _currentIdx) _onPageChange(idx);
+        var N = _items.length;
+        var domIdx = Math.round(track.scrollLeft / _slideWidth());
+        var realIdx;
+        if (N > 1 && domIdx === 0) {
+          realIdx = N - 1;
+          track.scrollLeft = N * _slideWidth();    /* jump to real last (DOM idx N) */
+        } else if (N > 1 && domIdx === N + 1) {
+          realIdx = 0;
+          track.scrollLeft = 1 * _slideWidth();    /* jump to real first (DOM idx 1) */
+        } else {
+          realIdx = N > 1 ? domIdx - 1 : domIdx;
+        }
+        if (realIdx !== _currentIdx) _onPageChange(realIdx);
       }
       if ('onscrollend' in window) {
         track.addEventListener('scrollend', _onScrollSettled);
@@ -270,16 +291,25 @@
     _currentIdx = Math.max(0, Math.min(startIdx || 0, _items.length - 1));
 
     var track = document.getElementById('fs-track');
-    var html = '';
-    _items.forEach(function(item, i) {
+    function _slideHtml(item, i, isClone) {
       var inner;
       if (item.kind === 'image') {
         inner = '<div class="fs-stage"><img class="fs-img" data-src="' + _escapeHtml(item.url) + '"></div>';
       } else {
         inner = '<div class="fs-video-wrap"><video preload="metadata" playsinline data-src="' + _escapeHtml(item.url) + '"></video><button type="button" class="fs-video-play" aria-label="播放">&#9654;</button></div>';
       }
-      html += '<section class="fs-slide" data-idx="' + i + '" data-kind="' + _escapeHtml(item.kind) + '">' + inner + '</section>';
-    });
+      return '<section class="fs-slide" data-idx="' + i + '" data-kind="' + _escapeHtml(item.kind) + '"' +
+        (isClone ? ' data-clone="' + isClone + '"' : '') + '>' + inner + '</section>';
+    }
+    var html = '';
+    if (_items.length > 1) {
+      /* circular wrap: prepend clone-of-last, append clone-of-first */
+      html += _slideHtml(_items[_items.length - 1], _items.length - 1, 'left');
+    }
+    _items.forEach(function(item, i) { html += _slideHtml(item, i, null); });
+    if (_items.length > 1) {
+      html += _slideHtml(_items[0], 0, 'right');
+    }
     track.innerHTML = html;
 
     var multi = _items.length > 1;
@@ -291,19 +321,22 @@
     overlay.classList.add('open');
 
     requestAnimationFrame(function() {
-      track.scrollLeft = _currentIdx * window.innerWidth;
+      track.scrollLeft = _domIdxForReal(_currentIdx) * _slideWidth();
       _onPageChange(_currentIdx);
       _bindPinchHandlersToSlide(_currentIdx);
     });
   }
 
   function _onPageChange(newIdx) {
-    if (newIdx < 0 || newIdx >= _items.length) return;
+    var N = _items.length;
+    if (N === 0) return;
+    /* wrap defensively (callers should already pass real idx in [0, N-1]) */
+    newIdx = ((newIdx % N) + N) % N;
     _pauseAndResetVideo(_currentIdx);
     _currentIdx = newIdx;
     var item = _items[newIdx];
     var counter = document.getElementById('fs-counter');
-    if (counter) counter.textContent = (newIdx + 1) + ' / ' + _items.length;
+    if (counter) counter.textContent = (newIdx + 1) + ' / ' + N;
     var dlBtn = document.getElementById('fs-download');
     if (dlBtn) {
       if (item && item.downloadHref) {
@@ -314,44 +347,52 @@
         dlBtn.dataset.href = '';
       }
     }
+    /* Arrows always enabled when wrap is on (multi-item). Single-item: handled via display:none in openFullscreenGallery. */
     var prevBtn = document.getElementById('fs-prev');
     var nextBtn = document.getElementById('fs-next');
-    if (prevBtn) prevBtn.disabled = (newIdx === 0);
-    if (nextBtn) nextBtn.disabled = (newIdx === _items.length - 1);
+    if (prevBtn) prevBtn.disabled = false;
+    if (nextBtn) nextBtn.disabled = false;
     _fsReset();
     _ensureLoaded(newIdx);
-    _ensureLoaded(newIdx - 1);
-    _ensureLoaded(newIdx + 1);
+    _ensureLoaded((newIdx - 1 + N) % N);
+    _ensureLoaded((newIdx + 1) % N);
     _bindPinchHandlersToSlide(newIdx);
   }
 
-  function _goTo(idx) {
-    if (idx < 0 || idx >= _items.length) return;
+  function _goTo(realIdx) {
+    var N = _items.length;
+    if (N === 0) return;
+    /* wrap to keep idx within [0, N-1] — circular nav */
+    realIdx = ((realIdx % N) + N) % N;
     var track = document.getElementById('fs-track');
     if (!track) return;
-    track.scrollTo({ left: idx * window.innerWidth, behavior: 'smooth' });
+    track.scrollTo({ left: _domIdxForReal(realIdx) * _slideWidth(), behavior: 'smooth' });
     /* scrollend handler will fire _onPageChange */
   }
 
   /* Placeholders — _ensureLoaded baseline here, T6 guards. */
   function _pauseAndResetVideo(idx) {
-    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"][data-kind="video"]');
-    if (!slide) return;
-    var video = slide.querySelector('video');
-    if (!video) return;
-    try { video.pause(); } catch (e) {}
-    try { video.currentTime = 0; } catch (e) {}
-    video.controls = false;
-    var wrap = slide.querySelector('.fs-video-wrap');
-    if (wrap) wrap.classList.remove('playing');
+    /* idx is REAL idx; pause both real + clone copies of that video */
+    var slides = document.querySelectorAll('.fs-slide[data-idx="' + idx + '"][data-kind="video"]');
+    slides.forEach(function(slide) {
+      var video = slide.querySelector('video');
+      if (!video) return;
+      try { video.pause(); } catch (e) {}
+      try { video.currentTime = 0; } catch (e) {}
+      video.controls = false;
+      var wrap = slide.querySelector('.fs-video-wrap');
+      if (wrap) wrap.classList.remove('playing');
+    });
   }
 
   function _ensureLoaded(idx) {
     if (idx < 0 || idx >= _items.length) return;
-    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"]');
-    if (!slide) return;
-    var media = slide.querySelector('img, video');
-    if (media && media.dataset.src && !media.src) media.src = media.dataset.src;
+    /* lazy-load BOTH real and clone copies for the given real idx */
+    var slides = document.querySelectorAll('.fs-slide[data-idx="' + idx + '"]');
+    slides.forEach(function(slide) {
+      var media = slide.querySelector('img, video');
+      if (media && media.dataset.src && !media.src) media.src = media.dataset.src;
+    });
   }
 
   /* Backward compat — F9 single-image callers still work. */
