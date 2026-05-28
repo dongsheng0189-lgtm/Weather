@@ -40,18 +40,28 @@
   var _currentIdx = 0;
 
   function _fsApply() {
-    var img = document.getElementById('fullscreen-img');
-    if (!img) return;
-    img.style.transform = 'translate(' + _fsState.tx + 'px,' + _fsState.ty + 'px) scale(' + _fsState.scale + ')';
+    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]');
+    var track = document.getElementById('fs-track');
+    if (track) {
+      if (_fsState.scale > 1.01) track.style.overflowX = 'hidden';
+      else track.style.overflowX = 'auto';
+    }
+    if (!slide) return;
+    var img = slide.querySelector('.fs-img');
+    if (img) img.style.transform = 'translate(' + _fsState.tx + 'px,' + _fsState.ty + 'px) scale(' + _fsState.scale + ')';
   }
 
   function _fsReset() {
     _fsState.scale = 1; _fsState.tx = 0; _fsState.ty = 0;
+    var track = document.getElementById('fs-track');
+    if (track) track.style.overflowX = 'auto';
     _fsApply();
   }
 
   function _fsClampPan() {
-    var img = document.getElementById('fullscreen-img');
+    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]');
+    if (!slide) return;
+    var img = slide.querySelector('.fs-img');
     if (!img) return;
     var rect = img.getBoundingClientRect();
     var w = rect.width, h = rect.height;
@@ -66,15 +76,13 @@
 
   function _fsOnPointerDown(e) {
     _fsPointers[e.pointerId] = { x: e.clientX, y: e.clientY };
-    var stage = document.getElementById('fs-stage');
-    if (stage && stage.setPointerCapture) { try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
     var ids = Object.keys(_fsPointers);
     if (ids.length === 2) {
       var p1 = _fsPointers[ids[0]], p2 = _fsPointers[ids[1]];
       _fsLastDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
       _fsLastCenter = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      e.preventDefault();
     }
-    e.preventDefault();
   }
 
   function _fsOnPointerMove(e) {
@@ -83,6 +91,7 @@
     _fsPointers[e.pointerId] = { x: e.clientX, y: e.clientY };
     var ids = Object.keys(_fsPointers);
     if (ids.length === 2) {
+      /* 2-finger pinch — always preventDefault, do our own scale */
       var p1 = _fsPointers[ids[0]], p2 = _fsPointers[ids[1]];
       var dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
       if (_fsLastDist > 0) {
@@ -98,13 +107,16 @@
       }
       _fsLastDist = dist;
       _fsApply();
-    } else if (ids.length === 1 && _fsState.scale > 1) {
+      e.preventDefault();
+    } else if (ids.length === 1 && _fsState.scale > 1.01) {
+      /* 1-finger pan while zoomed — preventDefault, do our own translate */
       _fsState.tx += e.clientX - prev.x;
       _fsState.ty += e.clientY - prev.y;
       _fsClampPan();
       _fsApply();
+      e.preventDefault();
     }
-    e.preventDefault();
+    /* else: 1 pointer + scale === 1 — do NOT preventDefault, let native scroll-snap handle swipe */
   }
 
   function _fsOnPointerUp(e) {
@@ -172,6 +184,20 @@
       btn.disabled = true;
       downloadAttachment(href).finally(function() { btn.disabled = false; });
     });
+  }
+
+  function _bindPinchHandlersToSlide(idx) {
+    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"][data-kind="image"]');
+    if (!slide) return;
+    var stage = slide.querySelector('.fs-stage');
+    if (!stage || stage._fsBound) return;
+    stage._fsBound = true;
+    stage.addEventListener('pointerdown', _fsOnPointerDown);
+    stage.addEventListener('pointermove', _fsOnPointerMove);
+    stage.addEventListener('pointerup', _fsOnPointerUp);
+    stage.addEventListener('pointercancel', _fsOnPointerUp);
+    stage.addEventListener('dblclick', _fsOnDblClick);
+    stage.addEventListener('wheel', _fsOnWheel, { passive: false });
   }
 
   function _fsInit() {
@@ -267,6 +293,7 @@
     requestAnimationFrame(function() {
       track.scrollLeft = _currentIdx * window.innerWidth;
       _onPageChange(_currentIdx);
+      _bindPinchHandlersToSlide(_currentIdx);
     });
   }
 
@@ -295,6 +322,7 @@
     _ensureLoaded(newIdx);
     _ensureLoaded(newIdx - 1);
     _ensureLoaded(newIdx + 1);
+    _bindPinchHandlersToSlide(newIdx);
   }
 
   function _goTo(idx) {
