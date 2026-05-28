@@ -1,17 +1,24 @@
-/* Shared fullscreen viewer — F6 spec: docs/superpowers/specs/2026-05-25-announcement-media-viewer.md
+/* Shared fullscreen viewer — F10 swipe gallery (seamless circular wrap)
+ * Spec: docs/superpowers/specs/2026-05-28-attachment-swipe-gallery-design.md
  *
  * Public API:
- *   window.openFullscreen(url, opts)  — 顯示 image fullscreen + ✕ + pinch zoom + dblclick + drag
- *                                       opts.downloadHref: optional endpoint URL for ⬇️ button
- *   window.closeFullscreen()          — 關閉
- *   window.downloadAttachment(endpointUrl) — 下載附件（fetch presigned URL → hidden <a> click）
- *   window.DOWNLOAD_ICON_SVG(size)    — 共用 download SVG icon、size 預設 20、viewer 用 32
+ *   window.openFullscreen(url, opts)             — backward-compat shim, single image
+ *   window.openFullscreenGallery(items, startIdx) — multi-attachment gallery with left/right swipe
+ *   window.closeFullscreen()                      — close
+ *   window.downloadAttachment(endpointUrl)        — download via presigned URL
+ *   window.DOWNLOAD_ICON_SVG(size)                — shared download SVG icon
  *
- * 第一次 openFullscreen 自動 dynamic inject overlay markup 到 document.body (idempotent)。
- * 抽自 notes/editor.html line 914-1067、原本 inline 在 editor template + 用 inline HTML overlay。
+ * Architecture:
+ *   - Track is a flex row of slides positioned by CSS `transform: translateX(...)`.
+ *   - For N > 1 we render items × 3 (left copy / middle = canonical / right copy)
+ *     so swipes past either end keep flowing visually; after each swipe transition
+ *     we silently re-center to the canonical (middle) copy of the same real idx.
+ *     User never sees a "jump" — the motion is a continuous loop.
+ *   - Swipe handled by our own pointer events on the track (not native scroll).
+ *   - Pinch zoom + double-tap zoom + wheel zoom on per-slide `.fs-stage`; while
+ *     scale > 1 the swipe handler bails (pan handled by stage).
  */
 (function() {
-  // Feather Icons "download" — 線條清楚、跟 webapp 視覺風格一致
   function DOWNLOAD_ICON_SVG(size) {
     var s = size || 20;
     return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" ' +
@@ -31,21 +38,29 @@
     });
   }
 
+  /* ──────── Zoom / pan state (per slide) ──────── */
   var _fsState = { scale: 1, tx: 0, ty: 0, minScale: 1, maxScale: 6 };
   var _fsPointers = {};
   var _fsLastDist = 0;
   var _fsLastCenter = { x: 0, y: 0 };
-  var _fsLastTap = 0;
-  var _items = [];
-  var _currentIdx = 0;
 
+  /* ──────── Gallery state ──────── */
+  var _items = [];        /* real items */
+  var _currentIdx = 0;    /* real idx 0..N-1 */
+  var _translateX = 0;    /* current track translate px (negative) */
+  var _drag = null;       /* swipe drag state */
+
+  /* ──────── DOM index math ──────── */
+  function _N() { return _items.length; }
+  function _W() { return window.innerWidth; }
+  /* When N > 1 we render 3 copies (left/middle/right). Middle starts at slot N. */
+  function _multi() { return _N() > 1; }
+  function _canonicalSlot(realIdx) { return _multi() ? _N() + realIdx : realIdx; }
+
+  /* ──────── Pinch zoom helpers ──────── */
   function _fsApply() {
-    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]:not([data-clone])');
-    var track = document.getElementById('fs-track');
-    if (track) {
-      if (_fsState.scale > 1.01) track.style.overflowX = 'hidden';
-      else track.style.overflowX = 'auto';
-    }
+    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"][data-copy="m"]');
+    if (!slide) slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]');
     if (!slide) return;
     var img = slide.querySelector('.fs-img');
     if (img) img.style.transform = 'translate(' + _fsState.tx + 'px,' + _fsState.ty + 'px) scale(' + _fsState.scale + ')';
@@ -53,13 +68,12 @@
 
   function _fsReset() {
     _fsState.scale = 1; _fsState.tx = 0; _fsState.ty = 0;
-    var track = document.getElementById('fs-track');
-    if (track) track.style.overflowX = 'auto';
     _fsApply();
   }
 
   function _fsClampPan() {
-    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]:not([data-clone])');
+    var slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"][data-copy="m"]');
+    if (!slide) slide = document.querySelector('.fs-slide[data-idx="' + _currentIdx + '"][data-kind="image"]');
     if (!slide) return;
     var img = slide.querySelector('.fs-img');
     if (!img) return;
@@ -82,6 +96,7 @@
       _fsLastDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
       _fsLastCenter = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       e.preventDefault();
+      e.stopPropagation();   /* block swipe handler from grabbing this gesture */
     }
   }
 
@@ -91,7 +106,7 @@
     _fsPointers[e.pointerId] = { x: e.clientX, y: e.clientY };
     var ids = Object.keys(_fsPointers);
     if (ids.length === 2) {
-      /* 2-finger pinch — always preventDefault, do our own scale */
+      /* pinch */
       var p1 = _fsPointers[ids[0]], p2 = _fsPointers[ids[1]];
       var dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
       if (_fsLastDist > 0) {
@@ -108,15 +123,17 @@
       _fsLastDist = dist;
       _fsApply();
       e.preventDefault();
+      e.stopPropagation();
     } else if (ids.length === 1 && _fsState.scale > 1.01) {
-      /* 1-finger pan while zoomed — preventDefault, do our own translate */
+      /* pan zoomed image */
       _fsState.tx += e.clientX - prev.x;
       _fsState.ty += e.clientY - prev.y;
       _fsClampPan();
       _fsApply();
       e.preventDefault();
+      e.stopPropagation();
     }
-    /* else: 1 pointer + scale === 1 — do NOT preventDefault, let native scroll-snap handle swipe */
+    /* else: 1 pointer + scale === 1 — let event bubble to track swipe handler */
   }
 
   function _fsOnPointerUp(e) {
@@ -161,6 +178,7 @@
     _fsApply();
   }
 
+  /* ──────── Chrome markup (injected once) ──────── */
   function _ensureMarkup() {
     if (document.getElementById('fullscreen-overlay')) return;
     var overlay = document.createElement('div');
@@ -186,64 +204,116 @@
     });
   }
 
-  /* DOM index helpers for circular wrap. When multi-item we render [last-clone, real0..realN-1, first-clone]
-   * so native scroll-snap can swipe past either end into a clone; scrollend then instant-jumps to the matching real slide. */
-  function _domIdxForReal(realIdx) {
-    return _items.length > 1 ? realIdx + 1 : realIdx;
-  }
-  function _slideWidth() { return window.innerWidth; }
-
-  function _bindPinchHandlersToSlide(idx) {
-    /* idx is REAL idx; query the non-clone slide */
-    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"][data-kind="image"]:not([data-clone])');
-    if (!slide) return;
-    var stage = slide.querySelector('.fs-stage');
-    if (!stage || stage._fsBound) return;
-    stage._fsBound = true;
-    stage.addEventListener('pointerdown', _fsOnPointerDown);
-    stage.addEventListener('pointermove', _fsOnPointerMove);
-    stage.addEventListener('pointerup', _fsOnPointerUp);
-    stage.addEventListener('pointercancel', _fsOnPointerUp);
-    stage.addEventListener('dblclick', _fsOnDblClick);
-    stage.addEventListener('wheel', _fsOnWheel, { passive: false });
+  /* ──────── Bind pinch/zoom handlers on every slide's stage (image only) ──────── */
+  function _bindPinchHandlersToSlide(realIdx) {
+    /* Bind to all copies (left/middle/right) of this real idx so pinch works no matter which copy is visible */
+    var slides = document.querySelectorAll('.fs-slide[data-idx="' + realIdx + '"][data-kind="image"]');
+    slides.forEach(function(slide) {
+      var stage = slide.querySelector('.fs-stage');
+      if (!stage || stage._fsBound) return;
+      stage._fsBound = true;
+      stage.addEventListener('pointerdown', _fsOnPointerDown);
+      stage.addEventListener('pointermove', _fsOnPointerMove);
+      stage.addEventListener('pointerup', _fsOnPointerUp);
+      stage.addEventListener('pointercancel', _fsOnPointerUp);
+      stage.addEventListener('dblclick', _fsOnDblClick);
+      stage.addEventListener('wheel', _fsOnWheel, { passive: false });
+    });
   }
 
+  /* ──────── Track transform helper ──────── */
+  function _setTrack(translateX, animated) {
+    var track = document.getElementById('fs-track');
+    if (!track) return;
+    _translateX = translateX;
+    if (animated) track.classList.add('fs-track-snap');
+    else track.classList.remove('fs-track-snap');
+    track.style.transform = 'translate3d(' + translateX + 'px,0,0)';
+  }
+
+  /* After transition: if current slot is in left/right copy, instant-jump back to canonical (middle) copy.
+   * Same real idx → identical visible image → user sees no change. */
+  function _recenter() {
+    if (!_multi()) return;
+    var target = -_canonicalSlot(_currentIdx) * _W();
+    if (Math.round(_translateX) !== Math.round(target)) _setTrack(target, false);
+  }
+
+  /* ──────── Swipe handlers (bound on track) ──────── */
+  function _onTrackPointerDown(e) {
+    if (!_multi()) return;
+    if (_fsState.scale > 1.01) return;            /* zoomed — pinch/pan owns the gesture */
+    if (_drag) return;                            /* one drag at a time */
+    /* Skip if pointer started on chrome button (close / arrow / download / play) */
+    if (e.target && e.target.closest && e.target.closest('.fs-close,.fs-prev,.fs-next,.fs-download,.fs-video-play')) return;
+    _drag = {
+      id: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTx: _translateX,
+      didMove: false,
+      abandoned: false,
+      t0: Date.now(),
+    };
+    /* Disable transition during drag so finger tracks 1:1 */
+    var track = document.getElementById('fs-track');
+    if (track) track.classList.remove('fs-track-snap');
+  }
+
+  function _onTrackPointerMove(e) {
+    if (!_drag || _drag.id !== e.pointerId || _drag.abandoned) return;
+    if (_fsState.scale > 1.01) { _drag = null; return; }
+    var dx = e.clientX - _drag.startX;
+    var dy = e.clientY - _drag.startY;
+    if (!_drag.didMove) {
+      /* Lock in axis: horizontal → swipe, vertical → abandon */
+      if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        _drag.didMove = true;
+      } else if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        _drag.abandoned = true;
+        return;
+      } else {
+        return;
+      }
+    }
+    e.preventDefault();
+    _setTrack(_drag.startTx + dx, false);
+  }
+
+  function _onTrackPointerUp(e) {
+    if (!_drag || _drag.id !== e.pointerId) return;
+    var dx = e.clientX - _drag.startX;
+    var dt = Math.max(1, Date.now() - _drag.t0);
+    var velocity = Math.abs(dx) / dt;             /* px/ms */
+    var didMove = _drag.didMove && !_drag.abandoned;
+    _drag = null;
+    if (!didMove) return;
+    var threshold = Math.min(60, _W() * 0.15);
+    var advance = 0;
+    if (Math.abs(dx) > threshold || velocity > 0.5) {
+      advance = dx < 0 ? 1 : -1;                  /* drag left → next; drag right → prev */
+    }
+    _goTo(_currentIdx + advance);                 /* advance=0 → snap back to current canonical */
+  }
+
+  /* ──────── Init: attach handlers once ──────── */
   function _fsInit() {
     _ensureMarkup();
     var track = document.getElementById('fs-track');
     if (track && !track._fsBound) {
       track._fsBound = true;
-
-      /* page tracking — prefer scrollend, fallback to scroll + 200ms debounce.
-       * Circular wrap: when DOM idx lands on a clone (0 = clone-of-last, N+1 = clone-of-first),
-       * instant-jump to the matching real slide so swipe loops both ways. */
-      function _onScrollSettled() {
-        var N = _items.length;
-        var domIdx = Math.round(track.scrollLeft / _slideWidth());
-        var realIdx;
-        if (N > 1 && domIdx === 0) {
-          realIdx = N - 1;
-          track.scrollLeft = N * _slideWidth();    /* jump to real last (DOM idx N) */
-        } else if (N > 1 && domIdx === N + 1) {
-          realIdx = 0;
-          track.scrollLeft = 1 * _slideWidth();    /* jump to real first (DOM idx 1) */
-        } else {
-          realIdx = N > 1 ? domIdx - 1 : domIdx;
-        }
-        if (realIdx !== _currentIdx) _onPageChange(realIdx);
-      }
-      if ('onscrollend' in window) {
-        track.addEventListener('scrollend', _onScrollSettled);
-      } else {
-        var _scrollTimer = null;
-        track.addEventListener('scroll', function() {
-          if (_scrollTimer) clearTimeout(_scrollTimer);
-          _scrollTimer = setTimeout(_onScrollSettled, 200);
-        });
-      }
+      track.addEventListener('pointerdown', _onTrackPointerDown);
+      track.addEventListener('pointermove', _onTrackPointerMove);
+      track.addEventListener('pointerup', _onTrackPointerUp);
+      track.addEventListener('pointercancel', _onTrackPointerUp);
+      /* re-center to canonical (middle) copy after swipe animation completes */
+      track.addEventListener('transitionend', function(e) {
+        if (e.propertyName !== 'transform') return;
+        _recenter();
+      });
     }
 
-    /* delegate clicks for per-slide play buttons */
+    /* delegated play button handler for video slides */
     if (track && !track._fsPlayBound) {
       track._fsPlayBound = true;
       track.addEventListener('click', function(e) {
@@ -257,7 +327,7 @@
         if (!video.src && video.dataset.src) video.src = video.dataset.src;
         video.controls = true;
         wrap.classList.add('playing');
-        video.play().catch(function() { /* iOS may require user gesture, already inside click */ });
+        video.play().catch(function() { /* iOS autoplay quirks — already inside click, should be OK */ });
       });
     }
 
@@ -277,13 +347,27 @@
       document.addEventListener('keydown', function(e) {
         var overlay = document.getElementById('fullscreen-overlay');
         if (!overlay || !overlay.classList.contains('open')) return;
-        if (e.key === 'ArrowLeft')  { _goTo(_currentIdx - 1); e.preventDefault(); }
+        if (e.key === 'ArrowLeft')       { _goTo(_currentIdx - 1); e.preventDefault(); }
         else if (e.key === 'ArrowRight') { _goTo(_currentIdx + 1); e.preventDefault(); }
         else if (e.key === 'Escape')     { closeFullscreen(); }
       });
     }
   }
 
+  /* ──────── Slide markup ──────── */
+  function _slideHtml(item, realIdx, copy) {
+    /* copy: 'l' (left), 'm' (middle/canonical), 'r' (right), or null (single-item N=1) */
+    var inner;
+    if (item.kind === 'image') {
+      inner = '<div class="fs-stage"><img class="fs-img" data-src="' + _escapeHtml(item.url) + '"></div>';
+    } else {
+      inner = '<div class="fs-video-wrap"><video preload="metadata" playsinline data-src="' + _escapeHtml(item.url) + '"></video><button type="button" class="fs-video-play" aria-label="播放">&#9654;</button></div>';
+    }
+    return '<section class="fs-slide" data-idx="' + realIdx + '" data-kind="' + _escapeHtml(item.kind) +
+      '"' + (copy ? ' data-copy="' + copy + '"' : '') + '>' + inner + '</section>';
+  }
+
+  /* ──────── Open / chrome update / close ──────── */
   function openFullscreenGallery(items, startIdx) {
     if (!items || items.length === 0) return;
     _fsInit();
@@ -291,28 +375,20 @@
     _currentIdx = Math.max(0, Math.min(startIdx || 0, _items.length - 1));
 
     var track = document.getElementById('fs-track');
-    function _slideHtml(item, i, isClone) {
-      var inner;
-      if (item.kind === 'image') {
-        inner = '<div class="fs-stage"><img class="fs-img" data-src="' + _escapeHtml(item.url) + '"></div>';
-      } else {
-        inner = '<div class="fs-video-wrap"><video preload="metadata" playsinline data-src="' + _escapeHtml(item.url) + '"></video><button type="button" class="fs-video-play" aria-label="播放">&#9654;</button></div>';
-      }
-      return '<section class="fs-slide" data-idx="' + i + '" data-kind="' + _escapeHtml(item.kind) + '"' +
-        (isClone ? ' data-clone="' + isClone + '"' : '') + '>' + inner + '</section>';
-    }
     var html = '';
-    if (_items.length > 1) {
-      /* circular wrap: prepend clone-of-last, append clone-of-first */
-      html += _slideHtml(_items[_items.length - 1], _items.length - 1, 'left');
-    }
-    _items.forEach(function(item, i) { html += _slideHtml(item, i, null); });
-    if (_items.length > 1) {
-      html += _slideHtml(_items[0], 0, 'right');
+    if (_multi()) {
+      /* 3 copies: left | middle (canonical) | right */
+      _items.forEach(function(item, i) { html += _slideHtml(item, i, 'l'); });
+      _items.forEach(function(item, i) { html += _slideHtml(item, i, 'm'); });
+      _items.forEach(function(item, i) { html += _slideHtml(item, i, 'r'); });
+    } else {
+      html += _slideHtml(_items[0], 0, null);
     }
     track.innerHTML = html;
+    /* Set track width explicitly so flex children layout correctly */
+    track.style.width = (_multi() ? _N() * 3 : 1) * 100 + 'vw';
 
-    var multi = _items.length > 1;
+    var multi = _multi();
     document.getElementById('fs-prev').style.display = multi ? '' : 'none';
     document.getElementById('fs-next').style.display = multi ? '' : 'none';
     document.getElementById('fs-counter').style.display = multi ? '' : 'none';
@@ -321,22 +397,24 @@
     overlay.classList.add('open');
 
     requestAnimationFrame(function() {
-      track.scrollLeft = _domIdxForReal(_currentIdx) * _slideWidth();
-      _onPageChange(_currentIdx);
+      _setTrack(-_canonicalSlot(_currentIdx) * _W(), false);
+      _updateChrome();
+      _ensureLoaded(_currentIdx);
+      if (_N() > 1) {
+        _ensureLoaded((_currentIdx - 1 + _N()) % _N());
+        _ensureLoaded((_currentIdx + 1) % _N());
+      }
       _bindPinchHandlersToSlide(_currentIdx);
     });
   }
 
-  function _onPageChange(newIdx) {
-    var N = _items.length;
+  /* Update counter / download / arrows based on _currentIdx. Always-enabled arrows for circular wrap. */
+  function _updateChrome() {
+    var N = _N();
     if (N === 0) return;
-    /* wrap defensively (callers should already pass real idx in [0, N-1]) */
-    newIdx = ((newIdx % N) + N) % N;
-    _pauseAndResetVideo(_currentIdx);
-    _currentIdx = newIdx;
-    var item = _items[newIdx];
+    var item = _items[_currentIdx];
     var counter = document.getElementById('fs-counter');
-    if (counter) counter.textContent = (newIdx + 1) + ' / ' + N;
+    if (counter) counter.textContent = (_currentIdx + 1) + ' / ' + N;
     var dlBtn = document.getElementById('fs-download');
     if (dlBtn) {
       if (item && item.downloadHref) {
@@ -347,33 +425,53 @@
         dlBtn.dataset.href = '';
       }
     }
-    /* Arrows always enabled when wrap is on (multi-item). Single-item: handled via display:none in openFullscreenGallery. */
     var prevBtn = document.getElementById('fs-prev');
     var nextBtn = document.getElementById('fs-next');
     if (prevBtn) prevBtn.disabled = false;
     if (nextBtn) nextBtn.disabled = false;
-    _fsReset();
-    _ensureLoaded(newIdx);
-    _ensureLoaded((newIdx - 1 + N) % N);
-    _ensureLoaded((newIdx + 1) % N);
-    _bindPinchHandlersToSlide(newIdx);
   }
 
-  function _goTo(realIdx) {
-    var N = _items.length;
+  /* Advance to target real idx (with wrap). Computes slot contiguous to current visual position
+   * so transition animates smoothly even when wrapping; _recenter() snaps back after settling. */
+  function _goTo(targetRealIdx) {
+    var N = _N();
     if (N === 0) return;
-    /* wrap to keep idx within [0, N-1] — circular nav */
-    realIdx = ((realIdx % N) + N) % N;
-    var track = document.getElementById('fs-track');
-    if (!track) return;
-    track.scrollTo({ left: _domIdxForReal(realIdx) * _slideWidth(), behavior: 'smooth' });
-    /* scrollend handler will fire _onPageChange */
+    var realIdx = ((targetRealIdx % N) + N) % N;
+    var oldIdx = _currentIdx;
+
+    if (realIdx !== oldIdx) _pauseAndResetVideo(oldIdx);
+
+    /* Compute slot to animate to: current slot + raw delta (preserves visual direction across wrap) */
+    var currentSlot = Math.round(-_translateX / _W());
+    var targetSlot;
+    if (realIdx === oldIdx) {
+      targetSlot = _multi() ? _canonicalSlot(oldIdx) : 0;   /* snap back to canonical for current */
+    } else {
+      var deltaIdx = targetRealIdx - oldIdx;                /* raw delta from caller (±1 typically) */
+      targetSlot = currentSlot + deltaIdx;
+      /* Clamp into renderable range [0, 3N-1] when multi-copy */
+      if (_multi()) {
+        var total = N * 3;
+        targetSlot = ((targetSlot % total) + total) % total;
+      } else {
+        targetSlot = 0;
+      }
+    }
+
+    _currentIdx = realIdx;
+    _updateChrome();
+    _fsReset();
+    _ensureLoaded(realIdx);
+    if (_multi()) {
+      _ensureLoaded((realIdx - 1 + N) % N);
+      _ensureLoaded((realIdx + 1) % N);
+    }
+    _setTrack(-targetSlot * _W(), true);
+    _bindPinchHandlersToSlide(realIdx);
   }
 
-  /* Placeholders — _ensureLoaded baseline here, T6 guards. */
-  function _pauseAndResetVideo(idx) {
-    /* idx is REAL idx; pause both real + clone copies of that video */
-    var slides = document.querySelectorAll('.fs-slide[data-idx="' + idx + '"][data-kind="video"]');
+  function _pauseAndResetVideo(realIdx) {
+    var slides = document.querySelectorAll('.fs-slide[data-idx="' + realIdx + '"][data-kind="video"]');
     slides.forEach(function(slide) {
       var video = slide.querySelector('video');
       if (!video) return;
@@ -385,17 +483,17 @@
     });
   }
 
-  function _ensureLoaded(idx) {
-    if (idx < 0 || idx >= _items.length) return;
-    /* lazy-load BOTH real and clone copies for the given real idx */
-    var slides = document.querySelectorAll('.fs-slide[data-idx="' + idx + '"]');
+  function _ensureLoaded(realIdx) {
+    if (realIdx < 0 || realIdx >= _N()) return;
+    /* lazy-load every copy (left/middle/right) of this real idx */
+    var slides = document.querySelectorAll('.fs-slide[data-idx="' + realIdx + '"]');
     slides.forEach(function(slide) {
       var media = slide.querySelector('img, video');
       if (media && media.dataset.src && !media.src) media.src = media.dataset.src;
     });
   }
 
-  /* Backward compat — F9 single-image callers still work. */
+  /* Backward compat — F9 single-image callers still work */
   var openFullscreen = function(url, opts) {
     opts = opts || {};
     openFullscreenGallery([{ kind: 'image', url: url, downloadHref: opts.downloadHref || null }], 0);
@@ -407,9 +505,16 @@
     overlay.classList.remove('open');
     _items.forEach(function(_, i) { _pauseAndResetVideo(i); });
     var track = document.getElementById('fs-track');
-    if (track) track.innerHTML = '';
+    if (track) {
+      track.innerHTML = '';
+      track.classList.remove('fs-track-snap');
+      track.style.transform = '';
+      track.style.width = '';
+    }
     _items = [];
     _currentIdx = 0;
+    _translateX = 0;
+    _drag = null;
     _fsReset();
   }
 

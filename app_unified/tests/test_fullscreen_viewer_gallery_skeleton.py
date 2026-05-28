@@ -33,12 +33,14 @@ def test_chrome_elements_present():
         assert cls in src, f'missing chrome element: {cls}'
 
 
-def test_css_scroll_snap():
+def test_css_transform_track():
+    """F10 swipe uses transform-driven track (not native scroll-snap) for seamless circular wrap."""
     css = VIEWER_CSS.read_text(encoding='utf-8')
-    assert 'scroll-snap-type: x mandatory' in css
-    assert 'scroll-snap-align: center' in css
-    assert 'scroll-snap-stop: always' in css
-    assert 'overscroll-behavior-x: contain' in css
+    assert '.fs-track' in css
+    assert 'fs-track-snap' in css
+    assert 'transition: transform' in css
+    # slide width is full viewport
+    assert 'flex: 0 0 100vw' in css
 
 
 def test_css_arrow_hidden_on_touch():

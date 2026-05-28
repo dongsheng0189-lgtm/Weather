@@ -8,10 +8,10 @@
 .fs-download { position: fixed; right: 16px; bottom: 24px; z-index: 10001; background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%; width: 64px; height: 64px; font-size: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
 .fs-download:hover, .fs-download:focus { background: rgba(0,0,0,.75); }
 .fs-download:active { transform: scale(0.93); }
-/* F10 swipe gallery additions */
-.fs-track { display: flex; width: 100vw; height: 100vh; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; scrollbar-width: none; overscroll-behavior-x: contain; }
-.fs-track::-webkit-scrollbar { display: none; }
-.fs-slide { flex: 0 0 100vw; height: 100vh; scroll-snap-align: center; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; position: relative; }
+/* F10 swipe gallery — transform-based track with seamless 3-copy wrap (no native scroll-snap) */
+.fs-track { display: flex; height: 100vh; transform: translate3d(0,0,0); will-change: transform; touch-action: pan-y; }
+.fs-track.fs-track-snap { transition: transform 0.32s cubic-bezier(0.33, 1, 0.68, 1); }
+.fs-slide { flex: 0 0 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; position: relative; }
 .fs-slide .fs-img { max-width: 100vw; max-height: 100vh; object-fit: contain; transform-origin: center center; will-change: transform; pointer-events: none; -webkit-user-drag: none; user-drag: none; }
 .fs-prev, .fs-next { position: fixed; top: 50%; transform: translateY(-50%); width: 48px; height: 80px; background: rgba(0,0,0,.4); color: #fff; border: none; font-size: 32px; cursor: pointer; z-index: 10; }
 .fs-prev { left: 0; border-radius: 0 8px 8px 0; }

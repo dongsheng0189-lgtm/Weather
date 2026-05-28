@@ -13,11 +13,11 @@ def test_slides_use_data_src_not_src():
     assert 'class="fs-img" src=' not in src and "class='fs-img' src=" not in src
 
 
-def test_ensureloaded_called_for_three_indices_on_page_change():
+def test_ensureloaded_called_for_three_indices_on_navigation():
+    """_goTo triggers _ensureLoaded(realIdx) + _ensureLoaded((realIdx-1+N)%N) + _ensureLoaded((realIdx+1)%N) (wraps)."""
     src = VIEWER_JS.read_text(encoding='utf-8')
-    # _onPageChange triggers _ensureLoaded(newIdx) + _ensureLoaded(newIdx-1) + _ensureLoaded(newIdx+1)
-    page_change_section = src.split('function _onPageChange')[1].split('function ')[0]
-    assert page_change_section.count('_ensureLoaded') >= 3
+    goto_section = src.split('function _goTo(')[1].split('function ')[0]
+    assert goto_section.count('_ensureLoaded') >= 3
 
 
 def test_ensureloaded_swaps_dataset_src_to_src():
