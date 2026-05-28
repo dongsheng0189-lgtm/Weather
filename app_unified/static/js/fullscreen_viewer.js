@@ -196,6 +196,24 @@
       }
     }
 
+    /* delegate clicks for per-slide play buttons */
+    if (track && !track._fsPlayBound) {
+      track._fsPlayBound = true;
+      track.addEventListener('click', function(e) {
+        var btn = e.target.closest && e.target.closest('.fs-video-play');
+        if (!btn) return;
+        e.stopPropagation();
+        var wrap = btn.closest('.fs-video-wrap');
+        if (!wrap) return;
+        var video = wrap.querySelector('video');
+        if (!video) return;
+        if (!video.src && video.dataset.src) video.src = video.dataset.src;
+        video.controls = true;
+        wrap.classList.add('playing');
+        video.play().catch(function() { /* iOS may require user gesture, already inside click */ });
+      });
+    }
+
     var prevBtn = document.getElementById('fs-prev');
     var nextBtn = document.getElementById('fs-next');
     if (prevBtn && !prevBtn._fsBound) {
@@ -287,8 +305,18 @@
     /* scrollend handler will fire _onPageChange */
   }
 
-  /* Placeholders — _pauseAndResetVideo implemented in Task 4, _ensureLoaded baseline here, T6 guards. */
-  function _pauseAndResetVideo(idx) { /* Task 4 implements */ }
+  /* Placeholders — _ensureLoaded baseline here, T6 guards. */
+  function _pauseAndResetVideo(idx) {
+    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"][data-kind="video"]');
+    if (!slide) return;
+    var video = slide.querySelector('video');
+    if (!video) return;
+    try { video.pause(); } catch (e) {}
+    try { video.currentTime = 0; } catch (e) {}
+    video.controls = false;
+    var wrap = slide.querySelector('.fs-video-wrap');
+    if (wrap) wrap.classList.remove('playing');
+  }
 
   function _ensureLoaded(idx) {
     if (idx < 0 || idx >= _items.length) return;
@@ -308,6 +336,7 @@
     var overlay = document.getElementById('fullscreen-overlay');
     if (!overlay) return;
     overlay.classList.remove('open');
+    _items.forEach(function(_, i) { _pauseAndResetVideo(i); });
     var track = document.getElementById('fs-track');
     if (track) track.innerHTML = '';
     _items = [];
