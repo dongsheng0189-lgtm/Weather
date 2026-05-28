@@ -176,7 +176,47 @@
 
   function _fsInit() {
     _ensureMarkup();
-    /* per-slide pointer + nav handlers added in Task 3 / 5 */
+    var track = document.getElementById('fs-track');
+    if (track && !track._fsBound) {
+      track._fsBound = true;
+
+      /* page tracking — prefer scrollend, fallback to scroll + 200ms debounce */
+      function _onScrollSettled() {
+        var idx = Math.round(track.scrollLeft / window.innerWidth);
+        if (idx !== _currentIdx) _onPageChange(idx);
+      }
+      if ('onscrollend' in window) {
+        track.addEventListener('scrollend', _onScrollSettled);
+      } else {
+        var _scrollTimer = null;
+        track.addEventListener('scroll', function() {
+          if (_scrollTimer) clearTimeout(_scrollTimer);
+          _scrollTimer = setTimeout(_onScrollSettled, 200);
+        });
+      }
+    }
+
+    var prevBtn = document.getElementById('fs-prev');
+    var nextBtn = document.getElementById('fs-next');
+    if (prevBtn && !prevBtn._fsBound) {
+      prevBtn._fsBound = true;
+      prevBtn.addEventListener('click', function() { _goTo(_currentIdx - 1); });
+    }
+    if (nextBtn && !nextBtn._fsBound) {
+      nextBtn._fsBound = true;
+      nextBtn.addEventListener('click', function() { _goTo(_currentIdx + 1); });
+    }
+
+    if (!document._fsKeysBound) {
+      document._fsKeysBound = true;
+      document.addEventListener('keydown', function(e) {
+        var overlay = document.getElementById('fullscreen-overlay');
+        if (!overlay || !overlay.classList.contains('open')) return;
+        if (e.key === 'ArrowLeft')  { _goTo(_currentIdx - 1); e.preventDefault(); }
+        else if (e.key === 'ArrowRight') { _goTo(_currentIdx + 1); e.preventDefault(); }
+        else if (e.key === 'Escape')     { closeFullscreen(); }
+      });
+    }
   }
 
   function openFullscreenGallery(items, startIdx) {
@@ -208,15 +248,17 @@
 
     requestAnimationFrame(function() {
       track.scrollLeft = _currentIdx * window.innerWidth;
-      _onPageChangeInitial(_currentIdx);
+      _onPageChange(_currentIdx);
     });
   }
 
-  /* Initial chrome state when opening (no scrollend event yet). Real _onPageChange in Task 3. */
-  function _onPageChangeInitial(idx) {
-    var item = _items[idx];
+  function _onPageChange(newIdx) {
+    if (newIdx < 0 || newIdx >= _items.length) return;
+    _pauseAndResetVideo(_currentIdx);
+    _currentIdx = newIdx;
+    var item = _items[newIdx];
     var counter = document.getElementById('fs-counter');
-    if (counter) counter.textContent = (idx + 1) + ' / ' + _items.length;
+    if (counter) counter.textContent = (newIdx + 1) + ' / ' + _items.length;
     var dlBtn = document.getElementById('fs-download');
     if (dlBtn) {
       if (item && item.downloadHref) {
@@ -227,12 +269,33 @@
         dlBtn.dataset.href = '';
       }
     }
-    /* lazy load current — Task 6 will add ±1 */
+    var prevBtn = document.getElementById('fs-prev');
+    var nextBtn = document.getElementById('fs-next');
+    if (prevBtn) prevBtn.disabled = (newIdx === 0);
+    if (nextBtn) nextBtn.disabled = (newIdx === _items.length - 1);
+    _fsReset();
+    _ensureLoaded(newIdx);
+    _ensureLoaded(newIdx - 1);
+    _ensureLoaded(newIdx + 1);
+  }
+
+  function _goTo(idx) {
+    if (idx < 0 || idx >= _items.length) return;
+    var track = document.getElementById('fs-track');
+    if (!track) return;
+    track.scrollTo({ left: idx * window.innerWidth, behavior: 'smooth' });
+    /* scrollend handler will fire _onPageChange */
+  }
+
+  /* Placeholders — _pauseAndResetVideo implemented in Task 4, _ensureLoaded baseline here, T6 guards. */
+  function _pauseAndResetVideo(idx) { /* Task 4 implements */ }
+
+  function _ensureLoaded(idx) {
+    if (idx < 0 || idx >= _items.length) return;
     var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"]');
-    if (slide) {
-      var media = slide.querySelector('img, video');
-      if (media && media.dataset.src && !media.src) media.src = media.dataset.src;
-    }
+    if (!slide) return;
+    var media = slide.querySelector('img, video');
+    if (media && media.dataset.src && !media.src) media.src = media.dataset.src;
   }
 
   /* Backward compat — F9 single-image callers still work. */
