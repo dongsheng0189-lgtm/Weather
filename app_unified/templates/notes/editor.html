@@ -1442,12 +1442,20 @@ function renderChecklistItem(item) {
     }
   }
 
-  // meta
+  // meta — 2 rows max, conditional. (F11) check is treated as modification,
+  // shown as '修改(完成)' suffix when last action was the check.
   var meta = document.createElement('div');
-  meta.style.cssText = 'font-size:.75rem;color:#999;margin-top:.4rem;';
-  if (item.is_checked && item.checked_by_name) {
-    meta.textContent = '✓ 由 ' + item.checked_by_name + ' 在 ' + fmtDateTime(item.checked_at) + ' 完成';
+  meta.style.cssText = 'font-size:.75rem;color:#999;margin-top:.4rem;line-height:1.5;';
+  var rows = [];
+  if (item.created_by_name) {
+    rows.push('建立: ' + escapeHtml(item.created_by_name) + ' · ' + fmtDateTime(item.created_at));
   }
+  if (item.updated_by_name && item.updated_at !== item.created_at) {
+    var isLastActionCheck = item.is_checked && item.checked_at && item.checked_at === item.updated_at;
+    var label = isLastActionCheck ? '修改(完成): ' : '修改: ';
+    rows.push(label + escapeHtml(item.updated_by_name) + ' · ' + fmtDateTime(item.updated_at));
+  }
+  meta.innerHTML = rows.join('<br>');
   content.appendChild(meta);
 
   row.appendChild(content);
@@ -1556,6 +1564,13 @@ function fmtDateTime(iso) {
   return mm + '/' + dd + ' ' + h + ':' + (m < 10 ? '0' + m : m);
 }
 
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+  });
+}
+
 function toggleChecklistItem(itemId, isChecked, rowEl) {
   fetch('/notes/api/items/' + itemId, {
     method: 'PATCH',
@@ -1600,16 +1615,21 @@ function toggleChecklistItem(itemId, isChecked, rowEl) {
           textEl.style.color = '';
         }
       }
-      // 更新「由 X 在 ... 完成」文字（meta 是 content 的最後一個 div）
+      // 更新 meta 2 行（F11）— 同 renderChecklistItem 的渲染邏輯
       var contentDiv = rowEl.children[1];  // [checkbox, content, actions]
       if (contentDiv) {
         var meta = contentDiv.lastElementChild;
         if (meta && meta.style && meta.style.fontSize) {
-          if (d.item.is_checked && d.item.checked_by_name) {
-            meta.textContent = '✓ 由 ' + d.item.checked_by_name + ' 在 ' + fmtDateTime(d.item.checked_at) + ' 完成';
-          } else {
-            meta.textContent = '';
+          var rows = [];
+          if (d.item.created_by_name) {
+            rows.push('建立: ' + escapeHtml(d.item.created_by_name) + ' · ' + fmtDateTime(d.item.created_at));
           }
+          if (d.item.updated_by_name && d.item.updated_at !== d.item.created_at) {
+            var isLastActionCheck = d.item.is_checked && d.item.checked_at && d.item.checked_at === d.item.updated_at;
+            var label = isLastActionCheck ? '修改(完成): ' : '修改: ';
+            rows.push(label + escapeHtml(d.item.updated_by_name) + ' · ' + fmtDateTime(d.item.updated_at));
+          }
+          meta.innerHTML = rows.join('<br>');
         }
       }
     }
