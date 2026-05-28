@@ -1009,6 +1009,23 @@ function doDelete() {
 }
 
 // ── 附件功能 ──
+function toGalleryItem(att) {
+  return {
+    id: att.id,
+    kind: (att.content_type && att.content_type.indexOf('video/') === 0) ? 'video' : 'image',
+    url: att.url,
+    content_type: att.content_type,
+    downloadHref: '/notes/api/attachments/' + att.id + '/download'
+  };
+}
+
+function openGalleryFor(att, siblings) {
+  var list = (siblings && siblings.length) ? siblings : [att];
+  var items = list.map(toGalleryItem);
+  var idx = items.findIndex(function(it) { return it.id === att.id; });
+  openFullscreenGallery(items, idx >= 0 ? idx : 0);
+}
+
 function loadAttachments() {
   if (!NOTE_ID) return;
   fetch('/notes/api/attachments?note_id=' + NOTE_ID)
@@ -1018,12 +1035,12 @@ function loadAttachments() {
       var list = document.getElementById('attachment-list');
       list.innerHTML = '';
       data.attachments.forEach(function(att) {
-        list.appendChild(createAttItem(att));
+        list.appendChild(createAttItem(att, data.attachments));
       });
     }).catch(function() {});
 }
 
-function createAttItem(att) {
+function createAttItem(att, siblings) {
   var div = document.createElement('div');
   div.className = 'att-item';
   div.id = 'att-' + att.id;
@@ -1035,9 +1052,7 @@ function createAttItem(att) {
     img.src = att.url;
     img.alt = att.filename;
     img.onclick = function() {
-      openFullscreen(att.url, {
-        downloadHref: '/notes/api/attachments/' + att.id + '/download'
-      });
+      openGalleryFor(att, siblings);
     };
     wrap.appendChild(img);
     var dlBtn1 = document.createElement('button');
@@ -1194,7 +1209,14 @@ function addPendingPreview(file) {
     wrapP.className = 'att-thumb-wrap';
     var img = document.createElement('img');
     img.src = url;
-    img.onclick = function() { openFullscreen(url, { downloadHref: null }); };
+    img.onclick = function() {
+      openFullscreenGallery([{
+        kind: 'image',
+        url: url,
+        content_type: file.type,
+        downloadHref: null
+      }], 0);
+    };
     wrapP.appendChild(img);
     div.appendChild(wrapP);
   } else if (file.type.startsWith('video/')) {
@@ -1234,7 +1256,7 @@ function addPendingPreview(file) {
 }
 
 // 全螢幕圖片預覽搬到 static/js/fullscreen_viewer.js（F6 spec）
-// 仍用 window.openFullscreen(url) / window.closeFullscreen() — 名稱不變、所有 onclick 不動
+// 全螢幕預覽用 openFullscreenGallery(items, startIdx)（F10）; 舊 openFullscreen() 仍有 backward-compat shim 但本 template 已改用 gallery API
 
 if (NOTE_ID && EDITOR_TYPE !== 'checklist') loadAttachments();
 
@@ -1394,7 +1416,7 @@ function renderChecklistItem(item) {
     var atts = document.createElement('div');
     atts.style.cssText = 'display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem;';
     item.attachments.forEach(function(a) {
-      atts.appendChild(createItemAttThumb(a));
+      atts.appendChild(createItemAttThumb(a, item.attachments));
     });
     content.appendChild(atts);
   }
@@ -1470,7 +1492,7 @@ function renderChecklistItem(item) {
   return row;
 }
 
-function createItemAttThumb(a) {
+function createItemAttThumb(a, siblings) {
   var wrap = document.createElement('div');
   wrap.className = 'att-thumb-wrap';
   if (a.content_type && a.content_type.indexOf('image/') === 0) {
@@ -1478,9 +1500,7 @@ function createItemAttThumb(a) {
     img.src = a.url;
     img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #ddd;';
     img.onclick = function() {
-      openFullscreen(a.url, {
-        downloadHref: '/notes/api/attachments/' + a.id + '/download'
-      });
+      openGalleryFor(a, siblings);
     };
     wrap.appendChild(img);
     if (a.id) {
@@ -1754,7 +1774,7 @@ function renderItemAttachmentList() {
   _itemAttachmentsSaved.forEach(function(a, idx) {
     var wrap = document.createElement('div');
     wrap.style.cssText = 'position:relative;';
-    var thumb = createItemAttThumb(a);
+    var thumb = createItemAttThumb(a, _itemAttachmentsSaved);
     wrap.appendChild(thumb);
     var x = document.createElement('button');
     x.textContent = '×';
