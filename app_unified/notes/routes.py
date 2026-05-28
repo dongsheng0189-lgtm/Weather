@@ -1565,7 +1565,13 @@ def create_checklist_item(note_id):
         order_index=max_order + 1,
         text=text,
         is_checked=False,
+        created_at=now,    # explicit to match updated_at exactly
         updated_at=now,
+        # F11 authorship — creator + initial modifier same on create
+        created_by=current_user.id,
+        created_by_name=current_user.username,
+        updated_by=current_user.id,
+        updated_by_name=current_user.username,
     )
     db.session.add(item)
     note.updated_at = now
@@ -1602,6 +1608,10 @@ def update_checklist_item(item_id):
             db.session.rollback()
             return jsonify({"status": "error",
                             "message": f"{locker.username if locker else '他人'} 編輯中"}), 409
+    # F11: single `now` shared across text/check branches so on check action
+    # checked_at and updated_at are equal — UI uses that equality to detect
+    # "last action was check" and render "修改(完成)" suffix.
+    now = datetime.utcnow()
     if "text" in data:
         new_text = (data.get("text") or "").strip()
         if new_text != item.text:
@@ -1611,7 +1621,7 @@ def update_checklist_item(item_id):
         is_checked = bool(data.get("is_checked"))
         if is_checked and not item.is_checked:
             item.is_checked = True
-            item.checked_at = datetime.utcnow()
+            item.checked_at = now    # F11: shared now
             item.checked_by = current_user.id
             item.checked_by_name = current_user.username
             changed = True
@@ -1621,11 +1631,14 @@ def update_checklist_item(item_id):
             item.checked_by = None
             item.checked_by_name = None
             changed = True
-    # 任何修改（含勾選/取消勾選）都 bump updated_at
+    # 任何修改（含勾選/取消勾選）都 bump updated_at + updated_by
     # → 但前端勾選後不重新 fetch 整個 list，所以當下不會跳；
     #   下次重進頁面時才會看到該項目排到最上面
     if changed:
-        item.updated_at = datetime.utcnow()
+        item.updated_at = now
+        # F11: any modification (text / check / uncheck) bumps updated_by
+        item.updated_by = current_user.id
+        item.updated_by_name = current_user.username
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id
     # F2: text edit save 後釋放 item-lock
