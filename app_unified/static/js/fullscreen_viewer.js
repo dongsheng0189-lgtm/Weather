@@ -24,11 +24,20 @@
   }
   window.DOWNLOAD_ICON_SVG = DOWNLOAD_ICON_SVG;
 
+  function _escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, function(c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+
   var _fsState = { scale: 1, tx: 0, ty: 0, minScale: 1, maxScale: 6 };
   var _fsPointers = {};
   var _fsLastDist = 0;
   var _fsLastCenter = { x: 0, y: 0 };
   var _fsLastTap = 0;
+  var _items = [];
+  var _currentIdx = 0;
 
   function _fsApply() {
     var img = document.getElementById('fullscreen-img');
@@ -146,10 +155,13 @@
     overlay.className = 'fullscreen-overlay';
     overlay.id = 'fullscreen-overlay';
     overlay.innerHTML =
-      '<div class="fs-stage" id="fs-stage"><img id="fullscreen-img" src=""></div>' +
-      '<button type="button" class="fs-close" aria-label="關閉">✕</button>' +
+      '<div class="fs-track" id="fs-track"></div>' +
+      '<button type="button" class="fs-prev" id="fs-prev" aria-label="上一張">&#8249;</button>' +
+      '<button type="button" class="fs-next" id="fs-next" aria-label="下一張">&#8250;</button>' +
+      '<div class="fs-counter" id="fs-counter"></div>' +
+      '<button type="button" class="fs-close" aria-label="關閉">&#10005;</button>' +
       '<button type="button" class="fs-download" id="fs-download" aria-label="下載原檔" style="display:none;">' + DOWNLOAD_ICON_SVG(32) + '</button>' +
-      '<div class="fs-hint">雙指縮放 · 雙擊放大 · 拖曳移動</div>';
+      '<div class="fs-hint">&#8592;/&#8594; 切換 · 雙指縮放 · 雙擊放大 · 拖曳移動</div>';
     document.body.appendChild(overlay);
     overlay.querySelector('.fs-close').addEventListener('click', closeFullscreen);
     overlay.querySelector('.fs-download').addEventListener('click', function(e) {
@@ -164,50 +176,79 @@
 
   function _fsInit() {
     _ensureMarkup();
-    var stage = document.getElementById('fs-stage');
-    if (!stage || stage._fsBound) return;
-    stage._fsBound = true;
-    stage.addEventListener('pointerdown', _fsOnPointerDown);
-    stage.addEventListener('pointermove', _fsOnPointerMove);
-    stage.addEventListener('pointerup', _fsOnPointerUp);
-    stage.addEventListener('pointercancel', _fsOnPointerUp);
-    stage.addEventListener('dblclick', _fsOnDblClick);
-    stage.addEventListener('wheel', _fsOnWheel, { passive: false });
-    stage.addEventListener('click', function(e) {
-      if (_fsState.scale > 1.01) return;
-      var tap = Date.now();
-      if (tap - _fsLastTap < 300) { _fsLastTap = tap; return; }
-      _fsLastTap = tap;
-      setTimeout(function() {
-        if (Date.now() - _fsLastTap >= 280 && _fsState.scale <= 1.01) closeFullscreen();
-      }, 300);
+    /* per-slide pointer + nav handlers added in Task 3 / 5 */
+  }
+
+  function openFullscreenGallery(items, startIdx) {
+    if (!items || items.length === 0) return;
+    _fsInit();
+    _items = items.slice();
+    _currentIdx = Math.max(0, Math.min(startIdx || 0, _items.length - 1));
+
+    var track = document.getElementById('fs-track');
+    var html = '';
+    _items.forEach(function(item, i) {
+      var inner;
+      if (item.kind === 'image') {
+        inner = '<div class="fs-stage"><img class="fs-img" data-src="' + _escapeHtml(item.url) + '"></div>';
+      } else {
+        inner = '<div class="fs-video-wrap"><video preload="metadata" playsinline data-src="' + _escapeHtml(item.url) + '"></video><button type="button" class="fs-video-play" aria-label="播放">&#9654;</button></div>';
+      }
+      html += '<section class="fs-slide" data-idx="' + i + '" data-kind="' + _escapeHtml(item.kind) + '">' + inner + '</section>';
+    });
+    track.innerHTML = html;
+
+    var multi = _items.length > 1;
+    document.getElementById('fs-prev').style.display = multi ? '' : 'none';
+    document.getElementById('fs-next').style.display = multi ? '' : 'none';
+    document.getElementById('fs-counter').style.display = multi ? '' : 'none';
+
+    var overlay = document.getElementById('fullscreen-overlay');
+    overlay.classList.add('open');
+
+    requestAnimationFrame(function() {
+      track.scrollLeft = _currentIdx * window.innerWidth;
+      _onPageChangeInitial(_currentIdx);
     });
   }
 
-  function openFullscreen(url, opts) {
-    opts = opts || {};
-    _fsInit();
-    _fsReset();
-    document.getElementById('fullscreen-img').src = url;
-    document.getElementById('fullscreen-overlay').classList.add('open');
+  /* Initial chrome state when opening (no scrollend event yet). Real _onPageChange in Task 3. */
+  function _onPageChangeInitial(idx) {
+    var item = _items[idx];
+    var counter = document.getElementById('fs-counter');
+    if (counter) counter.textContent = (idx + 1) + ' / ' + _items.length;
     var dlBtn = document.getElementById('fs-download');
     if (dlBtn) {
-      if (opts.downloadHref) {
+      if (item && item.downloadHref) {
         dlBtn.style.display = '';
-        dlBtn.dataset.href = opts.downloadHref;
+        dlBtn.dataset.href = item.downloadHref;
       } else {
         dlBtn.style.display = 'none';
         dlBtn.dataset.href = '';
       }
     }
+    /* lazy load current — Task 6 will add ±1 */
+    var slide = document.querySelector('.fs-slide[data-idx="' + idx + '"]');
+    if (slide) {
+      var media = slide.querySelector('img, video');
+      if (media && media.dataset.src && !media.src) media.src = media.dataset.src;
+    }
   }
+
+  /* Backward compat — F9 single-image callers still work. */
+  var openFullscreen = function(url, opts) {
+    opts = opts || {};
+    openFullscreenGallery([{ kind: 'image', url: url, downloadHref: opts.downloadHref || null }], 0);
+  };
 
   function closeFullscreen() {
     var overlay = document.getElementById('fullscreen-overlay');
     if (!overlay) return;
     overlay.classList.remove('open');
-    var img = document.getElementById('fullscreen-img');
-    if (img) img.src = '';
+    var track = document.getElementById('fs-track');
+    if (track) track.innerHTML = '';
+    _items = [];
+    _currentIdx = 0;
     _fsReset();
   }
 
@@ -243,6 +284,7 @@
   }
 
   window.openFullscreen = openFullscreen;
+  window.openFullscreenGallery = openFullscreenGallery;
   window.closeFullscreen = closeFullscreen;
   window.downloadAttachment = downloadAttachment;
 })();
