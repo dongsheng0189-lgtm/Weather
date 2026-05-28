@@ -1754,11 +1754,13 @@ def upload_attachment_api():
         file_size=len(file_bytes),
     )
     db.session.add(attachment)
-    # 若附件綁到 checklist 項目，bump 該項目 updated_at（讓它跳到最上面）
+    # 若附件綁到 checklist 項目，bump 該項目 updated_at + updated_by（F11）
     if item_id:
         item = ChecklistItem.active().filter_by(id=item_id).first()
         if item:
             item.updated_at = datetime.utcnow()
+            item.updated_by = current_user.id
+            item.updated_by_name = current_user.username
     db.session.commit()
 
     url = get_signed_url(object_key)
@@ -1841,11 +1843,13 @@ def delete_attachment_api(attachment_id):
     delete_attachment(attachment.object_key)
     item_id = attachment.checklist_item_id
     db.session.delete(attachment)
-    # 若是 checklist 項目附件，bump 項目 updated_at
+    # 若是 checklist 項目附件，bump 項目 updated_at + updated_by（F11）
     if item_id:
         item = ChecklistItem.active().filter_by(id=item_id).first()
         if item:
             item.updated_at = datetime.utcnow()
+            item.updated_by = current_user.id
+            item.updated_by_name = current_user.username
     db.session.commit()
     return jsonify({"status": "ok"})
 

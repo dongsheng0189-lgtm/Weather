@@ -211,3 +211,60 @@ def test_text_edit_after_check_preserves_old_checked_at(app, db_session):
     assert item.updated_by == alice.id
     assert item.checked_at == check_time
     assert item.is_checked is True
+
+
+# ──────── attachment add/delete bumps item updated_by ────────
+
+def test_post_attachment_for_item_bumps_item_updated_by(app, db_session):
+    """Attaching a file directly via DB + checking the route uses live updated_by logic.
+    Skips upload integration (R2 mocked but storage.upload_attachment returns None for empty key)."""
+    from models import ChecklistItem, NoteAttachment
+    import io
+    bob = _make_user(db_session, "bob")
+    alice = _make_user(db_session, "alice")
+    note = _make_note(db_session, bob.id)
+    item = _make_item(db_session, note.id, bob.id, bob.username)
+
+    client = app.test_client()
+    _login(client, alice)
+    data = {
+        "note_id": str(note.id),
+        "item_id": str(item.id),
+        "file": (io.BytesIO(b"fake png bytes"), "photo.png", "image/png"),
+    }
+    r = client.post("/notes/api/attachments/upload", data=data, content_type="multipart/form-data")
+    if r.status_code == 503:
+        pytest.skip("storage not configured in test env (upload_attachment returned None)")
+    assert r.status_code in (200, 201), r.get_data(as_text=True)
+
+    db_session.expire(item)
+    assert item.updated_by == alice.id
+    assert item.updated_by_name == alice.username
+
+
+def test_delete_attachment_for_item_bumps_item_updated_by(app, db_session):
+    from models import ChecklistItem, NoteAttachment
+    bob = _make_user(db_session, "bob")
+    alice = _make_user(db_session, "alice")
+    note = _make_note(db_session, bob.id)
+    item = _make_item(db_session, note.id, bob.id, bob.username)
+    att = NoteAttachment(
+        note_id=note.id,
+        checklist_item_id=item.id,
+        user_id=bob.id,
+        object_key="dev/fake.png",
+        filename="photo.png",
+        content_type="image/png",
+        file_size=12345,
+    )
+    db_session.add(att)
+    db_session.commit()
+
+    client = app.test_client()
+    _login(client, alice)
+    r = client.delete(f"/notes/api/attachments/{att.id}")
+    assert r.status_code == 200, r.get_data(as_text=True)
+
+    db_session.expire(item)
+    assert item.updated_by == alice.id
+    assert item.updated_by_name == alice.username
