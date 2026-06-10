@@ -35,8 +35,12 @@
   - `position:fixed; bottom:20px; right:20px; z-index:1000`、pill 樣式（沿用原 review-back-widget 外觀：藍底 `#1f4e79`、圓角 24px、陰影），label 預設「← 返回」。
   - 預設 `display:none`（捲動後才顯示）。
 - **點擊行為**：`location.href = document.getElementById('btn-back').href`（鏡像頂部鈕 = 單一真相來源）。因為鏡像，Part B 修好 `page` 後浮動鈕自動帶 `page`；檢視模式下 `#btn-back` 已被既有 JS 改成摘要 URL，浮動鈕也自動跟著。
-- **顯示/隱藏**：用 `IntersectionObserver` 監看 `#btn-back`。`#btn-back` 離開視窗（捲過去）→ 顯示浮動鈕；回到視窗 → 隱藏。短頁面（不需捲動）→ 頂部鈕一直在視窗內 → 浮動鈕不顯示。**不用固定 setTimeout**。
-- **檢視模式 label**：既有 review-mode JS（偵測 `?from=`）除了改 `#btn-back` href，另把 `#float-back-widget` 的文字改成「← 返回摘要」。其餘行為（href 鏡像、捲動顯示）不變。
+- **顯示/隱藏**：
+  - **一般模式**：用 `IntersectionObserver` 監看 `#btn-back`。`#btn-back` 離開視窗（捲過去）→ 顯示浮動鈕；回到視窗 → 隱藏。短頁面（不需捲動）→ 頂部鈕一直在視窗內 → 浮動鈕不顯示。**不用固定 setTimeout**。
+  - **檢視模式（`body.review-mode`，從 AI 摘要進來）→ 一律顯示**（不論捲動），維持原 `#review-back-widget` 的「長駐」行為，與檢視模式 banner「按右下『← 返回摘要』」一致、避免回歸。
+  - 兩種模式都受 §C 的 search-hit 互斥限制（search-hit 顯示時不顯示浮動鈕；實務上檢視模式 `?from=` 與搜尋 `?q=` 不會同時出現）。
+- **檢視模式 label**：既有 review-mode JS（偵測 `?from=`）除了改 `#btn-back` href（→ 摘要 URL），另把 `#float-back-widget` 的文字改成「← 返回摘要」。float-back 點擊鏡像 `#btn-back`（已被改成摘要）→ 回摘要。
+- **不影響 AI 摘要深連結捲動**：`#item-<id>` / `#b-<idx>` 的 scroll-to-item + 高亮（`_maybeScrollToHashItem`）是獨立邏輯，本案完全不碰。
 - **移除**：`#review-back-widget` 元素（L185-192）、其 CSS（L54-55 `#review-back-widget` 兩條）、review-mode JS 裡設定 `#review-back-widget` href 的那行（L798-799）→ 改為設定 `#float-back-widget` 的 label。
 
 ### B. 修正分頁返回（`page` 保留）
