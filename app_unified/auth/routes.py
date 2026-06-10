@@ -313,6 +313,29 @@ def change_pin():
     return jsonify({"status": "ok"})
 
 
+@auth_bp.route("/handover/start", methods=["POST"])
+@login_required
+def handover_start():
+    """admin 以上開啟交接模式：session idle 延長為 15 分鐘（純滑動）。"""
+    if not current_user.is_admin():
+        return jsonify({"status": "error", "message": "需要管理員權限"}), 403
+    import time
+    session["_handover"] = True
+    session["_last_request_at"] = int(time.time())
+    session.permanent = True
+    return jsonify({"status": "ok"})
+
+
+@auth_bp.route("/handover/end", methods=["POST"])
+@login_required
+def handover_end():
+    """結束交接模式（保持登入）：idle 回到預設規則。"""
+    import time
+    session.pop("_handover", None)
+    session["_last_request_at"] = int(time.time())
+    return jsonify({"status": "ok"})
+
+
 def _verify_face(user: User, image_b64: str):
     """Returns (match: bool, confidence: float). Face ops run in thread pool."""
     try:
