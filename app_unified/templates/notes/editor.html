@@ -51,8 +51,6 @@ body.review-mode .editor-wrap button {
 }
 #review-mode-banner { display: none; }
 body.review-mode #review-mode-banner { display: flex; }
-#review-back-widget { display: none; }
-body.review-mode #review-back-widget { display: inline-flex; }
 .ai-panel { margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem; }
 .ai-result { background: #f8f9fa; border-radius: 6px; padding: 1rem; margin-top: .5rem; font-size: .9rem; white-space: pre-wrap; }
 .save-status { font-size: .85rem; color: #aaa; margin-left: auto; }
@@ -156,6 +154,7 @@ body.review-mode #review-back-widget { display: inline-flex; }
                        range=request.args.get('range'),
                        status=request.args.get('status'),
                        sort=request.args.get('sort'),
+                       page=request.args.get('page'),
                        store=request.args.get('store')) }}" class="btn btn-secondary" id="btn-back">← 返回</a>
   <span class="save-status" id="save-status"></span>
 </div>
@@ -182,14 +181,15 @@ body.review-mode #review-back-widget { display: inline-flex; }
 <div id="review-mode-banner" style="background:#e8f4fd;border:1px solid #b3d9f5;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.95rem;color:#1f4e79;align-items:center;gap:.5rem;flex-wrap:wrap;">
   🔒 <strong>檢視模式</strong>：從 AI 摘要進入、僅供交接 review、不可編輯。按右下「← 返回摘要」回到摘要繼續討論。
 </div>
-{# review-back floating widget — 跟 search-hit-widget 同款 fixed position，
-   讓 user 滑到頁面底端時也能一鍵返回摘要、不用 scroll 回最上面 #}
-<a id="review-back-widget" href="#"
-   style="position:fixed;bottom:20px;right:20px;z-index:1000;
-          align-items:center;gap:.4rem;padding:.65rem 1.1rem;
+{# 通用浮動返回鈕（取代舊浮動返回）— 右下角、向下捲動後出現，
+   點擊鏡像頂部 #btn-back（回列表+filter+page；檢視模式回 AI 摘要）。
+   檢視模式一律顯示；search-hit-widget 顯示時隱藏（避免兩顆返回）。 #}
+<a id="float-back-widget" href="#" title="返回"
+   style="display:none;position:fixed;bottom:20px;right:20px;z-index:1000;
+          align-items:center;gap:.4rem;padding:.65rem 1.1rem;cursor:pointer;
           background:#1f4e79;color:#fff;border-radius:24px;
           font-size:.95rem;font-weight:600;text-decoration:none;
-          box-shadow:0 4px 12px rgba(0,0,0,.25);">← 返回摘要</a>
+          box-shadow:0 4px 12px rgba(0,0,0,.25);">← 返回</a>
 {# F2: checklist mode 完全不參與 note-level lock UI #}
 {% set _editor_type = note.note_type if note else (note_type or 'note') %}
 {% if _editor_type != 'checklist' %}
@@ -471,6 +471,7 @@ function buildSearchHits() {
       if (raw.toLowerCase().indexOf(ql) === -1) return;
       var escaped = _escHTML(raw);
       textDiv.innerHTML = escaped.replace(re, '<mark class="kw-hl">$&</mark>');
+      row.classList.add('tag-highlight');   // 統一：關鍵字命中列也加持久黃底（跟標籤搜尋 / AI 摘要一致）
       _searchHits.push(row);
     });
   } else {
@@ -493,6 +494,7 @@ function buildSearchHits() {
   if (iconEl) iconEl.textContent = '🔍';
   if (_searchHits.length === 0 || EDITOR_TYPE !== 'checklist') {
     widget.style.display = 'none';
+    if (window._refreshFloatBack) window._refreshFloatBack();   // 無命中 → 恢復返回鈕
     if (EDITOR_TYPE !== 'checklist' && _searchHits.length > 0) {
       // regular note：仍 jump 到第一個命中（用 textarea selection）
       jumpToHit(0);
@@ -500,6 +502,7 @@ function buildSearchHits() {
     return;
   }
   widget.style.display = 'flex';
+  if (window._refreshFloatBack) window._refreshFloatBack();   // search-hit 出現 → 收起通用返回鈕
   jumpToHit(0);
 }
 function jumpToHit(idx) {
@@ -794,11 +797,43 @@ document.addEventListener('DOMContentLoaded', function() {
   if (!from || !/^\/n\/\d+(#b-\d+)?$/.test(from)) return;
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.setAttribute('href', from);
-  // 浮動「返回摘要」widget — 跟頂上 btn-back 同 href，user 不用滑回頁首
-  var floatBack = document.getElementById('review-back-widget');
-  if (floatBack) floatBack.setAttribute('href', from);
+  // 檢視模式：把通用浮動鈕標籤改成「← 返回摘要」（href 鏡像 btn-back，已被改成 from）
+  var floatBack = document.getElementById('float-back-widget');
+  if (floatBack) floatBack.textContent = '← 返回摘要';
   document.body.classList.add('review-mode');
 });
+
+// 通用浮動返回鈕：一般模式捲動出現（IntersectionObserver 監看 #btn-back）、
+// 檢視模式一律顯示、search-hit-widget 顯示時隱藏；點擊鏡像 #btn-back。
+(function() {
+  var fb = document.getElementById('float-back-widget');
+  var bb = document.getElementById('btn-back');
+  if (!fb || !bb) return;
+  fb.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (bb.href) window.location.href = bb.href;
+  });
+  function searchHitVisible() {
+    var sh = document.getElementById('search-hit-widget');
+    return !!sh && sh.style.display && sh.style.display !== 'none';
+  }
+  var _btnBackInView = true;
+  function refresh() {
+    if (searchHitVisible()) { fb.style.display = 'none'; return; }
+    if (document.body.classList.contains('review-mode')) { fb.style.display = 'inline-flex'; return; }
+    fb.style.display = _btnBackInView ? 'none' : 'inline-flex';
+  }
+  window._refreshFloatBack = refresh;
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function(entries) {
+      _btnBackInView = entries[0].isIntersecting;
+      refresh();
+    }).observe(bb);
+  } else {
+    _btnBackInView = false;  // 舊瀏覽器 fallback：直接顯示
+    refresh();
+  }
+})();
 
 // `/n/<id>#item-<id>` 從 AI 摘要點過來時，scroll 到該 item 並加持續黃底
 // 高亮（沿用 .tag-highlight class、跟標籤搜尋一致；review 過程中不消失）。
@@ -1322,10 +1357,12 @@ function buildTagHits(tagId) {
   var iconEl = document.getElementById('search-hit-icon');
   if (_searchHits.length === 0 || !widget) {
     if (widget) widget.style.display = 'none';
+    if (widget && window._refreshFloatBack) window._refreshFloatBack();   // 無命中 → 恢復返回鈕
     return;
   }
   if (iconEl) iconEl.textContent = '🏷️';
   widget.style.display = 'flex';
+  if (window._refreshFloatBack) window._refreshFloatBack();   // tag-hit 出現 → 收起通用返回鈕
   jumpToHit(0);
 }
 
