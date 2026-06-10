@@ -47,11 +47,17 @@
 
 → 第 2 頁點筆記、返回回第 2 頁。`page` 為 None 時 `url_for` 省略該參數 = 回第 1 頁（維持第 1 頁進來者的現況）。浮動鈕鏡像 `#btn-back` 故自動受惠。
 
-### C. 與 `#search-hit-widget` 疊放
+### C. 與 `#search-hit-widget` 互斥（不疊放、不動它）
 
-確認表單 + 搜尋時 search-hit-widget 也在右下角。當 `#float-back-widget` 顯示時：
-- 返回鈕固定在最角落（`bottom:20px`）。
-- 把 `#search-hit-widget` 往上推（顯示返回鈕時改 `bottom: 84px`，例如加一個 class `search-hit-raised`），兩顆垂直堆疊不重疊。返回鈕隱藏時 search-hit 復位 `bottom:20px`。
+`#search-hit-widget`（確認表單 + 搜尋 + hits>0 時顯示）本身已內含三件：`🔍 N/M 命中`、`▶ 下一個`（`#search-hit-next` → `jumpToHit(_currentHit+1)`，循環跳下一個命中項）、`← 返回`（`#search-hit-back` → `history.back()`）。
+
+→ 為避免右下角出現**兩顆返回**，`#float-back-widget` 與 `#search-hit-widget` **互斥**：
+- `#float-back-widget` 的顯示條件 = （`#btn-back` 捲出視窗）**且**（`#search-hit-widget` 目前未顯示，即 `display === 'none'`）。
+- 確認表單搜尋時 → search-hit-widget 顯示（自帶返回 + 下一個）→ 通用浮動鈕**不出現**。
+- 其餘情況（一般筆記、確認表單無搜尋）→ search-hit 不顯示 → 通用浮動鈕照常捲動出現。
+- **完全不修改 `#search-hit-widget`**（markup / next / back / 計數全部原封不動，零風險保留「▶ 下一個」）。
+
+> 註：`#search-hit-back` 用 `history.back()`，回到的是瀏覽器真正的上一頁（含當時的 `page`/filter），本來就不受 Part B 的 `page` bug 影響；Part B 修的是 `url_for` 型的 `#btn-back`（通用浮動鈕鏡像它）。
 
 ## 錯誤處理 / 邊界
 - `#btn-back` 不存在時（理論上不會）浮動鈕點擊 no-op，不報錯。
@@ -63,7 +69,7 @@
   - render：`editor.html` 含 `id="float-back-widget"`、含 `getElementById('btn-back')`（鏡像）、含 `IntersectionObserver`；**不含** `id="review-back-widget"`（已移除）。
   - `index.html` note-card 連結含 `page=`（render 帶分頁時）。
   - 後端：帶 `?page=2` GET 編輯頁 → `#btn-back` href 含 `page=2`；不帶 page → href 不含 `page=`。
-- 浮動鈕的捲動顯示/疊放是純前端互動 → 手動測（長筆記捲動出現、點擊回正確頁、確認表單搜尋時不重疊）。
+- 浮動鈕的捲動顯示/互斥是純前端互動 → 手動測：① 長筆記捲動出現、點擊回正確頁；② 列表第 2 頁點筆記 → 返回回第 2 頁；③ 確認表單 + 搜尋 → 只出現 search-hit-widget（▶ 下一個、計數、← 返回 都在）、**不出現第二顆通用返回鈕**。
 - 註：wiring 測試斷言 DOM/字串較脆（踩雷 #12），改 template 要同步更新。
 
 ## 部署影響
