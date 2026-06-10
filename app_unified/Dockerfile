@@ -30,7 +30,20 @@ RUN chown -R appuser:appuser /usr/local/lib/python3.12/site-packages
 # Pre-load MiniLM model into image (saves 5-15s on first AI summary after redeploy)
 # chown /opt/st_cache 跟 model 預載合併同層，cache 一起
 ENV SENTENCE_TRANSFORMERS_HOME=/opt/st_cache
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')" && \
+ENV HF_HUB_ETAG_TIMEOUT=30
+# 重試 + 指數退避：HuggingFace 偶爾對 CI runner IP 回 HTTP 429（rate limit），
+# 之前讓整個 build 掛掉、image 沒更新、部署默默沒發生（incident 2026-06-10）。
+# 任一次成功即 break（model 進 /opt/st_cache cache）；6 次全失敗才讓 build fail。
+RUN set -e; \
+    for i in 1 2 3 4 5 6; do \
+      echo "Model preload attempt $i/6..."; \
+      if python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"; then \
+        ok=1; break; \
+      fi; \
+      echo "attempt $i failed (likely HuggingFace HTTP 429); backing off $((i*15))s"; \
+      sleep $((i*15)); \
+    done; \
+    if [ -z "$ok" ]; then echo "ERROR: model preload failed after 6 attempts"; exit 1; fi; \
     chown -R appuser:appuser /opt/st_cache
 
 # 驗證 wheels 已安裝（face_recognition 需要 pkg_resources shim，在 wsgi.py 提供）
