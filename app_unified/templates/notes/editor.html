@@ -471,6 +471,7 @@ function buildSearchHits() {
       if (raw.toLowerCase().indexOf(ql) === -1) return;
       var escaped = _escHTML(raw);
       textDiv.innerHTML = escaped.replace(re, '<mark class="kw-hl">$&</mark>');
+      row.classList.add('tag-highlight');   // 統一：關鍵字命中列也加持久黃底（跟標籤搜尋 / AI 摘要一致）
       _searchHits.push(row);
     });
   } else {
