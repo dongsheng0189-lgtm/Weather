@@ -18,7 +18,7 @@ from flask import Blueprint, request, jsonify, session, redirect, url_for, rende
 from flask_login import login_user, logout_user, login_required, current_user
 from gevent.threadpool import ThreadPool
 from extensions import db, limiter
-from models import User, Store
+from models import User, Store, UserLog
 
 try:
     import face_recognition_models
@@ -260,6 +260,57 @@ def module_picker():
     if len(feats) == 1:
         return redirect(feats[0]["url"])
     return render_template("auth/module_picker.html", features=feats)
+
+
+def _is_weak_pin(pin: str) -> bool:
+    """太弱的 4 位 PIN：四碼全同 / 連號遞增 / 連號遞減。"""
+    if len(set(pin)) == 1:                 # 0000, 1111, ...
+        return True
+    digits = [int(c) for c in pin]
+    if all(digits[i + 1] - digits[i] == 1 for i in range(len(digits) - 1)):   # 1234
+        return True
+    if all(digits[i + 1] - digits[i] == -1 for i in range(len(digits) - 1)):  # 9876
+        return True
+    return False
+
+
+@auth_bp.route("/settings")
+@login_required
+def settings():
+    return render_template("auth/settings.html")
+
+
+@auth_bp.route("/change-pin", methods=["POST"])
+@limiter.limit("10 per minute", exempt_when=lambda: current_app.config.get("TESTING"))
+@login_required
+def change_pin():
+    data = request.get_json(silent=True) or {}
+    current = str(data.get("current_pin") or "").strip()
+    new = str(data.get("new_pin") or "").strip()
+    confirm = str(data.get("confirm_pin") or "").strip()
+
+    if not current_user.check_password(current):
+        return jsonify({"status": "error", "message": "目前 PIN 不正確"}), 400
+    if len(new) != 4 or not new.isdigit():
+        return jsonify({"status": "error", "message": "新 PIN 需為 4 位數字"}), 400
+    if new != confirm:
+        return jsonify({"status": "error", "message": "兩次新 PIN 不一致"}), 400
+    if new == current:
+        return jsonify({"status": "error", "message": "新 PIN 不能與目前相同"}), 400
+    if _is_weak_pin(new):
+        return jsonify({"status": "error", "message": "PIN 過於簡單，請換一組"}), 400
+
+    current_user.set_password(new)
+    db.session.add(UserLog(
+        operator_id=current_user.id,
+        operator_name=current_user.username,
+        target_id=current_user.id,
+        target_name=current_user.username,
+        action="change_pin",
+        detail=None,
+    ))
+    db.session.commit()
+    return jsonify({"status": "ok"})
 
 
 @auth_bp.route("/font-size")
