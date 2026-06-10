@@ -88,7 +88,7 @@
           <a href="{{ url_for('admin.dashboard') }}">管理</a>
           <a href="{{ url_for('face.settings') }}">人臉設定</a>
         {% endif %}
-        <a href="{{ url_for('auth.font_size') }}">調整字體</a>
+        <a href="{{ url_for('auth.settings') }}">⚙️ 設定</a>
         <a href="{{ url_for('auth.logout') }}">登出 ({{ current_user.username }})</a>
       {% else %}
         <a href="{{ url_for('auth.login') }}">登入</a>
@@ -107,7 +107,7 @@
           <a href="{{ url_for('admin.dashboard') }}">管理</a>
           <a href="{{ url_for('face.settings') }}">人臉設定</a>
         {% endif %}
-        <a href="{{ url_for('auth.font_size') }}">調整字體</a>
+        <a href="{{ url_for('auth.settings') }}">⚙️ 設定</a>
         <a href="{{ url_for('auth.logout') }}">登出 ({{ current_user.username }})</a>
       {% else %}
         <a href="{{ url_for('auth.login') }}">登入</a>
