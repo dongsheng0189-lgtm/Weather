@@ -116,3 +116,29 @@ def test_logout_clears_handover_flag(app):
     client.get("/auth/logout")
     with client.session_transaction() as s:
         assert not s.get("_handover")
+
+
+from pathlib import Path
+
+_BASE = Path(__file__).parent.parent / 'templates' / 'base.html'
+
+
+def test_base_has_handover_banner():
+    src = _BASE.read_text(encoding='utf-8')
+    assert 'id="handover-banner"' in src
+    assert 'handover_active' in src
+
+
+def test_base_nav_has_handover_toggle_and_js():
+    src = _BASE.read_text(encoding='utf-8')
+    assert 'startHandover()' in src
+    assert 'function startHandover()' in src
+    assert 'function endHandover()' in src
+
+
+def test_base_wires_endpoints_and_idle_extension():
+    src = _BASE.read_text(encoding='utf-8')
+    assert '/auth/handover/start' in src
+    assert '/auth/handover/end' in src
+    assert "window.location.href='/auth/logout'" in src
+    assert 'IDLE_LIMIT_MS = 15 * 60 * 1000' in src

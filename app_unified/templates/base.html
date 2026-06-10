@@ -87,6 +87,7 @@
         {% if current_user.is_admin() %}
           <a href="{{ url_for('admin.dashboard') }}">管理</a>
           <a href="{{ url_for('face.settings') }}">人臉設定</a>
+          {% if not handover_active %}<a href="#" onclick="startHandover();return false;">🤝 交接模式</a>{% endif %}
         {% endif %}
         <a href="{{ url_for('auth.settings') }}">⚙️ 設定</a>
         <a href="{{ url_for('auth.logout') }}">登出 ({{ current_user.username }})</a>
@@ -106,6 +107,7 @@
         {% if current_user.is_admin() %}
           <a href="{{ url_for('admin.dashboard') }}">管理</a>
           <a href="{{ url_for('face.settings') }}">人臉設定</a>
+          {% if not handover_active %}<a href="#" onclick="startHandover();return false;">🤝 交接模式</a>{% endif %}
         {% endif %}
         <a href="{{ url_for('auth.settings') }}">⚙️ 設定</a>
         <a href="{{ url_for('auth.logout') }}">登出 ({{ current_user.username }})</a>
@@ -115,6 +117,16 @@
       {% endif %}
     </div>
   </nav>
+  {% if handover_active %}
+  <div id="handover-banner" style="background:#fff3cd;border-bottom:2px solid #ffc107;padding:.5rem 1rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;font-size:.9rem;color:#856404;">
+    <span>🤝 <strong>交接模式中</strong>（閒置 15 分鐘才鎖）</span>
+    <button type="button" onclick="window.location.href='/auth/logout'"
+            style="margin-left:auto;background:#e74c3c;color:#fff;border:none;border-radius:8px;padding:.4rem .8rem;font-size:.85rem;cursor:pointer;display:inline-flex;align-items:center;gap:.3rem;min-height:36px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>關閉模式並登出</button>
+    <button type="button" onclick="endHandover()"
+            style="background:#fff;border:1px solid #856404;color:#856404;border-radius:8px;padding:.4rem .8rem;font-size:.85rem;cursor:pointer;min-height:36px;">結束交接（保持登入）</button>
+  </div>
+  {% endif %}
   <div class="container">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
@@ -125,6 +137,20 @@
   </div>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   {% block scripts %}{% endblock %}
+  <script>
+    {% if handover_active %}window.IDLE_LIMIT_MS = 15 * 60 * 1000;{% endif %}
+    function startHandover() {
+      if (!confirm('開啟交接模式？閒置上限延長為 15 分鐘，期間請留意手機，可隨時「關閉模式並登出」。')) return;
+      fetch('/auth/handover/start', {method:'POST', headers:{'Content-Type':'application/json'}})
+        .then(function(r){ if (r.ok) { location.reload(); } else { alert('開啟失敗（需管理員權限）'); } })
+        .catch(function(){ alert('網路錯誤，請再試一次'); });
+    }
+    function endHandover() {
+      fetch('/auth/handover/end', {method:'POST', headers:{'Content-Type':'application/json'}})
+        .then(function(){ location.reload(); })
+        .catch(function(){ location.reload(); });
+    }
+  </script>
   <script>
     // Hamburger menu
     const toggle = document.getElementById('nav-toggle');
