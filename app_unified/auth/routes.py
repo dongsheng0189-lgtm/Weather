@@ -221,6 +221,7 @@ def verify():
 @login_required
 def logout():
     logout_user()
+    session.clear()   # 清掉 _handover 等殘留 session key，避免共用裝置交接後洩漏
     return redirect(url_for("weather.index"))
 
 

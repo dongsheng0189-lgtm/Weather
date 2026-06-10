@@ -102,3 +102,17 @@ def test_without_handover_locks_at_5min(app):
         s["_last_request_at"] = int(time.time()) - 6 * 60
     r = client.get("/auth/ping")
     assert r.status_code == 401
+
+
+def test_logout_clears_handover_flag(app):
+    """共用裝置：登出必須清掉 _handover，避免下一個人繼承延長。"""
+    client = app.test_client()
+    with app.app_context():
+        uid = _make_user(role="admin").id
+    _login(client, uid)
+    client.post("/auth/handover/start")
+    with client.session_transaction() as s:
+        assert s.get("_handover") is True
+    client.get("/auth/logout")
+    with client.session_transaction() as s:
+        assert not s.get("_handover")
