@@ -13,16 +13,20 @@ def test_rendermedia_takes_siblings():
 
 def test_helpers_present():
     src = JS_FILE.read_text(encoding='utf-8')
-    assert 'function _toAnnGalleryItem(' in src
-    assert 'function _openAnnGalleryFor(' in src
+    # download href built by a local helper, passed into shared markGalleryItem()
+    assert 'function _annDownloadHref(' in src
     # endpoint for announcement attachment downloads
     assert "'/notes/announcement/api/attachments/'" in src or '"/notes/announcement/api/attachments/"' in src
+    # old per-file helpers removed in favour of shared API
+    assert 'function _toAnnGalleryItem(' not in src
+    assert 'function _openAnnGalleryFor(' not in src
 
 
 def test_image_onclick_uses_gallery():
     src = JS_FILE.read_text(encoding='utf-8')
-    # the click handler routes to gallery helper
-    assert '_openAnnGalleryFor(att, siblings)' in src
+    # image is tagged then opened via the shared DOM-driven gallery API
+    assert 'markGalleryItem(img, att,' in src
+    assert 'openGalleryFromEl(img)' in src
     # old openFullscreen single-arg call is gone
     assert 'openFullscreen(att.url' not in src
 

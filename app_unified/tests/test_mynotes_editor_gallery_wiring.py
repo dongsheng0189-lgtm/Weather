@@ -10,13 +10,15 @@ def test_template_includes_shared_viewer_assets():
     assert 'fullscreen_viewer.css' in src
 
 
-def test_template_has_mynotes_gallery_helpers():
+def test_template_uses_shared_gallery_api():
     src = TEMPLATE.read_text(encoding='utf-8')
-    assert 'function _toMyGalleryItem(' in src
-    assert 'function _openMyGalleryFor(' in src
-    # mynotes is private — no download
-    assert 'downloadHref: null' in src
-    # MUST NOT build any /download endpoint URL in mynotes
+    # mynotes now uses the shared DOM-driven API (F10 cleanup)
+    assert 'markGalleryItem(' in src
+    assert 'openGalleryFromEl(' in src
+    # old per-template helpers removed
+    assert 'function _toMyGalleryItem(' not in src
+    assert 'function _openMyGalleryFor(' not in src
+    # mynotes is private — MUST NOT build any /download endpoint URL
     assert "'/download'" not in src and '"/download"' not in src
 
 
@@ -30,5 +32,6 @@ def test_template_no_inline_fs_overlay():
 
 def test_three_callsites_use_gallery():
     src = TEMPLATE.read_text(encoding='utf-8')
-    # 3 original openFs(a.url) callsites should now use _openMyGalleryFor
-    assert src.count('_openMyGalleryFor(') >= 3
+    # 3 image callsites (note att list, checklist-item view, item dialog) route
+    # through the shared openGalleryFromEl()
+    assert src.count('openGalleryFromEl(') >= 3
