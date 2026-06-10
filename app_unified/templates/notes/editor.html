@@ -286,7 +286,7 @@ body.review-mode #review-back-widget { display: inline-flex; }
       <span id="upload-status" style="font-size:.85rem;color:#888;"></span>
     </div>
     <div class="upload-progress" id="upload-progress"><div class="upload-progress-bar" id="upload-progress-bar"></div></div>
-    <div class="attachment-list" id="attachment-list"></div>
+    <div class="attachment-list" id="attachment-list" data-gallery-group></div>
   </div>
   {% else %}
   <!-- 確認表單區（checklist）-->
@@ -1009,21 +1009,10 @@ function doDelete() {
 }
 
 // ── 附件功能 ──
-function toGalleryItem(att) {
-  return {
-    id: att.id,
-    kind: (att.content_type && att.content_type.indexOf('video/') === 0) ? 'video' : 'image',
-    url: att.url,
-    content_type: att.content_type,
-    downloadHref: '/notes/api/attachments/' + att.id + '/download'
-  };
-}
-
-function openGalleryFor(att, siblings) {
-  var list = (siblings && siblings.length) ? siblings : [att];
-  var items = list.map(toGalleryItem);
-  var idx = items.findIndex(function(it) { return it.id === att.id; });
-  openFullscreenGallery(items, idx >= 0 ? idx : 0);
+// Gallery 走 shared window.markGalleryItem() 標記 + window.openGalleryFromEl()，
+// 點擊時即時從 [data-gallery-group] 容器重建 swipe 序列（F10 cleanup）。
+function _notesDownloadHref(att) {
+  return att && att.id ? '/notes/api/attachments/' + att.id + '/download' : null;
 }
 
 function loadAttachments() {
@@ -1051,8 +1040,9 @@ function createAttItem(att, siblings) {
     var img = document.createElement('img');
     img.src = att.url;
     img.alt = att.filename;
+    window.markGalleryItem(img, att, _notesDownloadHref(att));
     img.onclick = function() {
-      openGalleryFor(att, siblings);
+      window.openGalleryFromEl(img);
     };
     wrap.appendChild(img);
     var dlBtn1 = document.createElement('button');
@@ -1078,6 +1068,7 @@ function createAttItem(att, siblings) {
     video.controls = true;
     video.preload = 'metadata';
     video.playsInline = true;
+    window.markGalleryItem(video, att, _notesDownloadHref(att));
     wrapV.appendChild(video);
     var dlBtnV = document.createElement('button');
     dlBtnV.type = 'button';
@@ -1204,18 +1195,17 @@ function addPendingPreview(file) {
   div.id = pendingId;
 
   var url = URL.createObjectURL(file);
+  // pending 預覽進 #attachment-list（已標 data-gallery-group），點擊時與其他
+  // pending/已存附件一起被 openGalleryFromEl 重建成同一 swipe 序列（修 ③ 單張）。
+  var pendingAtt = { id: null, url: url, content_type: file.type };
   if (file.type.startsWith('image/')) {
     var wrapP = document.createElement('div');
     wrapP.className = 'att-thumb-wrap';
     var img = document.createElement('img');
     img.src = url;
+    window.markGalleryItem(img, pendingAtt, null);
     img.onclick = function() {
-      openFullscreenGallery([{
-        kind: 'image',
-        url: url,
-        content_type: file.type,
-        downloadHref: null
-      }], 0);
+      window.openGalleryFromEl(img);
     };
     wrapP.appendChild(img);
     div.appendChild(wrapP);
@@ -1227,6 +1217,7 @@ function addPendingPreview(file) {
     video.controls = true;
     video.preload = 'metadata';
     video.playsInline = true;
+    window.markGalleryItem(video, pendingAtt, null);
     wrapPV.appendChild(video);
     div.appendChild(wrapPV);
   }
@@ -1415,6 +1406,7 @@ function renderChecklistItem(item) {
   if (item.attachments && item.attachments.length > 0) {
     var atts = document.createElement('div');
     atts.style.cssText = 'display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem;';
+    atts.setAttribute('data-gallery-group', '');   /* swipe scope = this checklist item */
     item.attachments.forEach(function(a) {
       atts.appendChild(createItemAttThumb(a, item.attachments));
     });
@@ -1507,8 +1499,9 @@ function createItemAttThumb(a, siblings) {
     var img = document.createElement('img');
     img.src = a.url;
     img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #ddd;';
+    window.markGalleryItem(img, a, _notesDownloadHref(a));
     img.onclick = function() {
-      openGalleryFor(a, siblings);
+      window.openGalleryFromEl(img);
     };
     wrap.appendChild(img);
     if (a.id) {
@@ -1532,6 +1525,7 @@ function createItemAttThumb(a, siblings) {
     vid.src = a.url;
     vid.controls = true;
     vid.style.cssText = 'width:140px;max-height:100px;border-radius:6px;border:1px solid #ddd;';
+    window.markGalleryItem(vid, a, _notesDownloadHref(a));
     wrap.appendChild(vid);
     if (a.id) {
       var dlBtnAV = document.createElement('button');
@@ -1790,6 +1784,7 @@ window.addEventListener('beforeunload', function() {
 function renderItemAttachmentList() {
   var list = document.getElementById('item-attachment-list');
   list.innerHTML = '';
+  list.setAttribute('data-gallery-group', '');   /* swipe scope = this item dialog */
   // 已儲存的
   _itemAttachmentsSaved.forEach(function(a, idx) {
     var wrap = document.createElement('div');

@@ -42,6 +42,7 @@
 <script>
 document.querySelectorAll('.ann-attachments[data-ann-id]').forEach(function(holder) {
   var id = holder.getAttribute('data-ann-id');
+  holder.setAttribute('data-gallery-group', '');   /* swipe scope = this card's attachments */
   fetch('/notes/announcement/api/' + id + '/attachments')
     .then(function(r) { return r.json(); })
     .then(function(d) {
