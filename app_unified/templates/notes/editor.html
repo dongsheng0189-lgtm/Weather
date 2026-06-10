@@ -493,6 +493,7 @@ function buildSearchHits() {
   if (iconEl) iconEl.textContent = '🔍';
   if (_searchHits.length === 0 || EDITOR_TYPE !== 'checklist') {
     widget.style.display = 'none';
+    if (window._refreshFloatBack) window._refreshFloatBack();   // 無命中 → 恢復返回鈕
     if (EDITOR_TYPE !== 'checklist' && _searchHits.length > 0) {
       // regular note：仍 jump 到第一個命中（用 textarea selection）
       jumpToHit(0);
@@ -1355,10 +1356,12 @@ function buildTagHits(tagId) {
   var iconEl = document.getElementById('search-hit-icon');
   if (_searchHits.length === 0 || !widget) {
     if (widget) widget.style.display = 'none';
+    if (widget && window._refreshFloatBack) window._refreshFloatBack();   // 無命中 → 恢復返回鈕
     return;
   }
   if (iconEl) iconEl.textContent = '🏷️';
   widget.style.display = 'flex';
+  if (window._refreshFloatBack) window._refreshFloatBack();   // tag-hit 出現 → 收起通用返回鈕
   jumpToHit(0);
 }
 
