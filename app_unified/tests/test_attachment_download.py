@@ -348,8 +348,9 @@ def test_fullscreen_viewer_js_exports_downloadAttachment():
 
 def test_notes_editor_template_passes_downloadHref():
     """notes editor template renders attachment thumbnails with a download
-    icon overlay and the openFullscreen calls now carry downloadHref."""
+    icon overlay and builds the download href via _notesDownloadHref (passed
+    into the shared markGalleryItem)."""
     src = (_REPO_ROOT / 'templates' / 'notes' / 'editor.html').read_text(encoding='utf-8')
-    assert 'downloadHref' in src
+    assert '_notesDownloadHref' in src
     assert '/notes/api/attachments/' in src
     assert 'att-download-btn' in src
