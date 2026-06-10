@@ -61,8 +61,8 @@
         font-size:.9rem;color:#856404;">
      <span>🤝 <strong>交接模式中</strong>（閒置 15 分鐘才鎖）</span>
      <button type="button" onclick="window.location.href='/auth/logout'"
-             style="margin-left:auto;...紅...">🔒 立即鎖定</button>
-     <button type="button" onclick="endHandover()" style="...灰...">結束</button>
+             style="margin-left:auto;...紅...">🚪 關閉模式並登出</button>
+     <button type="button" onclick="endHandover()" style="...灰...">結束交接（保持登入）</button>
    </div>
    ```
 
