@@ -60,5 +60,11 @@ jobs:
             GIT_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Registry cache (persists in GHCR as a :buildcache tag) instead of
+          # GHA cache, which evicts after 7 days of no access — a >1 week gap
+          # between deploys forced a full no-cache rebuild → all layer digests
+          # changed → Zeabur had to re-pull the whole ~GB image → ~5 min "starting"
+          # (2026-06-10). Registry cache has no such eviction, so layer digests
+          # stay stable across long gaps and Zeabur keeps doing fast incremental pulls.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
