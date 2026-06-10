@@ -107,3 +107,23 @@ def test_change_pin_requires_login(app):
     r = client.post("/auth/change-pin",
                     json={"current_pin": "1357", "new_pin": "2580", "confirm_pin": "2580"})
     assert r.status_code in (401, 302)
+
+
+def test_settings_page_renders(app):
+    client = app.test_client()
+    with app.app_context():
+        uid = _make_user(pin="1357").id
+    _login_as(client, uid)
+    r = client.get("/auth/settings")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "修改 PIN" in body
+    assert "字體大小" in body
+    assert 'id="cp-current"' in body          # PIN 表單存在
+    assert 'data-size="small"' in body          # 字體 picker 存在
+
+
+def test_settings_requires_login(app):
+    client = app.test_client()
+    r = client.get("/auth/settings")
+    assert r.status_code in (401, 302)
