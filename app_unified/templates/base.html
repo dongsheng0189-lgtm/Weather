@@ -120,7 +120,7 @@
   {% if handover_active %}
   <div id="handover-banner" style="background:#fff3cd;border-bottom:2px solid #ffc107;padding:.5rem 1rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;font-size:.9rem;color:#856404;">
     <span>🤝 <strong>交接模式中</strong>（閒置 15 分鐘才鎖）</span>
-    <button type="button" onclick="window.location.href='/auth/logout'"
+    <button type="button" onclick="window.location.href='{{ url_for('auth.logout') }}'"
             style="margin-left:auto;background:#e74c3c;color:#fff;border:none;border-radius:8px;padding:.4rem .8rem;font-size:.85rem;cursor:pointer;display:inline-flex;align-items:center;gap:.3rem;min-height:36px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>關閉模式並登出</button>
     <button type="button" onclick="endHandover()"

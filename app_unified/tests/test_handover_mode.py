@@ -140,5 +140,5 @@ def test_base_wires_endpoints_and_idle_extension():
     src = _BASE.read_text(encoding='utf-8')
     assert '/auth/handover/start' in src
     assert '/auth/handover/end' in src
-    assert "window.location.href='/auth/logout'" in src
+    assert "window.location.href='{{ url_for('auth.logout') }}'" in src
     assert 'IDLE_LIMIT_MS = 15 * 60 * 1000' in src
