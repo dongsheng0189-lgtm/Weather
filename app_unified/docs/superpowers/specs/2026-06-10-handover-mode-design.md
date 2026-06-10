@@ -61,7 +61,13 @@
         font-size:.9rem;color:#856404;">
      <span>🤝 <strong>交接模式中</strong>（閒置 15 分鐘才鎖）</span>
      <button type="button" onclick="window.location.href='/auth/logout'"
-             style="margin-left:auto;...紅...">🚪 關閉模式並登出</button>
+             style="margin-left:auto;...紅...">
+       <!-- 內嵌 alert-circle SVG（驚嘆號），stroke=currentColor → 白色細線 -->
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+            style="vertical-align:-2px;margin-right:.3rem;">
+         <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+         <line x1="12" y1="16" x2="12.01" y2="16"/></svg>關閉模式並登出</button>
      <button type="button" onclick="endHandover()" style="...灰...">結束交接（保持登入）</button>
    </div>
    ```
