@@ -162,23 +162,9 @@ function setStatus(msg, color) {
   el.style.color = color || '#666';
 }
 
-/* ═══ Shared fullscreen gallery helpers (mynotes is private — no download) ═══ */
-function _toMyGalleryItem(att) {
-  return {
-    id: att.id,
-    kind: (att.content_type && att.content_type.indexOf('video/') === 0) ? 'video' : 'image',
-    url: att.url,
-    content_type: att.content_type,
-    downloadHref: null   /* mynotes private — no download exposed */
-  };
-}
-
-function _openMyGalleryFor(att, siblings) {
-  var list = (siblings && siblings.length) ? siblings : [att];
-  var items = list.map(_toMyGalleryItem);
-  var idx = items.findIndex(function(it) { return it.id === att.id; });
-  openFullscreenGallery(items, idx >= 0 ? idx : 0);
-}
+/* Gallery: mynotes is private → no download href. Items are tagged with
+ * window.markGalleryItem() and opened via window.openGalleryFromEl(), which
+ * rebuilds the swipe list from the live DOM group at click time (F10 cleanup). */
 
 var _saveInFlight = null;
 function doSave() {
@@ -322,13 +308,15 @@ function handleAttUpload(input) {
 function addAttachmentToList(a, siblings) {
   var list = document.getElementById('att-list');
   if (!list) return;
+  list.setAttribute('data-gallery-group', '');   /* swipe scope = this note's attachments */
   var wrap = document.createElement('div');
   wrap.className = 'att-item';
   wrap.dataset.attId = a.id;
   if (a.content_type && a.content_type.indexOf('image/') === 0) {
     var img = document.createElement('img');
     img.src = a.url;
-    img.onclick = function(){ _openMyGalleryFor(a, siblings); };
+    window.markGalleryItem(img, a, null);
+    img.onclick = function(){ window.openGalleryFromEl(img); };
     wrap.appendChild(img);
   } else if (a.content_type === 'application/pdf') {
     var link = document.createElement('a');
@@ -339,6 +327,7 @@ function addAttachmentToList(a, siblings) {
   } else {
     var v = document.createElement('video');
     v.src = a.url; v.controls = true;
+    window.markGalleryItem(v, a, null);
     wrap.appendChild(v);
   }
   var del = document.createElement('button');
@@ -402,11 +391,13 @@ function renderChecklist(items) {
     if (item.attachments && item.attachments.length > 0) {
       var atts = document.createElement('div');
       atts.className = 'cl-atts';
+      atts.setAttribute('data-gallery-group', '');   /* swipe scope = this checklist item */
       item.attachments.forEach(function(a){
         if (a.content_type && a.content_type.indexOf('image/') === 0) {
           var im = document.createElement('img');
           im.src = a.url;
-          im.onclick = function(){ _openMyGalleryFor(a, item.attachments); };
+          window.markGalleryItem(im, a, null);
+          im.onclick = function(){ window.openGalleryFromEl(im); };
           atts.appendChild(im);
         } else if (a.content_type === 'application/pdf') {
           var pl = document.createElement('a');
@@ -418,6 +409,7 @@ function renderChecklist(items) {
         } else {
           var vv = document.createElement('video');
           vv.src = a.url; vv.controls = true; vv.style.maxWidth = '120px';
+          window.markGalleryItem(vv, a, null);
           atts.appendChild(vv);
         }
       });
@@ -495,13 +487,15 @@ function closeItemDialog() {
 function renderItemDialogAtts() {
   var list = document.getElementById('item-modal-att-list');
   list.innerHTML = '';
+  list.setAttribute('data-gallery-group', '');   /* swipe scope = this item dialog */
   _itemSavedAtts.forEach(function(a, idx) {
     var wrap = document.createElement('div');
     wrap.className = 'att-item';
     if (a.content_type && a.content_type.indexOf('image/') === 0) {
       var img = document.createElement('img');
       img.src = a.url;
-      img.onclick = function(){ _openMyGalleryFor(a, _itemSavedAtts); };
+      window.markGalleryItem(img, a, null);
+      img.onclick = function(){ window.openGalleryFromEl(img); };
       wrap.appendChild(img);
     } else if (a.content_type === 'application/pdf') {
       var link = document.createElement('a');
@@ -512,6 +506,7 @@ function renderItemDialogAtts() {
     } else {
       var v = document.createElement('video');
       v.src = a.url; v.controls = true;
+      window.markGalleryItem(v, a, null);
       wrap.appendChild(v);
     }
     var del = document.createElement('button');

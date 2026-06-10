@@ -352,6 +352,26 @@
         else if (e.key === 'Escape')     { closeFullscreen(); }
       });
     }
+
+    /* Reposition on viewport resize / device rotation: slide layout is in vw
+     * but the track translateX is in px computed from the old innerWidth, so a
+     * mid-view rotate/resize would misalign slides. Debounced re-snap fixes it. */
+    if (!window._fsResizeBound) {
+      window._fsResizeBound = true;
+      var _fsResizeTimer = null;
+      var _onViewportChange = function() {
+        var overlay = document.getElementById('fullscreen-overlay');
+        if (!overlay || !overlay.classList.contains('open')) return;
+        _fsReset();                       /* drop any zoom/pan (px-based, now stale) */
+        _setTrack(_multi() ? -_canonicalSlot(_currentIdx) * _W() : 0, false);
+      };
+      var _debounced = function() {
+        clearTimeout(_fsResizeTimer);
+        _fsResizeTimer = setTimeout(_onViewportChange, 150);
+      };
+      window.addEventListener('resize', _debounced);
+      window.addEventListener('orientationchange', _debounced);
+    }
   }
 
   /* ──────── Slide markup ──────── */
@@ -549,8 +569,51 @@
       });
   }
 
+  /* ──────── DOM-driven gallery API (F10 cleanup) ────────
+   * Single source of truth = the live DOM. Each thumbnail's media element is
+   * tagged via markGalleryItem(); openGalleryFromEl() rebuilds the item list
+   * from the clicked element's [data-gallery-group] container at click time,
+   * so deleted items are gone and just-added/pending items are included with
+   * no per-surface sibling-array bookkeeping. Replaces the old per-template
+   * toGalleryItem/openGalleryFor copies. */
+  function markGalleryItem(el, att, downloadHref) {
+    if (!el || !att) return el;
+    el.setAttribute('data-gallery-item', '');
+    el.dataset.galleryId = att.id != null ? String(att.id) : '';
+    el.dataset.galleryKind = (att.content_type && att.content_type.indexOf('video/') === 0) ? 'video' : 'image';
+    el.dataset.galleryUrl = att.url || '';
+    el.dataset.galleryCt = att.content_type || '';
+    if (downloadHref) el.dataset.galleryDownload = downloadHref;
+    else delete el.dataset.galleryDownload;
+    return el;
+  }
+
+  function _galleryItemFromEl(el) {
+    return {
+      id: el.dataset.galleryId || null,
+      kind: el.dataset.galleryKind || 'image',
+      url: el.dataset.galleryUrl || '',
+      content_type: el.dataset.galleryCt || '',
+      downloadHref: el.dataset.galleryDownload || null
+    };
+  }
+
+  function openGalleryFromEl(el) {
+    if (!el) return;
+    var group = el.closest ? el.closest('[data-gallery-group]') : null;
+    var nodes = group
+      ? Array.prototype.slice.call(group.querySelectorAll('[data-gallery-item]'))
+      : [el];
+    if (!nodes.length) nodes = [el];
+    var items = nodes.map(_galleryItemFromEl);
+    var idx = nodes.indexOf(el);
+    openFullscreenGallery(items, idx >= 0 ? idx : 0);
+  }
+
   window.openFullscreen = openFullscreen;
   window.openFullscreenGallery = openFullscreenGallery;
   window.closeFullscreen = closeFullscreen;
   window.downloadAttachment = downloadAttachment;
+  window.markGalleryItem = markGalleryItem;
+  window.openGalleryFromEl = openGalleryFromEl;
 })();

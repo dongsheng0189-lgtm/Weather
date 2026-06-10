@@ -19,23 +19,12 @@ function _formatSize(bytes) {
   return (bytes / 1024).toFixed(0) + ' KB';
 }
 
-function _toAnnGalleryItem(att) {
-  return {
-    id: att.id,
-    kind: (att.content_type && att.content_type.indexOf('video/') === 0) ? 'video' : 'image',
-    url: att.url,
-    content_type: att.content_type,
-    downloadHref: att.id ? '/notes/announcement/api/attachments/' + att.id + '/download' : null
-  };
+function _annDownloadHref(att) {
+  return att.id ? '/notes/announcement/api/attachments/' + att.id + '/download' : null;
 }
 
-function _openAnnGalleryFor(att, siblings) {
-  var list = (siblings && siblings.length) ? siblings : [att];
-  var items = list.map(_toAnnGalleryItem);
-  var idx = items.findIndex(function(it) { return it.id === att.id; });
-  openFullscreenGallery(items, idx >= 0 ? idx : 0);
-}
-
+/* siblings param kept for call-site compatibility but no longer used:
+ * gallery list is rebuilt from the live DOM group at click time (F10 cleanup). */
 function _renderMedia(att, siblings) {
   var wrap = document.createElement('div');
   wrap.className = 'att-thumb-wrap';
@@ -44,9 +33,10 @@ function _renderMedia(att, siblings) {
     var img = document.createElement('img');
     img.src = att.url;
     img.alt = att.filename;
+    window.markGalleryItem(img, att, _annDownloadHref(att));
     img.onclick = function(e) {
       e.stopPropagation();
-      _openAnnGalleryFor(att, siblings);
+      window.openGalleryFromEl(img);
     };
     wrap.appendChild(img);
   } else if (att.content_type && att.content_type.indexOf('video/') === 0) {
@@ -55,6 +45,7 @@ function _renderMedia(att, siblings) {
     video.controls = true;
     video.preload = 'metadata';
     video.playsInline = true;
+    window.markGalleryItem(video, att, _annDownloadHref(att));
     wrap.appendChild(video);
   } else {
     var a = document.createElement('a');
