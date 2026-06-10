@@ -85,6 +85,11 @@
       confirm: document.getElementById('cp-confirm'),
     };
     btn.addEventListener('click', function() {
+      if (!f.current.value || !f.new.value || !f.confirm.value) {
+        msg.className = 'set-msg err';
+        msg.textContent = '請填寫所有欄位';
+        return;
+      }
       msg.className = 'set-msg';
       msg.textContent = '';
       btn.disabled = true;
@@ -97,9 +102,18 @@
           confirm_pin: f.confirm.value,
         }),
       })
-        .then(function(r) { return r.json().then(function(j) { return [r, j]; }); })
+        .then(function(r) {
+          return r.json().then(function(j) { return [r, j]; },
+                               function()  { return [r, null]; });
+        })
         .then(function(pair) {
           var r = pair[0], j = pair[1];
+          if (!j) {
+            msg.className = 'set-msg err';
+            msg.textContent = (r.status === 401 || r.status === 302)
+              ? '登入已逾期，請重新整理頁面' : '伺服器錯誤，請再試一次';
+            return;
+          }
           if (r.ok && j.status === 'ok') {
             msg.className = 'set-msg ok';
             msg.textContent = '✓ PIN 已更新';
