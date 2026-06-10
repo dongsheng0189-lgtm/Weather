@@ -20,9 +20,11 @@ def _make_user(pin="1357"):
 
 
 def _login_as(client, user_id):
+    import time
     with client.session_transaction() as sess:
         sess["_user_id"] = str(user_id)
         sess["_fresh"] = True
+        sess["_last_request_at"] = int(time.time())
 
 
 def test_change_pin_success(app):

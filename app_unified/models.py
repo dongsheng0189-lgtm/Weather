@@ -174,7 +174,7 @@ class UserLog(db.Model):
     # 目標
     target_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     target_name = db.Column(db.Text, nullable=False)    # 快照
-    # 動作：'create' | 'delete' | 'activate' | 'deactivate' | 'set_role' | 'set_store' | 'approve_device'
+    # 動作：'create' | 'delete' | 'activate' | 'deactivate' | 'set_role' | 'set_store' | 'approve_device' | 'change_pin'
     action = db.Column(db.Text, nullable=False)
     detail = db.Column(db.Text, nullable=True)          # 例：role=user→admin
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
