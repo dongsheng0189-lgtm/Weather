@@ -112,6 +112,11 @@ def create_app():
         }
 
     @app.context_processor
+    def inject_handover():
+        from flask import session
+        return {"handover_active": bool(session.get("_handover"))}
+
+    @app.context_processor
     def inject_git_sha():
         # GHA build 時透過 build-arg 注入 GIT_SHA，再由 Dockerfile ENV 帶到 runtime。
         # 本機 / 沒設值時 fallback 顯示 'dev'。只取前 4 碼讓管理頁面好比對。
@@ -488,6 +493,8 @@ def create_app():
             max_idle = 15 * 60
         else:
             max_idle = 5 * 60
+        if session.get("_handover"):
+            max_idle = max(max_idle, 15 * 60)   # 交接模式：15 分鐘純滑動
         last = session.get("_last_request_at")
         if last is not None and now - last > max_idle:
             logout_user()
