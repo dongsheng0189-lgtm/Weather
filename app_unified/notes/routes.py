@@ -326,9 +326,14 @@ def _sweep_ai_tasks():
 
 
 def _get_stores():
-    """回傳目前登入者『可視』的店名（super_admin 吃 hidden_stores；其餘只有自己店）。"""
-    all_names = [s.name for s in Store.query.order_by(Store.name).all()]
-    return current_user.visible_store_names(all_names)
+    """全部店家名（給建立/編輯筆記的店別驗證與 picker 用——authoring 不受可視設定限制）。"""
+    return [s.name for s in Store.query.order_by(Store.name).all()]
+
+
+def _visible_stores():
+    """目前登入者『可視』的店名（super_admin 吃 hidden_stores；其餘只有自己店）。
+    僅用於瀏覽/切換/篩選/列表 scoping，不可用於 authoring 驗證。"""
+    return current_user.visible_store_names(_get_stores())
 
 
 def _date_filter(query, range_param):
@@ -362,7 +367,7 @@ def index():
     tag_id = request.args.get("tag", type=int)
     page = request.args.get("page", 1, type=int)
     per_page = 20
-    stores = _get_stores()
+    stores = _visible_stores()
 
     # 排序偏好：純 URL query param；偏好持久化由前端 localStorage 處理（不再用 session）
     sort_param = request.args.get("sort", "")
@@ -537,12 +542,18 @@ def list_notes():
     category_filter = request.args.get("category", "")
     shift_filter = request.args.get("shift", "")  # API 不強制 default，未帶則不過濾
     keyword = request.args.get("q", "").strip()
-    stores = _get_stores()
+    stores = _visible_stores()
 
     query = Note.active()
     if current_user.is_super_admin():
         if store_filter in stores:
             query = query.filter_by(store=store_filter)
+        else:
+            hidden = current_user.get_hidden_stores()
+            if hidden:
+                query = query.filter(
+                    db.or_(Note.store.is_(None), Note.store.notin_(hidden))
+                )
     elif current_user.is_admin():
         query = query.filter_by(store=current_user.store)
     else:

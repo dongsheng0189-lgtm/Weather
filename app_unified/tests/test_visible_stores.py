@@ -186,3 +186,44 @@ def test_notes_super_admin_null_store_note_visible_after_hiding(client, db):
     _login(client, su)
     html = client.get('/notes/?range=all').get_data(as_text=True)
     assert nn.title in html      # NULL-store 筆記仍可見
+
+
+def test_notes_api_super_admin_respects_visible(client, db):
+    from models import Store, Note
+    sb, sc = _uniq('SB'), _uniq('SC')
+    db.session.add_all([Store(name=sb), Store(name=sc)])
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    nb = Note(user_id=su.id, store=sb, title=_uniq('APIB'),
+              content='', note_type='regular')
+    nc = Note(user_id=su.id, store=sc, title=_uniq('APIC'),
+              content='', note_type='regular')
+    db.session.add_all([nb, nc])
+    db.session.commit()
+    su.set_hidden_stores([sc])
+    db.session.commit()
+    _login(client, su)
+    resp = client.get('/notes/api?range=all').get_data(as_text=True)
+    assert nb.title in resp
+    assert nc.title not in resp
+
+
+def test_update_note_preserves_hidden_store(client, db):
+    """super_admin 編輯隱藏店的 note、送出含該 store → 不可被清成 NULL（authoring 不受可視限制）。"""
+    from models import Store, Note
+    sc = _uniq('SC')
+    db.session.add(Store(name=sc))
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    n = Note(user_id=su.id, store=sc, title=_uniq('EDITME'),
+             content='', note_type='regular')
+    db.session.add(n)
+    db.session.commit()
+    su.set_hidden_stores([sc])
+    db.session.commit()
+    _login(client, su)
+    nid = n.id
+    client.put(f'/notes/api/{nid}', json={'store': sc, 'title': 'updated'})
+    db.session.expire_all()
+    refreshed = Note.query.get(nid)
+    assert refreshed.store == sc
