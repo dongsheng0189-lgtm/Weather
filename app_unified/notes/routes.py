@@ -378,7 +378,7 @@ def index():
     else:
         query = query.filter_by(store=current_user.store)
 
-    # keyword 互斥：有 keyword 時忽略其他篩選
+    # 三互斥模式：keyword > tag > combined
     keyword_mode = False
     active_filter = None
     if keyword:
@@ -386,8 +386,19 @@ def index():
         keyword_mode = True
         # AI 摘要的內容是其他 note 的彙整，搜尋會跟原 note 重複出現 → 排除掉
         query = query.filter(Note.is_ai_summary.isnot(True))
+    elif tag_id:
+        # 標籤獨立互斥：只看 store + 該標籤的全部歷史，忽略時間/種類/班別/狀態
+        active_filter = 'tag'
+        from models import NoteTag, ChecklistItem as _CI, ChecklistItemTag as _CIT
+        # 同時 match note-level tag 跟 checklist item-level tag (UNION via subquery)
+        note_via_note = db.session.query(NoteTag.note_id).filter(NoteTag.tag_id == tag_id)
+        note_via_item = db.session.query(_CI.note_id).join(
+            _CIT, _CIT.item_id == _CI.id
+        ).filter(_CIT.tag_id == tag_id)
+        matching_note_ids = note_via_note.union(note_via_item).subquery()
+        query = query.filter(Note.id.in_(db.session.query(matching_note_ids)))
     else:
-        # AND 組合：category + status + range + tag
+        # AND 組合：category + status + range
         active_filter = 'combined'
         if category_filter in CATEGORY_CHOICES:
             query = query.filter_by(category=category_filter)
@@ -396,15 +407,6 @@ def index():
             query = query.filter_by(shift=shift_filter)
         if status_filter in STATUS_CHOICES:
             query = query.filter_by(status=status_filter)
-        if tag_id:
-            from models import NoteTag, ChecklistItem as _CI, ChecklistItemTag as _CIT
-            # 同時 match note-level tag 跟 checklist item-level tag (UNION via subquery)
-            note_via_note = db.session.query(NoteTag.note_id).filter(NoteTag.tag_id == tag_id)
-            note_via_item = db.session.query(_CI.note_id).join(
-                _CIT, _CIT.item_id == _CI.id
-            ).filter(_CIT.tag_id == tag_id)
-            matching_note_ids = note_via_note.union(note_via_item).subquery()
-            query = query.filter(Note.id.in_(db.session.query(matching_note_ids)))
         if not range_param:
             range_param = 'today'
         query = _date_filter(query, range_param)

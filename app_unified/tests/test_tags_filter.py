@@ -88,3 +88,64 @@ def test_notes_index_no_tag_returns_all(client, db):
     _login(client, u)
     r = client.get('/notes/?range=all')
     assert title in r.get_data(as_text=True)
+
+
+def test_tag_filter_ignores_time_window(client, db):
+    """標籤模式不吃時間：10 天前 updated 的 note 選標籤時仍應出現。"""
+    from datetime import datetime, timedelta
+    from models import Tag, Note, NoteTag
+    u = _mk_user(db)
+    old_title = _uniq('OLD_TAGGED')
+    n = Note(user_id=u.id, store='B店', title=old_title,
+             content='', note_type='regular')
+    t = Tag(store='B店', name=_uniq('久遠'), color='#E74C3C')
+    db.session.add_all([n, t])
+    db.session.commit()
+    db.session.add(NoteTag(note_id=n.id, tag_id=t.id))
+    # updated_at 無 onupdate，手動塞 10 天前不會被 commit 覆蓋
+    n.updated_at = datetime.utcnow() - timedelta(days=10)
+    db.session.commit()
+    _login(client, u)
+    # 故意不帶 range=all：證明 tag 模式不再套 today 預設時間窗
+    r = client.get(f'/notes/?tag={t.id}')
+    assert old_title in r.get_data(as_text=True)
+
+
+def test_tag_filter_ignores_category(client, db):
+    """標籤模式不吃種類：帶 category 也不該縮小標籤結果。"""
+    from models import Tag, Note, NoteTag
+    u = _mk_user(db)
+    title = _uniq('TAG_CAT')
+    n = Note(user_id=u.id, store='B店', title=title, content='',
+             note_type='regular', category='employee')
+    t = Tag(store='B店', name=_uniq('CC'), color='#3498DB')
+    db.session.add_all([n, t])
+    db.session.commit()
+    db.session.add(NoteTag(note_id=n.id, tag_id=t.id))
+    db.session.commit()
+    _login(client, u)
+    # 帶一個不符的 category，tag 模式應忽略它、note 照樣出現
+    r = client.get(f'/notes/?tag={t.id}&category=machine')
+    assert title in r.get_data(as_text=True)
+
+
+def test_keyword_takes_precedence_over_tag(client, db):
+    """q + tag 同時有值 → keyword 模式，tag 被忽略。"""
+    from models import Tag, Note, NoteTag
+    u = _mk_user(db)
+    kw = _uniq('KWHIT')
+    n = Note(user_id=u.id, store='B店', title=kw, content='',
+             note_type='regular')
+    other = Note(user_id=u.id, store='B店', title=_uniq('TAGONLY'),
+                 content='', note_type='regular')
+    t = Tag(store='B店', name=_uniq('PX'), color='#E74C3C')
+    db.session.add_all([n, other, t])
+    db.session.commit()
+    # tag 掛在 other（不含關鍵字的那筆）
+    db.session.add(NoteTag(note_id=other.id, tag_id=t.id))
+    db.session.commit()
+    _login(client, u)
+    r = client.get(f'/notes/?q={kw}&tag={t.id}')
+    html = r.get_data(as_text=True)
+    assert kw in html               # 關鍵字命中的出現
+    assert other.title not in html  # 只掛 tag、無關鍵字的不出現（tag 被忽略）
