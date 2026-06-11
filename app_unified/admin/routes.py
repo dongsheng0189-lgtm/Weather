@@ -765,7 +765,15 @@ def batch_delete_devices():
 def list_stores():
     require_admin()
     stores = Store.query.order_by(Store.name).all()
-    return jsonify([{"name": s.name, "login_enabled": s.login_enabled} for s in stores])
+    hidden = set(current_user.get_hidden_stores()) if current_user.is_super_admin() else set()
+    out = []
+    for s in stores:
+        if current_user.is_super_admin():
+            visible = s.name not in hidden
+        else:  # admin：唯讀，只有自己店算可視
+            visible = (s.name == current_user.store)
+        out.append({"name": s.name, "login_enabled": s.login_enabled, "visible": visible})
+    return jsonify(out)
 
 
 @admin_bp.route("/stores", methods=["POST"])
@@ -801,6 +809,32 @@ def toggle_store_login(name):
     store.login_enabled = not store.login_enabled
     db.session.commit()
     return jsonify({"status": "ok", "login_enabled": store.login_enabled})
+
+
+@admin_bp.route("/stores/<name>/toggle-visible", methods=["POST"])
+@login_required
+def toggle_store_visible(name):
+    # 僅 super_admin 可操作可視店家；admin/user 一律 403
+    if not current_user.is_super_admin():
+        abort(403)
+    Store.query.filter_by(name=name).first_or_404()
+    all_names = [s.name for s in Store.query.all()]
+    hidden = current_user.get_hidden_stores()
+    if name in hidden:
+        hidden = [h for h in hidden if h != name]          # 取消隱藏 = 可視
+    else:
+        hidden_after = set(hidden) | {name}
+        visible_after = [n for n in all_names if n not in hidden_after]
+        if not visible_after:                              # 防呆：至少保留一間
+            return jsonify({"status": "error",
+                            "message": "至少要保留一間可視店家"}), 400
+        hidden = hidden + [name]
+    current_user.set_hidden_stores(hidden)
+    is_visible = name not in hidden
+    _log_user_action("toggle_visible_store", current_user,
+                     detail=f"{name}={'visible' if is_visible else 'hidden'}")
+    db.session.commit()
+    return jsonify({"status": "ok", "visible": is_visible})
 
 
 # ── 操作 Log ──────────────────────────────────────────────
