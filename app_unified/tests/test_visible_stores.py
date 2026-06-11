@@ -168,3 +168,21 @@ def test_notes_super_admin_hidden_store_param_ignored(client, db):
     # 顯式 ?store=<已隱藏> → 忽略、回退可視全集，仍看不到 sc
     html = client.get(f'/notes/?store={sc}&range=all').get_data(as_text=True)
     assert nc.title not in html
+
+
+def test_notes_super_admin_null_store_note_visible_after_hiding(client, db):
+    """super_admin 隱藏某店後，store=NULL 的筆記仍應看得到（不被 NOT IN 濾掉）。"""
+    from models import Store, Note
+    sc = _uniq('SC')
+    db.session.add(Store(name=sc))
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    nn = Note(user_id=su.id, store=None, title=_uniq('NULL_NOTE'),
+              content='', note_type='regular')
+    db.session.add(nn)
+    db.session.commit()
+    su.set_hidden_stores([sc])   # 隱藏一間 → 觸發 NOT IN
+    db.session.commit()
+    _login(client, su)
+    html = client.get('/notes/?range=all').get_data(as_text=True)
+    assert nn.title in html      # NULL-store 筆記仍可見

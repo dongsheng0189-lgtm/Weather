@@ -378,9 +378,11 @@ def index():
             # 指定可視店 → 精確過濾
             query = query.filter_by(store=store_filter)
         else:
-            # 無指定 / 指定到隱藏店 → 排除所有已隱藏店（不用 in_(stores) 避免漏掉 Store 表未收錄的店）
+            # 無指定 / 指定到隱藏店 → 顯示「未隱藏」的店 + 無店別(NULL)的筆記
             if hidden:
-                query = query.filter(Note.store.notin_(hidden))
+                query = query.filter(
+                    db.or_(Note.store.is_(None), Note.store.notin_(hidden))
+                )
     elif current_user.is_admin():
         query = query.filter_by(store=current_user.store)
     else:
