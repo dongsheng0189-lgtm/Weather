@@ -177,6 +177,7 @@
     <span class="bar-chevron">▶</span>
   </div>
   <div class="collapsible-body">
+    {% if not current_tag %}
     <form method="get" action="{{ url_for('notes.index') }}" style="display:flex;gap:.4rem;margin-bottom:.75rem;align-items:center;flex-wrap:wrap;">
       <span style="font-size:.85rem;color:#666;">🔍 關鍵字：</span>
       {% if current_store %}<input type="hidden" name="store" value="{{ current_store }}">{% endif %}
@@ -186,16 +187,19 @@
       <a href="{{ url_for('notes.index', store=current_store) }}" class="btn btn-secondary" style="padding:.35rem .8rem;font-size:.85rem;min-height:36px;display:inline-flex;align-items:center;gap:.3rem;"><span style="color:#e74c3c;font-weight:700;">✕</span> 取消</a>
       {% endif %}
     </form>
-
-    {# 標籤 row 預留位、Task C6 fill via JS #}
-    <div class="tag-filter-row" data-role="tag-row"></div>
+    {% endif %}
 
     {% if not current_keyword %}
+    {# 標籤 row 預留位、Task C6 fill via JS #}
+    <div class="tag-filter-row" data-role="tag-row"></div>
+    {% endif %}
+
+    {% if not current_keyword and not current_tag %}
     {% set cat_tab_labels = [('','全部'),('employee','員工'),('customer','客人'),('machine','機台'),('misc','雜項')] %}
     <div class="range-tabs">
       <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">種類：</span>
       {% for val, label in cat_tab_labels %}
-      <a href="{{ url_for('notes.index', store=current_store, category=val, tag=current_tag) }}"
+      <a href="{{ url_for('notes.index', store=current_store, category=val) }}"
          class="store-tab {% if current_category == val %}active{% endif %}"
          style="{% if current_category == val %}
                   {% if val == '' %}background:#2c3e50;color:#fff;
@@ -208,7 +212,7 @@
     <div class="range-tabs">
       <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">班別：</span>
       {% for val, label in shift_tab_labels %}
-      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=val, tag=current_tag) }}"
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=val) }}"
          class="store-tab {% if current_shift == val %}active{% endif %}"
          style="{% if current_shift == val %}background:#16a085;color:#fff;{% endif %}">{{ label }}</a>
       {% endfor %}
@@ -217,7 +221,7 @@
       <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">時間：</span>
       {% set range_labels = [('today','今天'),('3d','近3天'),('7d','近7天'),('all','所有')] %}
       {% for val, label in range_labels %}
-      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=val, tag=current_tag) }}"
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=val) }}"
          class="store-tab {% if current_range == val %}active{% endif %}"
          style="{% if current_range == val %}background:#2c3e50;color:#fff;{% endif %}">{{ label }}</a>
       {% endfor %}
@@ -226,7 +230,7 @@
     <div class="status-tabs">
       <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">狀態：</span>
       {% for val, label in status_labels %}
-      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=val, tag=current_tag) }}"
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=val) }}"
          class="store-tab {% if current_status == val %}active{% endif %}"
          style="{% if current_status == val %}
                   {% if val == '' %}background:#2c3e50;color:#fff;
@@ -241,7 +245,7 @@
     <div class="status-tabs">
       <span style="font-size:.85rem;color:#666;align-self:center;margin-right:.25rem;">排列：</span>
       {% for val, label in sort_labels %}
-      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=current_status, sort=val, tag=current_tag) }}"
+      <a href="{{ url_for('notes.index', store=current_store, category=current_category, shift=current_shift, range=current_range, status=current_status, sort=val) }}"
          onclick="try { localStorage.setItem('notes_sort', '{{ val }}'); } catch(e){}"
          class="store-tab {% if current_sort == val %}active{% endif %}"
          style="{% if current_sort == val %}background:#8e44ad;color:#fff;{% endif %}">{{ label }}</a>
