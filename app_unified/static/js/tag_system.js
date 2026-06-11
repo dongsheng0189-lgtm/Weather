@@ -300,10 +300,12 @@
     function makeChip(t) {
       var chip = chipEl(t, {button: true, active: (t.id === currentTagId)});
       chip.addEventListener('click', function() {
-        var url = new URL(window.location.href);
-        if (t.id === currentTagId) url.searchParams.delete('tag');
-        else url.searchParams.set('tag', t.id);
-        window.location.href = url.toString();
+        // 標籤是獨立互斥模式：導向乾淨 URL，只保留 store（+ tag）
+        var u = new URL(window.location.origin + window.location.pathname);
+        var store = new URLSearchParams(window.location.search).get('store');
+        if (store) u.searchParams.set('store', store);
+        if (t.id !== currentTagId) u.searchParams.set('tag', t.id);
+        window.location.href = u.toString();
       });
       return chip;
     }
