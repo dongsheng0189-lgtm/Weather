@@ -326,7 +326,9 @@ def _sweep_ai_tasks():
 
 
 def _get_stores():
-    return [s.name for s in Store.query.order_by(Store.name).all()]
+    """回傳目前登入者『可視』的店名（super_admin 吃 hidden_stores；其餘只有自己店）。"""
+    all_names = [s.name for s in Store.query.order_by(Store.name).all()]
+    return current_user.visible_store_names(all_names)
 
 
 def _date_filter(query, range_param):
@@ -369,10 +371,16 @@ def index():
 
     query = Note.active()
 
-    # 店別範圍（不變）
+    # 店別範圍：super_admin 吃可視店（stores 已是 _get_stores() 過濾後清單）
     if current_user.is_super_admin():
+        hidden = current_user.get_hidden_stores()
         if store_filter in stores:
+            # 指定可視店 → 精確過濾
             query = query.filter_by(store=store_filter)
+        else:
+            # 無指定 / 指定到隱藏店 → 排除所有已隱藏店（不用 in_(stores) 避免漏掉 Store 表未收錄的店）
+            if hidden:
+                query = query.filter(Note.store.notin_(hidden))
     elif current_user.is_admin():
         query = query.filter_by(store=current_user.store)
     else:

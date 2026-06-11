@@ -129,3 +129,42 @@ def test_dashboard_has_visible_column(client, db):
     assert '可視</th>' in html
     assert 'toggleStoreVisible' in html
     assert 'IS_SUPER_ADMIN' in html
+
+
+def test_notes_super_admin_hidden_store_excluded(client, db):
+    from models import Store, Note
+    sb, sc = _uniq('SB'), _uniq('SC')
+    db.session.add_all([Store(name=sb), Store(name=sc)])
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    nb = Note(user_id=su.id, store=sb, title=_uniq('NOTE_B'),
+              content='', note_type='regular')
+    nc = Note(user_id=su.id, store=sc, title=_uniq('NOTE_C'),
+              content='', note_type='regular')
+    db.session.add_all([nb, nc])
+    db.session.commit()
+    su.set_hidden_stores([sc])
+    db.session.commit()
+    _login(client, su)
+    # 無 ?store：只看可視店（不含已隱藏的 sc）
+    html = client.get('/notes/?range=all').get_data(as_text=True)
+    assert nb.title in html
+    assert nc.title not in html
+
+
+def test_notes_super_admin_hidden_store_param_ignored(client, db):
+    from models import Store, Note
+    sc = _uniq('SC')
+    db.session.add(Store(name=sc))
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    nc = Note(user_id=su.id, store=sc, title=_uniq('ONLY_C'),
+              content='', note_type='regular')
+    db.session.add(nc)
+    db.session.commit()
+    su.set_hidden_stores([sc])
+    db.session.commit()
+    _login(client, su)
+    # 顯式 ?store=<已隱藏> → 忽略、回退可視全集，仍看不到 sc
+    html = client.get(f'/notes/?store={sc}&range=all').get_data(as_text=True)
+    assert nc.title not in html
