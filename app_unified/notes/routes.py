@@ -326,7 +326,14 @@ def _sweep_ai_tasks():
 
 
 def _get_stores():
+    """全部店家名（給建立/編輯筆記的店別驗證與 picker 用——authoring 不受可視設定限制）。"""
     return [s.name for s in Store.query.order_by(Store.name).all()]
+
+
+def _visible_stores():
+    """目前登入者『可視』的店名（super_admin 吃 hidden_stores；其餘只有自己店）。
+    僅用於瀏覽/切換/篩選/列表 scoping，不可用於 authoring 驗證。"""
+    return current_user.visible_store_names(_get_stores())
 
 
 def _date_filter(query, range_param):
@@ -360,7 +367,7 @@ def index():
     tag_id = request.args.get("tag", type=int)
     page = request.args.get("page", 1, type=int)
     per_page = 20
-    stores = _get_stores()
+    stores = _visible_stores()
 
     # 排序偏好：純 URL query param；偏好持久化由前端 localStorage 處理（不再用 session）
     sort_param = request.args.get("sort", "")
@@ -369,10 +376,18 @@ def index():
 
     query = Note.active()
 
-    # 店別範圍（不變）
+    # 店別範圍：super_admin 吃可視店（stores 已是 _visible_stores() 過濾後清單）
     if current_user.is_super_admin():
+        hidden = current_user.get_hidden_stores()
         if store_filter in stores:
+            # 指定可視店 → 精確過濾
             query = query.filter_by(store=store_filter)
+        else:
+            # 無指定 / 指定到隱藏店 → 顯示「未隱藏」的店 + 無店別(NULL)的筆記
+            if hidden:
+                query = query.filter(
+                    db.or_(Note.store.is_(None), Note.store.notin_(hidden))
+                )
     elif current_user.is_admin():
         query = query.filter_by(store=current_user.store)
     else:
@@ -425,7 +440,14 @@ def index():
     from models import Announcement
     from sqlalchemy import or_ as _or
     if current_user.is_super_admin():
-        _ann_q = Announcement.query
+        _ann_hidden = current_user.get_hidden_stores()
+        if _ann_hidden:
+            _ann_q = Announcement.query.filter(
+                _or(Announcement.store.is_(None),
+                    Announcement.store.notin_(_ann_hidden))
+            )
+        else:
+            _ann_q = Announcement.query
     else:
         _ann_q = Announcement.query.filter(
             _or(Announcement.store.is_(None),
@@ -529,12 +551,18 @@ def list_notes():
     category_filter = request.args.get("category", "")
     shift_filter = request.args.get("shift", "")  # API 不強制 default，未帶則不過濾
     keyword = request.args.get("q", "").strip()
-    stores = _get_stores()
+    stores = _visible_stores()
 
     query = Note.active()
     if current_user.is_super_admin():
         if store_filter in stores:
             query = query.filter_by(store=store_filter)
+        else:
+            hidden = current_user.get_hidden_stores()
+            if hidden:
+                query = query.filter(
+                    db.or_(Note.store.is_(None), Note.store.notin_(hidden))
+                )
     elif current_user.is_admin():
         query = query.filter_by(store=current_user.store)
     else:
@@ -1383,7 +1411,7 @@ def notes_ai_summary():
     label_base = (now_tw - timedelta(days=1)) if business_day == "yesterday" else now_tw
     business_day_date = label_base.strftime("%Y-%m-%d")
 
-    valid_stores = [s.name for s in Store.query.all()]
+    valid_stores = _visible_stores()
     if store not in valid_stores:
         return jsonify({"status": "error", "message": "請選擇店別"}), 400
 

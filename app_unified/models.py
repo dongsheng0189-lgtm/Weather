@@ -47,6 +47,9 @@ class User(UserMixin, db.Model):
     # 模組開關（JSON 陣列字串）。只有種子 admin (username=='admin') bypass，
     # 其他角色（含 super_admin）一律嚴格依此陣列判斷
     features = db.Column(db.Text, nullable=False, default='["notes", "vetting"]')
+    # 每個 super_admin 個人隱藏的店名（JSON 陣列字串）。NULL/空=全可視；
+    # 新增的店家不在此集合 → 自動可視。admin/user 一律忽略（只看自己店）。
+    hidden_stores = db.Column(db.Text, nullable=True)
 
     notes = db.relationship("Note", backref="author", lazy=True, foreign_keys="Note.user_id")
 
@@ -61,6 +64,27 @@ class User(UserMixin, db.Model):
     def set_features(self, keys: list):
         import json
         self.features = json.dumps(list(keys))
+
+    def get_hidden_stores(self) -> list:
+        import json
+        try:
+            val = json.loads(self.hidden_stores or "[]")
+            return val if isinstance(val, list) else []
+        except Exception:
+            return []
+
+    def set_hidden_stores(self, names: list):
+        import json
+        self.hidden_stores = json.dumps(list(names))
+
+    def visible_store_names(self, all_store_names: list) -> list:
+        """此 user 可視的店名（保持傳入順序）。
+        super_admin: all_store_names 扣掉 get_hidden_stores()；
+        admin/user: [self.store] if self.store else []。"""
+        if self.is_super_admin():
+            hidden = set(self.get_hidden_stores())
+            return [n for n in all_store_names if n not in hidden]
+        return [self.store] if self.store else []
 
     def is_root_admin(self) -> bool:
         """種子管理員：username == 'admin'，擁有模組權限管理 UI 存取權"""

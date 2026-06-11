@@ -183,8 +183,13 @@ def dashboard():
     user_page = request.args.get("user_page", 1, type=int)
     user_store_filter = request.args.get("user_store", "").strip()
     per_page = 20
+    all_store_names = [s.name for s in Store.query.order_by(Store.name).all()]
     if current_user.is_super_admin():
-        user_query = User.query
+        visible = current_user.visible_store_names(all_store_names)
+        # 可視店的 user + 未綁店者/其他 super_admin（store IS NULL）永遠顯示
+        user_query = User.query.filter(
+            db.or_(User.store.in_(visible), User.store.is_(None))
+        )
     else:
         user_query = User.query.filter_by(store=current_user.store)
     # 店別篩選（只對 super_admin 有效，admin 已限定本店）
@@ -193,7 +198,8 @@ def dashboard():
     user_pagination = user_query.order_by(User.created_at.desc()).paginate(
         page=user_page, per_page=per_page, error_out=False
     )
-    stores = [s.name for s in Store.query.order_by(Store.name).all()]
+    # 傳給 template 的店家清單（dropdown 等）= 可視店；admin 走自己店
+    stores = current_user.visible_store_names(all_store_names)
     return render_template("admin/dashboard.html", users=user_pagination.items,
                            user_pagination=user_pagination,
                            user_store_filter=user_store_filter,
@@ -765,7 +771,15 @@ def batch_delete_devices():
 def list_stores():
     require_admin()
     stores = Store.query.order_by(Store.name).all()
-    return jsonify([{"name": s.name, "login_enabled": s.login_enabled} for s in stores])
+    hidden = set(current_user.get_hidden_stores()) if current_user.is_super_admin() else set()
+    out = []
+    for s in stores:
+        if current_user.is_super_admin():
+            visible = s.name not in hidden
+        else:  # admin：唯讀，只有自己店算可視
+            visible = (s.name == current_user.store)
+        out.append({"name": s.name, "login_enabled": s.login_enabled, "visible": visible})
+    return jsonify(out)
 
 
 @admin_bp.route("/stores", methods=["POST"])
@@ -801,6 +815,32 @@ def toggle_store_login(name):
     store.login_enabled = not store.login_enabled
     db.session.commit()
     return jsonify({"status": "ok", "login_enabled": store.login_enabled})
+
+
+@admin_bp.route("/stores/<name>/toggle-visible", methods=["POST"])
+@login_required
+def toggle_store_visible(name):
+    # 僅 super_admin 可操作可視店家；admin/user 一律 403
+    if not current_user.is_super_admin():
+        abort(403)
+    Store.query.filter_by(name=name).first_or_404()
+    all_names = [s.name for s in Store.query.all()]
+    hidden = current_user.get_hidden_stores()
+    if name in hidden:
+        hidden = [h for h in hidden if h != name]          # 取消隱藏 = 可視
+    else:
+        hidden_after = set(hidden) | {name}
+        visible_after = [n for n in all_names if n not in hidden_after]
+        if not visible_after:                              # 防呆：至少保留一間
+            return jsonify({"status": "error",
+                            "message": "至少要保留一間可視店家"}), 400
+        hidden = hidden + [name]
+    current_user.set_hidden_stores(hidden)
+    is_visible = name not in hidden
+    _log_user_action("toggle_visible_store", current_user,
+                     detail=f"{name}={'visible' if is_visible else 'hidden'}")
+    db.session.commit()
+    return jsonify({"status": "ok", "visible": is_visible})
 
 
 # ── 操作 Log ──────────────────────────────────────────────

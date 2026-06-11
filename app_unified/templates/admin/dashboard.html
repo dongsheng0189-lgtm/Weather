@@ -260,7 +260,7 @@ th { background: #f8f9fa; font-weight: 700; }
     <button class="btn btn-primary" onclick="addStore()">新增店家</button>
   </div>
   <table style="margin-top:.75rem;">
-    <thead><tr><th>店名</th><th>登入狀態</th><th>操作</th></tr></thead>
+    <thead><tr><th>店名</th><th style="white-space:nowrap;">可視</th><th>登入狀態</th><th>操作</th></tr></thead>
     <tbody id="stores-tbody"></tbody>
   </table>
 </div>
@@ -346,20 +346,56 @@ async function setStore(id, store) {
 }
 
 // 店家管理
+const IS_SUPER_ADMIN = {{ current_user.is_super_admin()|tojson }};
 async function loadStores() {
   const res = await fetch('/admin/stores');
   const stores = await res.json();
   const tbody = document.getElementById('stores-tbody');
-  tbody.innerHTML = stores.map(s => `
-    <tr>
-      <td><strong>${s.name}</strong></td>
-      <td><span class="badge badge-${s.login_enabled ? 'active' : 'inactive'}" id="store-login-${s.name}">${s.login_enabled ? '開啟' : '關閉'}</span></td>
-      <td>
-        <button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;" onclick="toggleStoreLogin('${s.name}')">切換登入</button>
-        <button class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;margin-left:.3rem;color:#dc3545;" onclick="deleteStore('${s.name}')">刪除</button>
-      </td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = '';
+  stores.forEach(s => {
+    const tr = document.createElement('tr');
+
+    const tdName = document.createElement('td');
+    const strong = document.createElement('strong');
+    strong.textContent = s.name;          // safe: textContent, never innerHTML
+    tdName.appendChild(strong);
+
+    const tdVis = document.createElement('td');
+    tdVis.style.textAlign = 'center';
+    tdVis.style.whiteSpace = 'nowrap';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!s.visible;
+    cb.disabled = !IS_SUPER_ADMIN;
+    cb.addEventListener('change', () => toggleStoreVisible(s.name, cb));
+    tdVis.appendChild(cb);
+
+    const tdLogin = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className = `badge badge-${s.login_enabled ? 'active' : 'inactive'}`;
+    badge.textContent = s.login_enabled ? '開啟' : '關閉';
+    tdLogin.appendChild(badge);
+
+    const tdOps = document.createElement('td');
+    const btnLogin = document.createElement('button');
+    btnLogin.className = 'btn btn-secondary';
+    btnLogin.style.cssText = 'font-size:.8rem;padding:.3rem .7rem;';
+    btnLogin.textContent = '切換登入';
+    btnLogin.addEventListener('click', () => toggleStoreLogin(s.name, badge));
+    const btnDel = document.createElement('button');
+    btnDel.className = 'btn btn-secondary';
+    btnDel.style.cssText = 'font-size:.8rem;padding:.3rem .7rem;margin-left:.3rem;color:#dc3545;';
+    btnDel.textContent = '刪除';
+    btnDel.addEventListener('click', () => deleteStore(s.name));
+    tdOps.appendChild(btnLogin);
+    tdOps.appendChild(btnDel);
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdVis);
+    tr.appendChild(tdLogin);
+    tr.appendChild(tdOps);
+    tbody.appendChild(tr);
+  });
 }
 
 async function addStore() {
@@ -374,13 +410,23 @@ async function addStore() {
   else alert(data.message);
 }
 
-async function toggleStoreLogin(name) {
+async function toggleStoreLogin(name, badgeEl) {
   const res = await fetch(`/admin/stores/${name}/toggle-login`, { method: 'POST' });
   const data = await res.json();
   if (data.status === 'ok') {
-    const el = document.getElementById(`store-login-${name}`);
-    el.textContent = data.login_enabled ? '開啟' : '關閉';
-    el.className = `badge badge-${data.login_enabled ? 'active' : 'inactive'}`;
+    badgeEl.textContent = data.login_enabled ? '開啟' : '關閉';
+    badgeEl.className = `badge badge-${data.login_enabled ? 'active' : 'inactive'}`;
+  }
+}
+
+async function toggleStoreVisible(name, el) {
+  const res = await fetch(`/admin/stores/${name}/toggle-visible`, { method: 'POST' });
+  const data = await res.json();
+  if (data.status === 'ok') {
+    el.checked = data.visible;
+  } else {
+    el.checked = !el.checked;            // 還原 UI
+    alert(data.message || '操作失敗');
   }
 }
 
