@@ -184,11 +184,11 @@ def dashboard():
     user_store_filter = request.args.get("user_store", "").strip()
     per_page = 20
     all_store_names = [s.name for s in Store.query.order_by(Store.name).all()]
+    visible_stores = current_user.visible_store_names(all_store_names)
     if current_user.is_super_admin():
-        visible = current_user.visible_store_names(all_store_names)
         # 可視店的 user + 未綁店者/其他 super_admin（store IS NULL）永遠顯示
         user_query = User.query.filter(
-            db.or_(User.store.in_(visible), User.store.is_(None))
+            db.or_(User.store.in_(visible_stores), User.store.is_(None))
         )
     else:
         user_query = User.query.filter_by(store=current_user.store)
@@ -198,12 +198,16 @@ def dashboard():
     user_pagination = user_query.order_by(User.created_at.desc()).paginate(
         page=user_page, per_page=per_page, error_out=False
     )
-    # 傳給 template 的店家清單（dropdown 等）= 可視店；admin 走自己店
-    stores = current_user.visible_store_names(all_store_names)
+    # stores = 全部店家：給 authoring 下拉（set-store / 新增 user / 核准裝置）用，
+    #   指派店別不受可視設定限制（admin 仍可跨店調整 user 店別；與 notes 的
+    #   authoring=全部店、browsing=可視店 原則一致）。
+    # visible_stores = 可視店：給 super_admin 的「使用者/裝置篩選」下拉與清單 scoping 用。
     return render_template("admin/dashboard.html", users=user_pagination.items,
                            user_pagination=user_pagination,
                            user_store_filter=user_store_filter,
-                           stores=stores, status_choices=STATUS_CHOICES)
+                           stores=all_store_names,
+                           visible_stores=visible_stores,
+                           status_choices=STATUS_CHOICES)
 
 
 @admin_bp.route("/users/create", methods=["POST"])

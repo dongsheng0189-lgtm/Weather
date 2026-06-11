@@ -36,7 +36,7 @@ th { background: #f8f9fa; font-weight: 700; }
     <label style="font-size:.9rem;margin-right:.5rem;">篩選店別：</label>
     <select id="filter-user-store" onchange="location.href='{{ url_for('admin.dashboard') }}?user_store=' + encodeURIComponent(this.value)" style="font-size:.9rem;padding:.4rem .6rem;border-radius:6px;border:1px solid #ddd;min-height:36px;">
       <option value="" {% if not user_store_filter %}selected{% endif %}>全部</option>
-      {% for s in stores %}
+      {% for s in visible_stores %}
       <option value="{{ s }}" {% if user_store_filter == s %}selected{% endif %}>{{ s }} 店</option>
       {% endfor %}
     </select>
@@ -171,7 +171,7 @@ th { background: #f8f9fa; font-weight: 700; }
     <select id="filter-device-store" onchange="loadDevices()" style="font-size:.9rem;padding:.4rem .6rem;border-radius:6px;border:1px solid #ddd;min-height:36px;">
       <option value="">全部</option>
       {% if current_user.is_super_admin() %}
-      {% for s in stores %}
+      {% for s in visible_stores %}
       <option value="{{ s }}">{{ s }} 店</option>
       {% endfor %}
       {% else %}

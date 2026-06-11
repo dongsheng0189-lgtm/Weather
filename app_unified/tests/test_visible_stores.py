@@ -337,3 +337,19 @@ def test_announcement_edit_dropdown_excludes_hidden_but_keeps_current(client, db
     html = client.get(f'/notes/announcement/{a.id}/edit').get_data(as_text=True)
     assert f'value="{sb}"' in html       # 可視店（也是現有店）在
     assert f'value="{sc}"' not in html    # 隱藏店不在
+
+
+def test_dashboard_set_store_dropdown_all_stores_for_admin(client, db):
+    """回歸(F16)：admin 後台要能把 user 改成任一店別 — set-store 下拉=全部店家，
+    不可被可視設定縮成只剩自己店。"""
+    from models import Store
+    sb, sc = _uniq('SB'), _uniq('SC')
+    db.session.add_all([Store(name=sb), Store(name=sc)])
+    db.session.commit()
+    a = _mk(db, role='admin', store=sb)
+    _mk(db, role='user', store=sb)   # admin 看得到本店 user → 該列有 set-store 下拉
+    _login(client, a)
+    html = client.get('/admin/dashboard').get_data(as_text=True)
+    # 非自己店的 sc 也要出現在下拉（admin 能跨店指派）
+    assert f'value="{sc}"' in html
+    assert f'value="{sb}"' in html
