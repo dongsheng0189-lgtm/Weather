@@ -433,7 +433,14 @@ def announcement_edit_page(announcement_id):
     if not _can_modify(a):
         abort(403)
     from models import Store
-    stores = Store.query.order_by(Store.name).all()
+    all_stores = Store.query.order_by(Store.name).all()
+    if current_user.is_super_admin():
+        visible = set(current_user.visible_store_names([s.name for s in all_stores]))
+        if a.store:
+            visible.add(a.store)   # 保留目前所屬店（即使已隱藏），避免編輯時遺失
+        stores = [s for s in all_stores if s.name in visible]
+    else:
+        stores = all_stores
     return render_template(
         "announcements/edit.html",
         announcement=a,

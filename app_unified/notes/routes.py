@@ -438,7 +438,14 @@ def index():
     from models import Announcement
     from sqlalchemy import or_ as _or
     if current_user.is_super_admin():
-        _ann_q = Announcement.query
+        _ann_hidden = current_user.get_hidden_stores()
+        if _ann_hidden:
+            _ann_q = Announcement.query.filter(
+                _or(Announcement.store.is_(None),
+                    Announcement.store.notin_(_ann_hidden))
+            )
+        else:
+            _ann_q = Announcement.query
     else:
         _ann_q = Announcement.query.filter(
             _or(Announcement.store.is_(None),
@@ -1402,7 +1409,7 @@ def notes_ai_summary():
     label_base = (now_tw - timedelta(days=1)) if business_day == "yesterday" else now_tw
     business_day_date = label_base.strftime("%Y-%m-%d")
 
-    valid_stores = [s.name for s in Store.query.all()]
+    valid_stores = _visible_stores()
     if store not in valid_stores:
         return jsonify({"status": "error", "message": "請選擇店別"}), 400
 
