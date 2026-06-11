@@ -376,7 +376,7 @@ def index():
 
     query = Note.active()
 
-    # 店別範圍：super_admin 吃可視店（stores 已是 _get_stores() 過濾後清單）
+    # 店別範圍：super_admin 吃可視店（stores 已是 _visible_stores() 過濾後清單）
     if current_user.is_super_admin():
         hidden = current_user.get_hidden_stores()
         if store_filter in stores:
