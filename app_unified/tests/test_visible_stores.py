@@ -120,3 +120,12 @@ def test_toggle_visible_cannot_hide_last(client, db):
     r = client.post(f'/admin/stores/{sname}/toggle-visible')
     assert r.status_code == 400
     assert '至少' in r.get_json().get('message', '')
+
+
+def test_dashboard_has_visible_column(client, db):
+    su = _mk(db, role='super_admin')
+    _login(client, su)
+    html = client.get('/admin/dashboard').get_data(as_text=True)
+    assert '可視</th>' in html
+    assert 'toggleStoreVisible' in html
+    assert 'IS_SUPER_ADMIN' in html
