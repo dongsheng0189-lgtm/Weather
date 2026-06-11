@@ -1,4 +1,8 @@
-FROM python:3.12-slim
+# Pin base by digest so an upstream python:3.12-slim retag doesn't cold-invalidate
+# the registry build cache (full rebuild incl. torch ~700MB) and force Zeabur to
+# re-pull the whole image. Bump this digest deliberately to take base updates.
+# Resolved 2026-06-11 (= the digest the warm :buildcache was built against).
+FROM python:3.12-slim@sha256:2eb3cdf88d45b1c304d593dfe77f431e00ca13c6e707416a259ed3987d5c6aa8
 
 LABEL "language"="python"
 LABEL "framework"="flask"
