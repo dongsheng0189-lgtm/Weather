@@ -408,10 +408,14 @@ Expected: 與改動前一致（612 passed, 1 skipped 等量），無退步。
 
 > ⚠️ 這是部署步驟、會影響 build/部署（[[feedback_warn_build_deploy_impact]]）且首次有**順序依賴**（箱子要先存在 app 才 build 得起來）。**不由 subagent 自動執行**；由主 session 跟 user 協調、依 [[feedback_push_policy]] / [[feedback_push_peak_hours]] 在 user 放行且非尖峰時做。
 
-- [ ] **Step 1: merge + push**（user 放行後）：`feat/prebaked-base-image` merge 進 main、push。
-- [ ] **Step 2: 先建箱子**：`gh workflow run docker-base.yml`；`gh run watch <id>` 等成功；確認 `ghcr.io/stvlin1988-alt/weather-base:latest` 已推上（`gh api /user/packages/container/weather-base/versions` 或 GHCR UI）。
-  - ⚠️ 這次箱子是首建、會跑滿（torch + 模型 ~5-8min、HF 429 由 retry 撐）。
-- [ ] **Step 3: 再 build app**：workflow_run 會在箱子完成後自動觸發 docker.yml；若沒觸發則 `gh workflow run docker.yml`。`gh run watch` 確認成功、image 推上。確認這次 app build 應該很快（~1-2min，只 COPY code）。
+> 🔑 **bootstrapping 順序修正（final review）**：箱子要**先存在**，否則 merge commit 會立刻觸發 docker.yml、但 `FROM weather-base:latest` 還不存在 → app build 失敗一次（不影響 prod、但有雜訊）。所以**先建箱子再 merge**。
+
+- [ ] **Step 1: 先在 branch 上建箱子**：`gh workflow run docker-base.yml --ref feat/prebaked-base-image`。
+  - ⚠️ 若 gh 因「workflow 還沒在 default branch」找不到（GitHub 限制），改走 fallback：直接 merge（見 Step 2 註），merge commit 會同時觸發 docker-base.yml(建箱子) 與 docker.yml(會先失敗一次)，箱子建好後 workflow_run 自動補一次成功的 app build → 最終收斂。
+  - `gh run watch <id>` 等成功；確認 `ghcr.io/stvlin1988-alt/weather-base:latest` 已推上（GHCR UI 或 `gh api /users/stvlin1988-alt/packages/container/weather-base/versions`）。首建會跑滿（torch+模型 ~5-8min、HF 429 由 retry 撐）。
+- [ ] **Step 2: 確認箱子在 GHCR 後，merge + push**（user 放行後）：`feat/prebaked-base-image` merge 進 main、push。merge commit 觸發 docker.yml → 此時箱子已存在 → app build 成功（~1-2min）。
+  - 註（fallback 路徑）：若 Step 1 沒先建成，merge 後那次 docker.yml 直接 run 會失敗(base 不存在)，但同 merge 觸發的 docker-base.yml 建好箱子後、workflow_run 會自動補一次成功的 app build。容許一次紅 X。
+- [ ] **Step 3: 確認 app build 成功**：`gh run watch` 確認 docker.yml（push 或 workflow_run 觸發的那次）成功、image 推上、app build 快（~1-2min）。
 - [ ] **Step 4: 驗 prod**：Zeabur 部署完，確認 dashboard footer git SHA = 新 commit 前 4 碼、`/healthz` 200、AI 摘要（模型在 /opt/st_cache）與人臉登入（dlib）正常。
 - [ ] **Step 5: 觀察下一次「純 code 改動」部署**：確認 app build ~1-2min、Zeabur 只拉小層（驗證 hands-off 目標達成）。
 
