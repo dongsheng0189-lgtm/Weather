@@ -19,7 +19,8 @@ botocore>=1.34
 flask-socketio>=5.3
 gevent>=23.0
 gevent-websocket>=0.10
-redis>=4.5
+# pin <6: redis-py 6/7/8.x 在 gevent 下 SocketIO pubsub 連不上 (2026-06-11 prod incident)；5.x 穩定
+redis>=4.5,<6
 beautifulsoup4>=4.12
 sentence-transformers>=2.5
 scikit-learn>=1.3
