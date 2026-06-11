@@ -301,7 +301,7 @@
 {% if pagination.pages > 1 %}
 <div style="display:flex;justify-content:center;align-items:center;gap:.5rem;margin-top:1.5rem;flex-wrap:wrap;">
   {% if pagination.has_prev %}
-  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, page=pagination.prev_num) }}"
+  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, tag=current_tag, page=pagination.prev_num) }}"
      style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">‹ 上一頁</a>
   {% endif %}
   {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
@@ -309,7 +309,7 @@
       {% if p == pagination.page %}
       <span style="padding:.4rem .8rem;border-radius:6px;background:#2c3e50;color:#fff;font-size:.9rem;font-weight:600;">{{ p }}</span>
       {% else %}
-      <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, page=p) }}"
+      <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, tag=current_tag, page=p) }}"
          style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">{{ p }}</a>
       {% endif %}
     {% else %}
@@ -317,7 +317,7 @@
     {% endif %}
   {% endfor %}
   {% if pagination.has_next %}
-  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, page=pagination.next_num) }}"
+  <a href="{{ url_for('notes.index', store=current_store, status=current_status, range=current_range, category=current_category, shift=current_shift, q=current_keyword, tag=current_tag, page=pagination.next_num) }}"
      style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;text-decoration:none;font-size:.9rem;">下一頁 ›</a>
   {% endif %}
   <span style="font-size:.82rem;color:#999;margin-left:.5rem;">共 {{ pagination.total }} 筆</span>

@@ -149,3 +149,35 @@ def test_keyword_takes_precedence_over_tag(client, db):
     html = r.get_data(as_text=True)
     assert kw in html               # 關鍵字命中的出現
     assert other.title not in html  # 只掛 tag、無關鍵字的不出現（tag 被忽略）
+
+
+def test_tag_mode_pagination_preserves_tag(client, db):
+    """tag 模式翻頁要保留 tag：>20 筆同標籤，第 2 頁的分頁連結需帶 tag。"""
+    import re
+    from models import Tag, Note, NoteTag
+    u = _mk_user(db)
+    t = Tag(store='B店', name=_uniq('PAGE'), color='#E74C3C')
+    db.session.add(t)
+    db.session.commit()
+    # 建 25 筆都掛同一標籤（per_page=20 → 會有第 2 頁）
+    notes = []
+    for i in range(25):
+        n = Note(user_id=u.id, store='B店', title=_uniq(f'P{i}'),
+                 content='', note_type='regular')
+        notes.append(n)
+    db.session.add_all(notes)
+    db.session.commit()
+    db.session.add_all([NoteTag(note_id=n.id, tag_id=t.id) for n in notes])
+    db.session.commit()
+    _login(client, u)
+    html = client.get(f'/notes/?tag={t.id}').get_data(as_text=True)
+    # 第 1 頁的分頁連結（往第 2 頁）必須帶 tag=<id>
+    # 只看 page= 參數存在的連結（即分頁連結），排除 note-card onclick
+    pagination_links = re.findall(r'href="([^"]*page=\d[^"]*)"', html)
+    assert pagination_links, '應有分頁連結（25 筆 > 20）'
+    assert all(f'tag={t.id}' in link for link in pagination_links), \
+        f'所有分頁連結都必須帶 tag={t.id}，實際: {pagination_links}'
+    # 直接打第 2 頁也應仍在 tag 模式（25 筆都有 tag，第 2 頁 5 筆都該出現）
+    html2 = client.get(f'/notes/?tag={t.id}&page=2').get_data(as_text=True)
+    # 第 2 頁不應是空的（tag 模式有效，未掉回 today 窗）
+    assert '還沒有任何筆記' not in html2
