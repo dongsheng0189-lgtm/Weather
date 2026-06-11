@@ -183,8 +183,13 @@ def dashboard():
     user_page = request.args.get("user_page", 1, type=int)
     user_store_filter = request.args.get("user_store", "").strip()
     per_page = 20
+    all_store_names = [s.name for s in Store.query.order_by(Store.name).all()]
     if current_user.is_super_admin():
-        user_query = User.query
+        visible = current_user.visible_store_names(all_store_names)
+        # 可視店的 user + 未綁店者/其他 super_admin（store IS NULL）永遠顯示
+        user_query = User.query.filter(
+            db.or_(User.store.in_(visible), User.store.is_(None))
+        )
     else:
         user_query = User.query.filter_by(store=current_user.store)
     # 店別篩選（只對 super_admin 有效，admin 已限定本店）
@@ -193,7 +198,8 @@ def dashboard():
     user_pagination = user_query.order_by(User.created_at.desc()).paginate(
         page=user_page, per_page=per_page, error_out=False
     )
-    stores = [s.name for s in Store.query.order_by(Store.name).all()]
+    # 傳給 template 的店家清單（dropdown 等）= 可視店；admin 走自己店
+    stores = current_user.visible_store_names(all_store_names)
     return render_template("admin/dashboard.html", users=user_pagination.items,
                            user_pagination=user_pagination,
                            user_store_filter=user_store_filter,

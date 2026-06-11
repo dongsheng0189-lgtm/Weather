@@ -263,3 +263,20 @@ def test_announcement_compose_dropdown_excludes_hidden(client, db):
     html = client.get('/notes/announcement/new').get_data(as_text=True)
     assert f'value="{sb}"' in html        # 可視店在 dropdown
     assert f'value="{sc}"' not in html     # 隱藏店不在 dropdown
+
+
+def test_dashboard_user_list_respects_visible(client, db):
+    from models import Store
+    sb, sc = _uniq('SB'), _uniq('SC')
+    db.session.add_all([Store(name=sb), Store(name=sc)])
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    ub = _mk(db, role='user', store=sb)
+    uc = _mk(db, role='user', store=sc)
+    su.set_hidden_stores([sc])
+    db.session.commit()
+    _login(client, su)
+    html = client.get('/admin/dashboard').get_data(as_text=True)
+    assert ub.username in html       # 可視店的 user 在
+    assert uc.username not in html   # 隱藏店的 user 不在
+    assert su.username in html       # super_admin 自己（store=None）永遠在
