@@ -85,6 +85,14 @@ def _ann_to_json(a: Announcement, include_attachments: bool = True):
 def _visibility_query():
     """回傳已套用 visibility filter 的 query（給 list / 詳情用）。"""
     if current_user.is_super_admin():
+        hidden = current_user.get_hidden_stores()
+        if hidden:
+            return Announcement.query.filter(
+                or_(
+                    Announcement.store.is_(None),       # 全站公告永遠顯示
+                    Announcement.store.notin_(hidden),
+                )
+            )
         return Announcement.query
     return Announcement.query.filter(
         or_(
@@ -402,7 +410,12 @@ def announcement_new_page():
     if not current_user.is_super_admin() and not current_user.store:
         abort(403)
     from models import Store
-    stores = Store.query.order_by(Store.name).all()
+    all_stores = Store.query.order_by(Store.name).all()
+    if current_user.is_super_admin():
+        visible = set(current_user.visible_store_names([s.name for s in all_stores]))
+        stores = [s for s in all_stores if s.name in visible]
+    else:
+        stores = all_stores
     return render_template(
         "announcements/new.html",
         stores=stores,

@@ -227,3 +227,39 @@ def test_update_note_preserves_hidden_store(client, db):
     db.session.expire_all()
     refreshed = Note.query.get(nid)
     assert refreshed.store == sc
+
+
+def test_announcements_super_admin_respects_visible(client, db):
+    from models import Store, Announcement
+    sb, sc = _uniq('SB'), _uniq('SC')
+    db.session.add_all([Store(name=sb), Store(name=sc)])
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    tb, tc, tg = _uniq('ANNB'), _uniq('ANNC'), _uniq('ANNG')
+    ab = Announcement(store=sb, title=tb, content='x', user_id=su.id, author_name=su.username)
+    ac = Announcement(store=sc, title=tc, content='x', user_id=su.id, author_name=su.username)
+    ag = Announcement(store=None, title=tg, content='x', user_id=su.id, author_name=su.username)
+    db.session.add_all([ab, ac, ag])
+    db.session.commit()
+    su.set_hidden_stores([sc])
+    db.session.commit()
+    _login(client, su)
+    data = client.get('/notes/announcement/api?per_page=100').get_json()
+    titles = {a['title'] for a in data['items']}
+    assert tb in titles
+    assert tg in titles      # 全站公告永遠顯示
+    assert tc not in titles  # 隱藏店公告不出現
+
+
+def test_announcement_compose_dropdown_excludes_hidden(client, db):
+    from models import Store
+    sb, sc = _uniq('SB'), _uniq('SC')
+    db.session.add_all([Store(name=sb), Store(name=sc)])
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    su.set_hidden_stores([sc])
+    db.session.commit()
+    _login(client, su)
+    html = client.get('/notes/announcement/new').get_data(as_text=True)
+    assert f'value="{sb}"' in html        # 可視店在 dropdown
+    assert f'value="{sc}"' not in html     # 隱藏店不在 dropdown
