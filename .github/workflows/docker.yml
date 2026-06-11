@@ -10,7 +10,16 @@ on:
       - '!app_unified/tests/**'
       - '!app_unified/dev/**'
       - '!app_unified/scripts/**'
+      - '!app_unified/requirements.txt'
+      - '!app_unified/wheels/**'
+      - '!app_unified/Dockerfile.base'
       - '.github/workflows/docker.yml'
+  workflow_run:
+    workflows: ["Build base image"]
+    types:
+      - completed
+    branches:
+      - main
   workflow_dispatch:
 
 env:
@@ -19,6 +28,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
       packages: write
@@ -60,11 +70,3 @@ jobs:
             GIT_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Registry cache (persists in GHCR as a :buildcache tag) instead of
-          # GHA cache, which evicts after 7 days of no access — a >1 week gap
-          # between deploys forced a full no-cache rebuild → all layer digests
-          # changed → Zeabur had to re-pull the whole ~GB image → ~5 min "starting"
-          # (2026-06-10). Registry cache has no such eviction, so layer digests
-          # stay stable across long gaps and Zeabur keeps doing fast incremental pulls.
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
