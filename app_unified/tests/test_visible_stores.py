@@ -353,3 +353,21 @@ def test_dashboard_set_store_dropdown_all_stores_for_admin(client, db):
     # 非自己店的 sc 也要出現在下拉（admin 能跨店指派）
     assert f'value="{sc}"' in html
     assert f'value="{sb}"' in html
+
+
+def test_dashboard_set_store_dropdown_all_stores_for_super_admin(client, db):
+    """super_admin 也要能把 user 改成任一店別 — 即使隱藏了某些店，set-store
+    authoring 下拉仍含全部店家（指派不受可視設定限制）。"""
+    from models import Store
+    sb, sc = _uniq('SB'), _uniq('SC')
+    db.session.add_all([Store(name=sb), Store(name=sc)])
+    db.session.commit()
+    su = _mk(db, role='super_admin')
+    su.set_hidden_stores([sc])            # 隱藏 sc
+    db.session.commit()
+    _mk(db, role='user', store=sb)        # 一個 user 讓 set-store 下拉渲染
+    _login(client, su)
+    html = client.get('/admin/dashboard').get_data(as_text=True)
+    # 隱藏的 sc 仍要出現在 set-store authoring 下拉（指派不受可視限制）
+    assert f'value="{sc}"' in html
+    assert f'value="{sb}"' in html
