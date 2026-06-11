@@ -274,6 +274,13 @@ def create_app():
                     ))
                 except Exception:
                     pass
+                # users.hidden_stores：每個 super_admin 個人隱藏店家 JSON（NULL=全可視）
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE users ADD COLUMN IF NOT EXISTS hidden_stores TEXT"
+                    ))
+                except Exception:
+                    pass
                 # 私人筆記三張表由 db.create_all() 自動建立（純新增，無需 ALTER）
                 # 但後續新增欄位需 ALTER：
                 try:
