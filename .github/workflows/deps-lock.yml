@@ -1,0 +1,41 @@
+name: Deps lock drift-gate
+
+on:
+  pull_request:
+    paths:
+      - 'app_unified/requirements.in'
+      - 'app_unified/requirements.txt'
+      - '.github/workflows/deps-lock.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'app_unified/requirements.in'
+      - 'app_unified/requirements.txt'
+      - '.github/workflows/deps-lock.yml'
+  workflow_dispatch:
+
+jobs:
+  lock-check:
+    runs-on: ubuntu-latest
+    container: python:3.12-slim
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pinned pip-tools
+        run: pip install --no-cache-dir 'pip-tools==7.5.3'
+
+      - name: Recompile (no upgrade — reuse committed pins)
+        run: |
+          pip-compile --generate-hashes --allow-unsafe \
+            --output-file app_unified/requirements.txt \
+            app_unified/requirements.in
+
+      - name: Fail if lockfile drifted
+        run: |
+          if ! git diff --exit-code app_unified/requirements.txt; then
+            echo "::error::requirements.txt is out of sync with requirements.in."
+            echo "Run 'bash app_unified/scripts/lock-deps.sh' locally and commit the result."
+            exit 1
+          fi
