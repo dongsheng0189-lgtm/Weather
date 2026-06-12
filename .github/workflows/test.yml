@@ -20,17 +20,29 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: app_unified/requirements.txt
 
-      - name: Install system dependencies (for dlib)
+      # dlib + face_recognition_models come from prebuilt wheels (same as prod base),
+      # so no cmake/compile is needed — only the runtime libs dlib links against.
+      - name: Install system dependencies (for dlib wheel)
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libopenblas-dev liblapack-dev
+          sudo apt-get install -y libgomp1 libopenblas0 liblapack3
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt pytest pytest-cov
+        run: |
+          # Mirror Dockerfile.base ordering: prebuilt wheels --no-deps, then
+          # face_recognition --no-deps (pure-python, dropped from the lock), then the
+          # hashed lockfile via --require-hashes, then test tools in a SEPARATE command
+          # (mixing unhashed pytest into the hashed install fails --require-hashes mode).
+          pip install --no-deps \
+            wheels/dlib-20.0.1-cp312-cp312-linux_x86_64.whl \
+            wheels/face_recognition_models-0.3.0-py2.py3-none-any.whl
+          pip install --no-deps face_recognition==1.3.0
+          pip install --require-hashes -r requirements.txt
+          pip install pytest pytest-cov
 
       - name: Run tests
         env:
