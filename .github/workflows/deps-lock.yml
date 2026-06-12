@@ -20,8 +20,20 @@ jobs:
     runs-on: ubuntu-latest
     container: python:3.12-slim
     steps:
+      # python:3.12-slim ships no git → actions/checkout would fall back to a
+      # tarball download (no .git) and the diff step below would fail. Install it first.
+      - name: Install git (slim image lacks it)
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends git \
+            && rm -rf /var/lib/apt/lists/*
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Container runs as root but the mounted workspace is owned by another uid →
+      # git aborts with "dubious ownership". Mark the workspace safe.
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install pinned pip-tools
         run: pip install --no-cache-dir 'pip-tools==7.5.3'
