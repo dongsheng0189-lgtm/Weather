@@ -1,0 +1,43 @@
+# Human-edited direct dependencies. Compile to requirements.txt:
+#   bash app_unified/scripts/lock-deps.sh            # re-lock, no bumps
+#   bash app_unified/scripts/lock-deps.sh --upgrade  # bump to latest allowed
+# CI deps-lock.yml fails if requirements.txt is out of sync — always commit both.
+#
+# torch CPU-only: resolved from the PyTorch CPU index → NO nvidia-cuda-* (~2GB saved).
+# prod is 2 CPU / 8GB / no GPU, so the CUDA stack was pure dead weight.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+flask>=3.0
+flask-login>=0.6
+flask-sqlalchemy>=3.1
+flask-migrate>=4.0
+flask-limiter>=3.5
+anthropic>=0.25
+Pillow>=10.0
+python-dotenv>=1.0
+requests>=2.31
+numpy>=1.24
+gunicorn>=21.0
+setuptools>=69.0
+psycopg2-binary>=2.9
+psycogreen>=1.0
+cryptography>=42.0
+boto3>=1.34
+botocore>=1.34
+flask-socketio>=5.3
+gevent>=23.0
+gevent-websocket>=0.10
+# pin <6: redis-py 6/7/8.x break SocketIO pubsub under gevent (2026-06-11 incident #13)
+redis>=4.5,<6
+beautifulsoup4>=4.12
+sentence-transformers>=2.5
+scikit-learn>=1.3
+# CPU build matches current torch-2.12.0; drops the entire nvidia-cuda-* dependency tree.
+torch==2.12.0+cpu
+
+# face_recognition is intentionally NOT listed here. It is installed --no-deps in
+# Dockerfile.base: dlib + face_recognition_models come from app_unified/wheels/
+# (compiled / 100MB), and face_recognition itself is pure-python. Listing it would
+# pull dlib + face_recognition_models into the lock and force a PyPI recompile/redownload
+# under --require-hashes, defeating the wheels optimization. Its runtime deps
+# (numpy / Pillow / Click) ARE locked (numpy/Pillow direct above, Click via flask).
