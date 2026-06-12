@@ -48,10 +48,12 @@
 - `requirements.in` 頂部加 `--extra-index-url https://download.pytorch.org/whl/cpu`，torch 釘 CPU build（`torch==<ver>+cpu`）。CPU 版 torch **不依賴** `nvidia-cuda-*` → 整套 CUDA 套件自動從 lock 消失。
   - 確切可用版本（含 py3.12/linux wheel）於實作時由箱子 build 驗證；驗收條件：**compile 後的 `requirements.txt` 內 `grep -i nvidia` 為空**。
   - pip-compile `--generate-hashes` 會一併抓 pytorch CPU index 的 wheel hash；`--extra-index-url` 行會被寫進 requirements.txt 開頭，`pip install` 時據此找 wheel。
-- **dlib / face_recognition 不進 lockfile**：兩者由 `Dockerfile.base:25-26` 的 `COPY wheels/ + pip install --no-deps wheels/*.whl` 預裝（已是 pinned 編譯 wheel）。
-  - 若放進 lockfile，`--require-hashes` 安裝會改去 PyPI 抓 dlib **原始碼重新編譯**（慢、需 build tools）→ 破壞 wheels 優化。
-  - 故 `requirements.in` **排除 `face_recognition`**（連帶 dlib 不會進 lock），以註解標明「由 wheels/ --no-deps 提供」。
-  - 安裝順序維持：Dockerfile 先裝 wheels（--no-deps、非 hash 檢查、獨立 pip 呼叫），再裝 requirements.txt（`Dockerfile.base:30` 改為 `pip install --require-hashes -r requirements.txt` 強制驗證所有 hash；pip-compile `--generate-hashes` 已保證每個套件都有 hash）。兩者為獨立 pip 呼叫、套件集不重疊，無衝突。
+- **face_recognition 生態系不進 lockfile**（已查證 2026-06-12 wheels/ 實際內容）：
+  - `wheels/` = `dlib-20.0.1-cp312...whl` + `face_recognition_models-0.3.0-...whl`（編譯 / 100MB 大檔，`Dockerfile.base:25-26` 以 `--no-deps` 預裝）。
+  - `face_recognition`（純 python）目前是 `requirements.txt` 走 PyPI（build log 顯示 1.3.0）。
+  - 問題：若把 `face_recognition` 留在 lockfile，pip-compile 會把 **dlib + face_recognition_models** 當 transitive 加進來並帶 hash → `--require-hashes` 安裝時會去 PyPI 抓 **dlib 原始碼重新編譯**（慢、需 build tools，slim base 會失敗）＋ 重抓 100MB models → 破壞 wheels 優化。
+  - 解法：`requirements.in` **排除 `face_recognition`**（連帶 dlib / face_recognition_models 都不入 lock）。`Dockerfile.base` 在 wheels 之後**多一行** `pip install --no-deps face_recognition==<pin>`（純 python、不觸發編譯）。face_recognition 的其餘 runtime deps（numpy / Pillow / Click）仍在 lockfile 內（numpy/Pillow 直接列、Click 為 flask transitive）→ 不缺。face_recognition 版本以 `==` pin 在 Dockerfile，註解標明來源。
+  - 安裝順序：① `pip install --no-deps wheels/*.whl`（dlib + models）② `pip install --no-deps face_recognition==<pin>` ③ `pip install --require-hashes -r requirements.txt`（其餘全部，`Dockerfile.base:30` 改用 `--require-hashes` 強制驗 hash；pip-compile `--generate-hashes` 已保證每套件有 hash）。三者為獨立 pip 呼叫、套件集不重疊，`--require-hashes` 只作用於 ③。
 - 容量（[[feedback_capacity_check]]）：image 小 ~2GB+ → Zeabur 拉更快、disk / layer 記憶體更省、CPU torch 無 CUDA context RAM 佔用更低 → 對 2CPU/8GB 淨正向。
 
 ### ③ CI drift-gate
@@ -82,7 +84,7 @@
 | 風險 | 緩解 |
 |---|---|
 | torch CPU build 版本/wheel 不存在或與 sentence-transformers 不相容 | 實作時由箱子 build 實際 resolve 驗證；驗收 `grep -i nvidia` 為空 + AI 摘要實跑 |
-| dlib 誤入 lockfile → 重編譯 | requirements.in 排除 face_recognition，並在 build 後檢查 dlib 不在 requirements.txt |
+| dlib / face_recognition_models 誤入 lockfile → 重編譯 / 100MB 重抓 | requirements.in 排除 face_recognition；face_recognition 改 Dockerfile `--no-deps` 裝；build 後檢查 `requirements.txt` 內無 dlib / face_recognition / face_recognition_models |
 | 本機 venv 與 CI 容器 compile 輸出有差 → drift-gate 誤報 | pip-tools pin 同版、py3.12/amd64 對齊、compile 不帶 `--upgrade` 沿用既有 lock |
 | 箱子重建撞尖峰 | 非尖峰推、事前告知；CI 不自動觸發重建 |
 | CPU 推論變慢影響 AI 摘要體感 | MiniLM-L12 在 CPU 上本就可接受（prod 無 GPU、現況 GPU torch 也沒真的用到 CUDA）；驗證時實測一篇 |
@@ -90,6 +92,6 @@
 ## 驗收條件
 
 - `requirements.in`（人編）+ `requirements.txt`（pip-compile 全鎖+hash）+ `scripts/lock-deps.sh` + `deps-lock.yml` 落地。
-- `requirements.txt` 內 `grep -i nvidia` 為空、無 face_recognition/dlib。
+- `requirements.txt` 內 `grep -i nvidia` 為空、無 `dlib` / `face_recognition` / `face_recognition_models`。
 - drift-gate CI 在「.in 與 lock 同步」時綠、「故意改 .in 不重 compile」時紅。
 - 箱子重建成功、image 縮小、prod torch 為 `+cpu`、AI 摘要實跑正常、`pytest tests/` 綠、SocketIO 即時同步正常。
