@@ -21,13 +21,19 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Pre-built wheels — no compilation, no git needed
+# Pre-built wheels — no compilation, no git needed (dlib + face_recognition_models)
 COPY app_unified/wheels/ /tmp/wheels/
 RUN pip install --no-cache-dir --no-deps /tmp/wheels/*.whl && rm -rf /tmp/wheels
 
-# Build context is repo root — must use app_unified/ prefix
+# face_recognition is pure-python; install --no-deps so it does NOT pull dlib /
+# face_recognition_models from PyPI (those come from the wheels above). Its other
+# deps (numpy / Pillow / Click) are in the locked requirements.txt below.
+RUN pip install --no-cache-dir --no-deps face_recognition==1.3.0
+
+# Build context is repo root — must use app_unified/ prefix.
+# --require-hashes enforces every pin's hash (lockfile is --generate-hashes output).
 COPY app_unified/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 # chown site-packages 拆獨立一層
 RUN chown -R appuser:appuser /usr/local/lib/python3.12/site-packages
