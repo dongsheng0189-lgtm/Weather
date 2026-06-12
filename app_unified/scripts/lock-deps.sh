@@ -14,10 +14,13 @@ PIP="./venv/bin/pip"
 PIP_COMPILE="./venv/bin/pip-compile"
 
 # Ensure the exact pip-tools version (keeps local output identical to CI).
-if ! "$PIP_COMPILE" --version 2>/dev/null | grep -q "$PIP_TOOLS_VERSION"; then
+# Fixed-string + "version " anchor so e.g. a future 7.5.30 can't substring-false-match 7.5.3.
+if ! "$PIP_COMPILE" --version 2>/dev/null | grep -qF "version ${PIP_TOOLS_VERSION}"; then
   "$PIP" install "pip-tools==${PIP_TOOLS_VERSION}"
 fi
 
+# Intentionally UNquoted below: empty string must expand to zero args, "--upgrade" to one.
+# Quoting it would pass a spurious empty "" arg to pip-compile.
 UPGRADE_FLAG=""
 if [ "${1:-}" = "--upgrade" ]; then
   UPGRADE_FLAG="--upgrade"
