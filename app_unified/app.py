@@ -31,7 +31,7 @@ _file_handler.setFormatter(_TaipeiFormatter("%(asctime)s %(name)s %(levelname)s:
 logging.basicConfig(level=logging.WARNING, handlers=[_handler, _file_handler], force=True)
 
 from datetime import timedelta
-from flask import Flask, redirect, url_for, render_template, request, session
+from flask import Flask, redirect, url_for, render_template, request, session, jsonify
 from flask_login import current_user, logout_user
 from config import Config
 from extensions import db, login_manager, limiter, socketio
@@ -49,6 +49,19 @@ def create_app():
     login_manager.init_app(app)
     limiter.init_app(app)
     socketio.init_app(app, cors_allowed_origins=app.config["ALLOWED_ORIGINS"], async_mode="gevent")
+
+    @app.errorhandler(429)
+    def _handle_rate_limited(e):
+        # flask-limiter 預設回 HTML → fetch/XHR 端 r.json() 解析 HTML 會噴
+        # "unexpected token <"。對 fetch/XHR（Accept: json 或 Sec-Fetch-Dest 非 document）
+        # 改回 JSON，讓前端能顯示「操作太頻繁」而非「連線失敗」。
+        accept = request.headers.get("Accept", "")
+        dest = request.headers.get("Sec-Fetch-Dest", "")
+        wants_json = "application/json" in accept or (dest and dest != "document")
+        if wants_json:
+            return jsonify({"error": "rate_limited",
+                            "message": "操作太頻繁，請稍候幾秒再試"}), 429
+        return e
 
     @login_manager.user_loader
     def load_user(user_id):

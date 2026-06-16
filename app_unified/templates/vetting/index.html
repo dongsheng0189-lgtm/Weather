@@ -76,6 +76,21 @@ function escapeHtml(s) {
   });
 }
 
+// 安全解析回應：非 JSON（HTML 錯誤頁 / 429 限流 / 逾時）回 [status, null]，
+// 不再讓 r.json() 噴「unexpected token <」。
+function vetParse(r) {
+  return r.text().then(function(t) {
+    var d = null; try { d = JSON.parse(t); } catch (e) {}
+    return [r.status, d];
+  });
+}
+function vetErrMsg(st, d) {
+  if (d && d.message) return d.message;
+  if (st === 429) return '操作太頻繁，請稍候幾秒再試';
+  return '伺服器忙碌或逾時，請稍後重新查詢';
+}
+var VET_JSON_HEADERS = {'Content-Type': 'application/json', 'Accept': 'application/json'};
+
 document.getElementById('vet-name-form').addEventListener('submit', function(e) {
   e.preventDefault();
   _name = document.getElementById('vet-name').value.trim();
@@ -83,13 +98,13 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
   if (!_name) return;
   startTick('🔍 查詢中：警政署取驗證碼 → 司法院刑事判決 → 法務部通緝');
   fetch('/vetting/start', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
+    method: 'POST', headers: VET_JSON_HEADERS,
     body: JSON.stringify({name: _name, id: _id})
-  }).then(function(r){return r.json().then(function(d){return [r.status, d];});}).then(function(arr){
+  }).then(vetParse).then(function(arr){
     stopTick();
     var st = arr[0], d = arr[1];
-    if (st !== 200) {
-      setStatus('錯誤：' + (d.message || d.error || '未知'));
+    if (st !== 200 || !d) {
+      setStatus('錯誤：' + vetErrMsg(st, d));
       return;
     }
     _qid = d.query_id;
@@ -104,18 +119,19 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
 function reloadCaptcha() {
   startTick('🔄 重整驗證碼中（會重跑三家查詢）');
   fetch('/vetting/start', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
+    method: 'POST', headers: VET_JSON_HEADERS,
     body: JSON.stringify({name: _name, id: _id})
-  }).then(function(r){return r.json();}).then(function(d){
+  }).then(vetParse).then(function(arr){
     stopTick();
-    if (d.query_id) {
+    var st = arr[0], d = arr[1];
+    if (st === 200 && d && d.query_id) {
       _qid = d.query_id;
       document.getElementById('vet-captcha-img').src = 'data:image/jpeg;base64,' + d.captcha_b64;
       setStatus('✓ 驗證碼已更新');
     } else {
-      setStatus('重整失敗');
+      setStatus('換驗證碼失敗：' + vetErrMsg(st, d));
     }
-  }).catch(function(err){ stopTick(); setStatus('重整失敗：' + err.message); });
+  }).catch(function(err){ stopTick(); setStatus('換驗證碼失敗：' + err.message); });
 }
 
 document.getElementById('vet-captcha-form').addEventListener('submit', function(e) {
@@ -124,11 +140,12 @@ document.getElementById('vet-captcha-form').addEventListener('submit', function(
   if (!captcha || !_qid) return;
   startTick('🔍 警政署送出驗證碼 + 解析結果中');
   fetch('/vetting/submit', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
+    method: 'POST', headers: VET_JSON_HEADERS,
     body: JSON.stringify({query_id: _qid, captcha: captcha})
-  }).then(function(r){return r.json().then(function(d){return [r.status, d];});}).then(function(arr){
+  }).then(vetParse).then(function(arr){
     stopTick();
     var st = arr[0], d = arr[1];
+    if (!d) { setStatus('連線失敗：' + vetErrMsg(st, d)); return; }
     if (st !== 200) {
       if (d.error === 'captcha_invalid') {
         setStatus('驗證碼錯誤，請點圖換一張再試');

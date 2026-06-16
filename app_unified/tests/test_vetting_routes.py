@@ -293,3 +293,30 @@ def test_put_take_state_redis_roundtrip_rebuilds_session(monkeypatch):
     # 一次性：刪除後再取應為 None
     vr._del_state(qid)
     assert vr._take_state(qid) is None
+
+
+def test_start_rate_limited_returns_json_429(app, client, db_session, monkeypatch):
+    """超過 start 限流(6/分)→ 回 JSON 429（非預設 HTML），前端才不會噴
+    'unexpected token <'。限流 key 為 user id（per-user，非 IP）。"""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    fake_sess = MagicMock()
+    monkeypatch.setattr("vetting.routes.npa.fetch_home_state",
+                        lambda sess=None: ({"_csrf": "a", "_csrf_header": "h", "_key": "k"}, fake_sess))
+    monkeypatch.setattr("vetting.routes.npa.fetch_auth_token", lambda sess, tok: "JWT")
+    monkeypatch.setattr("vetting.routes.npa.fetch_captcha_bytes", lambda sess: b"\xff\xd8FAKE")
+    monkeypatch.setattr("vetting.routes.judicial.fetch_home_state",
+                        lambda sess=None: ({}, MagicMock()))
+    monkeypatch.setattr("vetting.routes.judicial.submit_search", lambda s, st, n: [])
+    monkeypatch.setattr("vetting.routes.mjib.search_by_name", lambda name, session=None: [])
+    monkeypatch.setattr("vetting.routes.throttle_sleep", lambda: None)
+
+    hdr = {"Accept": "application/json"}
+    codes = [client.post("/vetting/start", json={"name": "王"}, headers=hdr).status_code
+             for _ in range(7)]
+    assert codes[:6] == [200] * 6, codes          # 6 次允許
+    assert codes[6] == 429, codes                  # 第 7 次擋
+    r = client.post("/vetting/start", json={"name": "王"}, headers=hdr)
+    assert r.status_code == 429
+    assert r.content_type.startswith("application/json")   # JSON 而非 HTML
+    assert r.get_json().get("error") == "rate_limited"

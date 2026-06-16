@@ -155,7 +155,7 @@ def index():
 
 @vetting_bp.route("/start", methods=["POST"])
 @login_required
-@limiter.limit("3/minute", key_func=lambda: f"vet-start:{current_user.id}")
+@limiter.limit("6/minute", key_func=lambda: f"vet-start:{current_user.id}")
 def start():
     """1) 取 NPA 驗證碼   2) 同步先打司法院 + MJIB（無 captcha 來源）   3) 暫存後回 captcha image。"""
     data = request.get_json(silent=True) or {}
@@ -251,7 +251,7 @@ def start():
 
 @vetting_bp.route("/submit", methods=["POST"])
 @login_required
-@limiter.limit("1/minute", key_func=lambda: f"vet-submit:{current_user.id}")
+@limiter.limit("3/minute", key_func=lambda: f"vet-submit:{current_user.id}")
 def submit():
     """送 NPA 驗證碼 → 整合三段結果回前端。"""
     data = request.get_json(silent=True) or {}
