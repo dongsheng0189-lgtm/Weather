@@ -45,3 +45,28 @@ def test_clear_note_reminder_logs_clear(logged_in_client, app):
     with app.app_context():
         assert Note.query.get(nid).reminder_date is None
         assert NoteLog.query.filter_by(note_id=nid, action="reminder_clear").count() == 1
+
+
+def test_set_item_reminder_logs_with_item_text(logged_in_client, test_user, app):
+    nid = logged_in_client.post(
+        "/notes/api", json={"note_type": "checklist", "title": "進貨", "store": "A店"}
+    ).get_json()["id"]
+    iid = logged_in_client.post(
+        f"/notes/api/{nid}/items", json={"text": "點收"}
+    ).get_json()["item"]["id"]
+    due = (date.today() + timedelta(days=3)).isoformat()
+    r = logged_in_client.patch(f"/notes/api/items/{iid}", json={"reminder_date": due})
+    assert r.status_code == 200
+    assert r.get_json()["item"]["reminder_date"] == due
+    with app.app_context():
+        from models import ChecklistItem
+        it = ChecklistItem.query.get(iid)
+        assert it.reminder_set_by_name == test_user.username
+        # 過濾出本項目層級的 reminder_set log（diff 帶「項目「...」」前綴），
+        # 避免與其他測試殘留、note_id 被 SQLite rowid 重用而碰撞的 note-level log 混淆。
+        logs = [
+            l for l in NoteLog.query.filter_by(note_id=nid, action="reminder_set").all()
+            if "項目「" in (l.diff or "")
+        ]
+        assert len(logs) == 1
+        assert "點收" in logs[0].diff

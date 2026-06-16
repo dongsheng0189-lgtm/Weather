@@ -1576,6 +1576,9 @@ def _checklist_item_json(item):
         "created_by_name": item.created_by_name or (item.creator.username if item.creator else None),
         "updated_by_name": item.updated_by_name or (item.modifier.username if item.modifier else None),
         "updated_at": tw_iso(item.updated_at, fallback=None),
+        "reminder_date": item.reminder_date.isoformat() if item.reminder_date else None,
+        "reminder_set_by_name": item.reminder_set_by_name or (item.reminder_setter.username if item.reminder_setter else None),
+        "reminder_set_at": tw_iso(item.reminder_set_at, fallback=None),
         "locked_by_username": (locker.username if locker else None) if is_other_locked else None,
         "attachments": [{
             "id": a.id,
@@ -1670,10 +1673,18 @@ def create_checklist_item(note_id):
         updated_by=current_user.id,
         updated_by_name=current_user.username,
     )
+    rd = _parse_date(data.get("reminder_date"))
+    if rd:
+        _apply_reminder(item, rd)
     db.session.add(item)
     note.updated_at = now
     note.updated_by = current_user.id
     db.session.commit()
+    if rd:
+        action, diff = _reminder_action_diff(None, rd, label_prefix=f"項目「{(item.text or '')[:20]}」")
+        db.session.add(NoteLog(note_id=note.id, note_title=note.title,
+                               user_id=current_user.id, action=action, diff=diff))
+        db.session.commit()
     # 處理 inline tag_ids（新增 item 同時掛標籤）
     tag_ids = data.get("tag_ids") or []
     if isinstance(tag_ids, list) and tag_ids and note.store:
@@ -1736,6 +1747,16 @@ def update_checklist_item(item_id):
         # F11: any modification (text / check / uncheck) bumps updated_by
         item.updated_by = current_user.id
         item.updated_by_name = current_user.username
+    if "reminder_date" in data:
+        new_rd = _parse_date(data.get("reminder_date"))
+        if new_rd != item.reminder_date:
+            action, diff = _reminder_action_diff(
+                item.reminder_date, new_rd,
+                label_prefix=f"項目「{(item.text or '')[:20]}」")
+            _apply_reminder(item, new_rd)
+            item.updated_at = now
+            db.session.add(NoteLog(note_id=note.id, note_title=note.title,
+                                   user_id=current_user.id, action=action, diff=diff))
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id
     # F2: text edit save 後釋放 item-lock
