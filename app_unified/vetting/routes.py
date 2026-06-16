@@ -75,6 +75,9 @@ def _deserialize_state(raw) -> dict:
     """Redis blob → entry：cookies 灌回新 session（任一 worker 都重建得出來）。"""
     payload = json.loads(raw)
     sess = make_session()
+    # add_dict_to_cookiejar 還原成 domain-less cookie（會送給任何 host）。此 session
+    # 只拿來對 NPA 自家 URL 做單次 submit_query，所以 NPA session cookie 仍會送達、
+    # 無洩漏疑慮；⚠️ 勿把這個重建的 session 拿去打別的 host（會連 NPA cookie 一起送出）。
     add_dict_to_cookiejar(sess.cookies, payload.get("cookies") or {})
     return {
         "npa_session": sess,
