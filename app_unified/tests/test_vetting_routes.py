@@ -275,6 +275,11 @@ def test_put_take_state_redis_roundtrip_rebuilds_session(monkeypatch):
         "mjib": [],
     })
 
+    # 落 Redis 的 blob 必須是密文（PII：姓名/身分證/結果不得明文落地）
+    stored = vr._redis.kv["vet:state:" + qid]
+    assert isinstance(stored, str) and stored.startswith("enc:v1:")
+    assert "A123" not in stored and "詐欺" not in stored
+
     # 模擬另一個 worker：原 session 物件不可用，只能靠 Redis 還原
     entry = vr._take_state(qid)
     assert entry is not None

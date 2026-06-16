@@ -10,6 +10,7 @@ from flask import Blueprint, render_template, request, jsonify, abort
 from flask_login import login_required, current_user
 from requests.utils import dict_from_cookiejar, add_dict_to_cookiejar
 
+from crypto import encrypt, decrypt
 from extensions import limiter
 from features import user_has_feature
 from vetting import judicial, mjib, npa
@@ -57,10 +58,12 @@ def _judicial_sort_key(case):
 
 
 def _serialize_state(state: dict) -> str:
-    """live npa_session → cookies dict（JSON-safe），其餘原樣。給 Redis 用。"""
+    """live npa_session → cookies dict（JSON-safe），其餘原樣，整包**加密**後給 Redis。
+    blob 含被查者姓名/身分證/司法院+MJIB 結果/NPA cookie（PII），落 Redis 一律密文
+    （AES-256-GCM、同 EncryptedText 那把 DB_ENCRYPTION_KEY），即使 Redis 持久化也不外洩。"""
     sess = state.get("npa_session")
     cookies = dict_from_cookiejar(sess.cookies) if sess is not None else {}
-    return json.dumps({
+    return encrypt(json.dumps({
         "cookies": cookies,
         "npa_tokens": state.get("npa_tokens"),
         "npa_jwt": state.get("npa_jwt"),
@@ -68,12 +71,14 @@ def _serialize_state(state: dict) -> str:
         "id_no": state.get("id_no"),
         "judicial": state.get("judicial"),
         "mjib": state.get("mjib"),
-    })
+    }))
 
 
 def _deserialize_state(raw) -> dict:
-    """Redis blob → entry：cookies 灌回新 session（任一 worker 都重建得出來）。"""
-    payload = json.loads(raw)
+    """Redis blob（密文）→ 解密 → entry：cookies 灌回新 session（任一 worker 都重建得出來）。"""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    payload = json.loads(decrypt(raw))
     sess = make_session()
     # add_dict_to_cookiejar 還原成 domain-less cookie（會送給任何 host）。此 session
     # 只拿來對 NPA 自家 URL 做單次 submit_query，所以 NPA session cookie 仍會送達、
