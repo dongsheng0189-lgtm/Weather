@@ -244,3 +244,47 @@ def test_submit_captcha_invalid(app, client, db_session, monkeypatch):
                       json={"query_id": qid, "captcha": "WRONG"})
     assert res.status_code == 400
     assert res.get_json()["error"] == "captcha_invalid"
+
+
+def test_put_take_state_redis_roundtrip_rebuilds_session(monkeypatch):
+    """cross-worker fix：state 經 Redis JSON round-trip 後，submit 端（可能是另一個
+    gunicorn worker）用『不同 session 物件』仍拿得到 cookies/tokens/結果。
+
+    舊版 _QUERY_STATE 是 process-local dict、存 live Session → 2 worker 間
+    start/submit 落不同 worker 必逾時（feedback_in_memory_state_workers）。
+    """
+    import vetting.routes as vr
+    from vetting.http_client import make_session
+
+    class _FakeRedis:
+        def __init__(self): self.kv = {}
+        def set(self, k, v, ex=None): self.kv[k] = v
+        def get(self, k): return self.kv.get(k)
+        def delete(self, k): self.kv.pop(k, None)
+
+    monkeypatch.setattr(vr, "_redis", _FakeRedis())
+
+    sess = make_session()
+    sess.cookies.set("JSESSIONID", "abc123")
+    qid = vr._put_state({
+        "npa_session": sess,
+        "npa_tokens": {"_csrf": "x", "_csrf_header": "h", "_key": "k"},
+        "npa_jwt": "jwt",
+        "name": "王", "id_no": "A123",
+        "judicial": [{"subject": "詐欺", "keyword_hits": ["詐欺"]}],
+        "mjib": [],
+    })
+
+    # 模擬另一個 worker：原 session 物件不可用，只能靠 Redis 還原
+    entry = vr._take_state(qid)
+    assert entry is not None
+    assert entry["npa_session"] is not sess                              # 重建的新 session
+    assert entry["npa_session"].cookies.get("JSESSIONID") == "abc123"    # cookie 有還原
+    assert entry["npa_tokens"] == {"_csrf": "x", "_csrf_header": "h", "_key": "k"}
+    assert entry["npa_jwt"] == "jwt"
+    assert entry["name"] == "王" and entry["id_no"] == "A123"
+    assert entry["judicial"] == [{"subject": "詐欺", "keyword_hits": ["詐欺"]}]
+
+    # 一次性：刪除後再取應為 None
+    vr._del_state(qid)
+    assert vr._take_state(qid) is None

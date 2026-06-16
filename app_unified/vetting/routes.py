@@ -1,11 +1,14 @@
 """Vetting blueprint routes — name+ID 表單 → NPA captcha 接力 → 三來源整合結果。"""
 import base64
+import json
 import logging
+import os
 import secrets
 import time
 
 from flask import Blueprint, render_template, request, jsonify, abort
 from flask_login import login_required, current_user
+from requests.utils import dict_from_cookiejar, add_dict_to_cookiejar
 
 from extensions import limiter
 from features import user_has_feature
@@ -16,9 +19,33 @@ from vetting.http_client import throttle_sleep, make_session
 logger = logging.getLogger(__name__)
 vetting_bp = Blueprint("vetting", __name__, url_prefix="/vetting")
 
-# Process-local 暫存：每次查詢的 cookies/tokens + 已查好的 司法院/MJIB 結果
-_QUERY_STATE = {}
+# 每次查詢的 state（NPA cookies/tokens/jwt + 已查好的司法院/MJIB 結果）。
+# prod 是 gunicorn 2 workers：start / submit 兩步可能落在不同 worker，state 一定要
+# 跨 worker 共用，否則 submit 端那個 worker 找不到 query_id → 間歇「查詢逾時」
+# （feedback_in_memory_state_workers）。→ 優先存 Redis（prod 已有，SocketIO 在用）；
+# 沒 Redis（dev / 沒裝）→ fallback process-local dict（dev 單 worker，行為照舊）。
 _QUERY_TTL = 300  # 5 分鐘
+_REDIS_PREFIX = "vet:state:"
+_QUERY_STATE = {}  # process-local fallback（dev / 無 Redis）
+
+
+def _make_redis():
+    """同 extensions 的 URL 解析（內網優先）；拿不到/裝不起來 → None（走 dict fallback）。"""
+    url = (os.environ.get("REDIS_URI")
+           or os.environ.get("REDIS_CONNECTION_STRING")
+           or os.environ.get("REDIS_URL"))
+    if not url:
+        return None
+    try:
+        import redis
+        # from_url 不會立刻連線；加 timeout 避免 Redis 掛掉時把 request 拖死
+        return redis.Redis.from_url(url, socket_timeout=2, socket_connect_timeout=2)
+    except Exception as e:  # pragma: no cover - 環境相關
+        logger.warning("vetting: redis init failed, fallback to process-local state: %s", e)
+        return None
+
+
+_redis = _make_redis()
 
 
 def _judicial_sort_key(case):
@@ -27,6 +54,37 @@ def _judicial_sort_key(case):
         0 if case.get("keyword_hits") else 1,
         0 if case.get("id_match") else 1,
     )
+
+
+def _serialize_state(state: dict) -> str:
+    """live npa_session → cookies dict（JSON-safe），其餘原樣。給 Redis 用。"""
+    sess = state.get("npa_session")
+    cookies = dict_from_cookiejar(sess.cookies) if sess is not None else {}
+    return json.dumps({
+        "cookies": cookies,
+        "npa_tokens": state.get("npa_tokens"),
+        "npa_jwt": state.get("npa_jwt"),
+        "name": state.get("name"),
+        "id_no": state.get("id_no"),
+        "judicial": state.get("judicial"),
+        "mjib": state.get("mjib"),
+    })
+
+
+def _deserialize_state(raw) -> dict:
+    """Redis blob → entry：cookies 灌回新 session（任一 worker 都重建得出來）。"""
+    payload = json.loads(raw)
+    sess = make_session()
+    add_dict_to_cookiejar(sess.cookies, payload.get("cookies") or {})
+    return {
+        "npa_session": sess,
+        "npa_tokens": payload.get("npa_tokens"),
+        "npa_jwt": payload.get("npa_jwt"),
+        "name": payload.get("name"),
+        "id_no": payload.get("id_no"),
+        "judicial": payload.get("judicial"),
+        "mjib": payload.get("mjib"),
+    }
 
 
 def _gc_expired():
@@ -38,6 +96,14 @@ def _gc_expired():
 
 def _put_state(state: dict) -> str:
     qid = secrets.token_urlsafe(16)
+    if _redis is not None:
+        try:
+            _redis.set(_REDIS_PREFIX + qid, _serialize_state(state), ex=_QUERY_TTL)
+            return qid
+        except Exception as e:
+            logger.warning("vetting: redis put failed, fallback to process state: %s", e)
+    # fallback：process-local（dev 單 worker OK）
+    state = dict(state)
     state["expires_at"] = time.time() + _QUERY_TTL
     _QUERY_STATE[qid] = state
     _gc_expired()
@@ -45,8 +111,26 @@ def _put_state(state: dict) -> str:
 
 
 def _take_state(qid: str):
+    if _redis is not None:
+        try:
+            raw = _redis.get(_REDIS_PREFIX + qid)
+            return _deserialize_state(raw) if raw is not None else None
+        except Exception as e:
+            logger.warning("vetting: redis get failed: %s", e)
+            return None
     _gc_expired()
     return _QUERY_STATE.get(qid)
+
+
+def _del_state(qid: str):
+    """一次性使用：submit 後清掉。"""
+    if _redis is not None:
+        try:
+            _redis.delete(_REDIS_PREFIX + qid)
+            return
+        except Exception as e:  # pragma: no cover
+            logger.warning("vetting: redis del failed: %s", e)
+    _QUERY_STATE.pop(qid, None)
 
 
 @vetting_bp.before_request
@@ -192,8 +276,8 @@ def submit():
         logger.warning("vetting: NPA submit failed: %s", e)
         npa_results = None
 
-    # 一次性使用：清掉 state
-    _QUERY_STATE.pop(qid, None)
+    # 一次性使用：清掉 state（Redis 或 process-local）
+    _del_state(qid)
 
     return jsonify({
         "judicial": entry["judicial"],
