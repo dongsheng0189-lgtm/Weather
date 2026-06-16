@@ -1,7 +1,7 @@
 import json
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 
 import gevent
 from gevent.lock import BoundedSemaphore
@@ -28,6 +28,44 @@ def _gate_notes_feature():
 RANGE_DAYS = {"today": 0, "3d": 3, "7d": 7, "all": None}
 
 _TW = timezone(timedelta(hours=8))
+
+
+def _today_tw():
+    return datetime.now(_TW).date()
+
+
+def _parse_date(val):
+    if not val:
+        return None
+    try:
+        return date.fromisoformat(str(val)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _fmt_reminder(d):
+    return f"{d.month}/{d.day}" if d else "(無)"
+
+
+def _reminder_action_diff(old_date, new_date, label_prefix=""):
+    """回傳 (action, diff)；action ∈ reminder_set/change/clear。"""
+    if old_date is None:
+        action = "reminder_set"
+    elif new_date is None:
+        action = "reminder_clear"
+    else:
+        action = "reminder_change"
+    diff = f"{label_prefix}到期日 {_fmt_reminder(old_date)}→{_fmt_reminder(new_date)}"
+    return action, diff
+
+
+def _apply_reminder(obj, new_date):
+    """寫 obj 的 reminder_date + 修改者快照（呼叫前已確認有變更）。"""
+    obj.reminder_date = new_date
+    obj.reminder_set_by = current_user.id
+    obj.reminder_set_by_name = current_user.username
+    obj.reminder_set_at = datetime.utcnow()
+
 
 LOCK_TIMEOUT_MIN = 5
 
@@ -598,6 +636,7 @@ def list_notes():
         "category": n.category or "misc",
         "shift": n.shift,
         "author": n.display_author,
+        "reminder_date": n.reminder_date.isoformat() if n.reminder_date else None,
         "created_at": tw_iso(n.created_at),
         "updated_at": tw_iso(n.updated_at),
     } for n in notes])
@@ -636,8 +675,16 @@ def create_note():
     )
     if status == "resolved":
         note.resolved_at = datetime.utcnow()
+    rd = _parse_date(data.get("reminder_date")) if note_type == "note" else None
+    if rd:
+        _apply_reminder(note, rd)
     db.session.add(note)
     db.session.commit()
+    if rd:
+        action, diff = _reminder_action_diff(None, rd)
+        db.session.add(NoteLog(note_id=note.id, note_title=note.title,
+                               user_id=current_user.id, action=action, diff=diff))
+        db.session.commit()
     # 處理 inline 標籤（新增筆記同時掛標籤）
     tag_ids = data.get("tag_ids") or []
     if isinstance(tag_ids, list) and tag_ids and store:
@@ -671,6 +718,9 @@ def get_note(note_id):
         "category": note.category or "misc",
         "ai_summary": note.ai_summary, "ai_outline": note.ai_outline,
         "updated_by": updater,
+        "reminder_date": note.reminder_date.isoformat() if note.reminder_date else None,
+        "reminder_set_by_name": note.reminder_set_by_name or (note.reminder_setter.username if note.reminder_setter else None),
+        "reminder_set_at": tw_iso(note.reminder_set_at, fallback=None),
         "created_at": tw_iso(note.created_at),
         "updated_at": tw_iso(note.updated_at),
     })
@@ -724,6 +774,14 @@ def update_note(note_id):
             "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"
         }), 409
 
+    reminder_log = None
+    if "reminder_date" in data and note.note_type == "note":
+        new_rd = _parse_date(data.get("reminder_date"))
+        if new_rd != note.reminder_date:
+            action, diff = _reminder_action_diff(note.reminder_date, new_rd)
+            _apply_reminder(note, new_rd)
+            reminder_log = (action, diff)
+
     note.updated_by = current_user.id
     note.updated_at = datetime.utcnow()
     # 儲存後釋放鎖
@@ -740,6 +798,11 @@ def update_note(note_id):
             diff="; ".join(diff_parts),
         )
         db.session.add(log)
+
+    if reminder_log:
+        db.session.add(NoteLog(note_id=note.id, note_title=note.title,
+                               user_id=current_user.id,
+                               action=reminder_log[0], diff=reminder_log[1]))
 
     db.session.commit()
     # 廣播鎖釋放給同筆記的其他 client（HTTP 路徑無 self sid，
