@@ -118,6 +118,26 @@ def test_reminders_today_scopes_and_excludes(client, app):
     assert body["last_sig"]
 
 
+def test_reminders_today_excludes_other_store(client, app):
+    # 先以 B店 使用者建立並設定一筆今日到期的 B店 提醒（走 API，store 被強制落在 B店）。
+    _login(client, app, username="ub", store="B店")
+    today = date.today().isoformat()
+    nb = client.post("/notes/api", json={"note_type": "note", "title": "B店到期", "store": "B店"}).get_json()["id"]
+    client.put(f"/notes/api/{nb}", json={"reminder_date": today})
+
+    # 再切換回 A店 使用者，建立一筆同樣今日到期的 A店 提醒。
+    _login(client, app, username="ua", store="A店")
+    na = client.post("/notes/api", json={"note_type": "note", "title": "A店到期", "store": "A店"}).get_json()["id"]
+    client.put(f"/notes/api/{na}", json={"reminder_date": today})
+
+    r = client.get("/notes/api/reminders/today")
+    assert r.status_code == 200
+    ids = [(x["kind"], x["id"]) for x in r.get_json()["reminders"]]
+    # A店 使用者看得到自己店的提醒，看不到 B店 的提醒（store filter 把關，不洩漏跨店資料）。
+    assert ("note", na) in ids
+    assert ("note", nb) not in ids
+
+
 def test_reminders_today_excludes_checked_item(client, app):
     _login(client, app, username="u1", store="A店")
     past = (date.today() - timedelta(days=1)).isoformat()
