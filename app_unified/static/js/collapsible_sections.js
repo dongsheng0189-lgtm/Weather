@@ -148,7 +148,13 @@
         ? (escapeHtml(r.title) + ' — ' + escapeHtml(r.text))
         : escapeHtml(r.title);
       var noteId = encodeURIComponent(String(r.note_id == null ? '' : r.note_id));
-      html += '<li>' + chip + storeChip + '<a href="/notes/' + noteId + '">' + label + '</a>'
+      // 項目級提醒帶 #item-<id> 錨點：編輯器 _maybeScrollToHashItem() 會 scroll 到
+      // 該項目並加 .tag-highlight 持久黃底（跟關鍵字/標籤搜尋一致），返回鈕沿用 #float-back-widget
+      var href = '/notes/' + noteId;
+      if (r.kind === 'item' && r.id != null) {
+        href += '#item-' + encodeURIComponent(String(r.id));
+      }
+      html += '<li>' + chip + storeChip + '<a href="' + href + '">' + label + '</a>'
             + '<span class="rem-date">' + escapeHtml(r.reminder_date) + '</span></li>';
     });
     html += '</ul>';
