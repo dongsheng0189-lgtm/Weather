@@ -135,6 +135,29 @@ def fetch_captcha_bytes(session) -> bytes:
     return r.content
 
 
+def _is_captcha_error(html: str) -> bool:
+    """判斷 NPA 回應是否為「驗證碼錯誤」。
+
+    NPA 驗證碼錯時回的是 200 + 查詢表單頁，錯誤訊息塞在 JS 變數
+    `var errorMsg = "...";`，且中文用 `\\uXXXX` 跳脫內嵌（字面「錯誤」不會出現，
+    所以舊的字面比對抓不到）。先解碼 errorMsg 判斷，再保留字面比對當 fallback。
+    """
+    m = re.search(r'var\s+errorMsg\s*=\s*"([^"]+)"', html)
+    if m:
+        raw = m.group(1)
+        try:
+            decoded = raw.encode("utf-8").decode("unicode_escape")
+        except Exception:
+            decoded = raw
+        if "驗證碼" in decoded and any(k in decoded for k in
+                                       ("錯誤", "不正確", "不符", "重新輸入")):
+            return True
+    # fallback：字面中文（萬一 NPA 改成不跳脫）
+    if "驗證碼" in html and ("錯誤" in html or "不正確" in html):
+        return True
+    return False
+
+
 def submit_query(session, tokens: dict, jwt_token: str,
                  name: str, id_no: str, captcha_text: str) -> list:
     """POST /doCEQuery，回結果 list。"""
@@ -156,8 +179,8 @@ def submit_query(session, tokens: dict, jwt_token: str,
     )
     check_blocked(r)
     r.raise_for_status()
-    # 偵測驗證碼錯誤 / token 過期
-    if "驗證碼" in r.text and ("錯誤" in r.text or "不正確" in r.text):
+    # 偵測驗證碼錯誤（NPA 回 200+表單頁、錯誤訊息在 JS errorMsg、中文 \uXXXX 跳脫）
+    if _is_captcha_error(r.text):
         raise ValueError("captcha_invalid")
     # debug log（DEBUG level；要重新偵錯時把 logger 切到 DEBUG）：
     # 萃取 body 主要內容（去除 head/script/style/link）切 4 段印出

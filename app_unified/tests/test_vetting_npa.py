@@ -51,3 +51,35 @@ def test_parse_results_ignores_e8_note_section():
     results = parse_results(html)
     assert all("依據刑事訴訟法" not in r["name"] for r in results)
     assert all("勿移作他用" not in r.get("crime", "") for r in results)
+
+
+# ── Fix B：驗證碼錯誤偵測（NPA 回 200 + 表單頁，錯誤訊息在 JS errorMsg、
+#    中文用 \uXXXX 跳脫，字面「錯誤」不出現）──────────────────────────────
+from vetting.npa import _is_captcha_error
+
+# prod probe 撈到的真實錯誤頁特徵（errorMsg = 「驗證碼輸入錯誤，請重新輸入！」escaped）
+_WRONG_CAPTCHA_HTML = (
+    '<label for="answer">(必填)驗證碼</label>'
+    '<input name="answer" placeholder="輸入驗證碼">'
+    '<script>'
+    'var errorMsg = "\\u9A57\\u8B49\\u78BC\\u8F38\\u5165\\u932F\\u8AA4'
+    '\\uFF0C\\u8ACB\\u91CD\\u65B0\\u8F38\\u5165\\uFF01";'
+    'message("...", errorMsg);'
+    '</script>'
+)
+
+
+def test_is_captcha_error_detects_escaped_errormsg():
+    assert _is_captcha_error(_WRONG_CAPTCHA_HTML) is True
+
+
+def test_is_captcha_error_no_false_positive_empty_errormsg():
+    # 表單頁但 errorMsg 空（初次載入 / 正確查詢成功頁）：有「驗證碼」label、無錯誤
+    html = ('<label>(必填)驗證碼</label><input name="answer">'
+            '<script>var errorMsg = "";</script>')
+    assert _is_captcha_error(html) is False
+
+
+def test_is_captcha_error_literal_fallback():
+    # 萬一 NPA 改回字面中文也要抓得到
+    assert _is_captcha_error('驗證碼錯誤，請重新輸入') is True
