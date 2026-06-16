@@ -642,6 +642,71 @@ def list_notes():
     } for n in notes])
 
 
+@notes_bp.route("/api/reminders/today", methods=["GET"])
+@login_required
+def reminders_today():
+    """全店今日（及之前）到期提醒。
+    - note 級：note_type='note'、status != 'resolved'、非 AI 摘要、未軟刪
+    - 項目級：未勾選項目、母筆記未軟刪、未軟刪
+    回傳 {"reminders": [...], "last_sig": "<max reminder_set_at iso>"}
+    """
+    today = _today_tw()
+
+    def _scope_notes(q):
+        if current_user.is_super_admin():
+            store_filter = request.args.get("store", "")
+            stores = _visible_stores()
+            if store_filter in stores:
+                return q.filter(Note.store == store_filter)
+            hidden = current_user.get_hidden_stores()
+            if hidden:
+                return q.filter(db.or_(Note.store.is_(None), Note.store.notin_(hidden)))
+            return q
+        return q.filter(Note.store == current_user.store)
+
+    out, sigs = [], []
+
+    note_q = _scope_notes(Note.active().filter(
+        Note.is_ai_summary.isnot(True),
+        Note.note_type == "note",
+        Note.status != "resolved",
+        Note.reminder_date.isnot(None),
+        Note.reminder_date <= today,
+    ))
+    for n in note_q.all():
+        out.append({
+            "kind": "note", "id": n.id, "note_id": n.id,
+            "title": n.title, "text": "", "store": n.store,
+            "reminder_date": n.reminder_date.isoformat(),
+            "overdue": n.reminder_date < today,
+            "set_by_name": n.reminder_set_by_name or (n.reminder_setter.username if n.reminder_setter else None),
+        })
+        if n.reminder_set_at:
+            sigs.append(n.reminder_set_at.isoformat())
+
+    item_q = _scope_notes(
+        ChecklistItem.active().join(Note, ChecklistItem.note_id == Note.id).filter(
+            Note.deleted_at.is_(None),
+            ChecklistItem.is_checked.is_(False),
+            ChecklistItem.reminder_date.isnot(None),
+            ChecklistItem.reminder_date <= today,
+        )
+    )
+    for i in item_q.all():
+        out.append({
+            "kind": "item", "id": i.id, "note_id": i.note_id,
+            "title": i.note.title, "text": i.text, "store": i.note.store,
+            "reminder_date": i.reminder_date.isoformat(),
+            "overdue": i.reminder_date < today,
+            "set_by_name": i.reminder_set_by_name or (i.reminder_setter.username if i.reminder_setter else None),
+        })
+        if i.reminder_set_at:
+            sigs.append(i.reminder_set_at.isoformat())
+
+    out.sort(key=lambda x: (not x["overdue"], x["reminder_date"]))
+    return jsonify({"reminders": out, "last_sig": max(sigs) if sigs else ""})
+
+
 @notes_bp.route("/api", methods=["POST"])
 @login_required
 def create_note():
