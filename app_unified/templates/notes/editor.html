@@ -277,6 +277,16 @@ body.review-mode #review-mode-banner { display: flex; }
     {% endif %}
   </div>
 
+  <!-- F18: note 級到期日提醒 -->
+  <div class="ed-reminder-row" style="display:flex;gap:.5rem;align-items:center;margin:.5rem 0;font-size:.9rem;">
+    <label style="margin:0;">⏰ 到期日：</label>
+    <input type="date" id="reminder-date" style="width:auto;flex:0 0 auto;"
+           value="{{ note.reminder_date.isoformat() if note and note.reminder_date else '' }}">
+    <button type="button" class="btn btn-secondary" style="font-size:.82rem;padding:.25rem .6rem;"
+            onclick="document.getElementById('reminder-date').value='';">清除</button>
+    <span id="reminder-meta" style="color:#888;font-size:.82rem;"></span>
+  </div>
+
   <!-- 附件區（一般筆記）-->
   <div class="attachment-section" id="attachment-section">
     <h4>附件</h4>
@@ -326,6 +336,14 @@ body.review-mode #review-mode-banner { display: flex; }
       <div style="margin-bottom:.75rem;">
         <label style="font-size:.85rem;font-weight:600;">項目內容</label>
         <textarea id="item-modal-text" rows="8" class="form-control" placeholder="輸入項目內容..." style="resize:vertical;min-height:40vh;"></textarea>
+      </div>
+      <!-- F18: 項目級到期日提醒 -->
+      <div class="ed-reminder-row" style="display:flex;gap:.5rem;align-items:center;margin:.5rem 0;font-size:.88rem;">
+        <label style="margin:0;">⏰ 到期日：</label>
+        <input type="date" id="item-modal-reminder" style="width:auto;">
+        <button type="button" class="btn btn-secondary" style="font-size:.78rem;padding:.2rem .55rem;"
+                onclick="document.getElementById('item-modal-reminder').value='';">清除</button>
+        <span id="item-modal-reminder-meta" style="color:#888;font-size:.8rem;"></span>
       </div>
       <div style="margin-bottom:.75rem;">
         <label style="font-size:.85rem;font-weight:600;">附件（圖片/影片）</label>
@@ -859,6 +877,16 @@ fetch('/notes/api/' + NOTE_ID).then(function(r) { return r.json(); }).then(funct
 }).catch(function() {});
 {% endif %}
 
+// F18: note 級到期日「最後由誰設定」inline meta（編輯既有筆記時載入）
+{% if note %}
+fetch('/notes/api/' + NOTE_ID).then(function(r) { return r.json(); }).then(function(data) {
+  if (data.reminder_set_by_name && data.reminder_set_at) {
+    var rm = document.getElementById('reminder-meta');
+    if (rm) rm.textContent = '最後由 ' + data.reminder_set_by_name + ' 於 ' + data.reminder_set_at + ' 設定';
+  }
+}).catch(function() {});
+{% endif %}
+
 function selectStore(btn) {
   var s = btn.getAttribute('data-store');
   if (currentStore === s) {
@@ -919,6 +947,9 @@ function doSave() {
   var url = NOTE_ID ? ('/notes/api/' + NOTE_ID) : '/notes/api';
   var method = NOTE_ID ? 'PUT' : 'POST';
   var body = { title: title, content: content, store: store, status: currentStatus, category: currentCategory, shift: currentShift };
+  // F18: note 級到期日（只有 note 型 editor 有此 input；checklist 走項目級）
+  var rdEl = document.getElementById('reminder-date');
+  if (rdEl) body.reminder_date = rdEl.value || null;
   if (!NOTE_ID) {
     body.note_type = EDITOR_TYPE;
     // 新筆記：把 pre-save 標籤一起帶進 POST、後端會 inline 建 m2m
@@ -1723,6 +1754,11 @@ function openAddItemDialog() {
   document.getElementById('item-modal-id').value = '';
   document.getElementById('item-modal-title').textContent = '新增項目';
   document.getElementById('item-modal-text').value = '';
+  // F18: 新增項目 → 清空到期日 + meta
+  var _imrAdd = document.getElementById('item-modal-reminder');
+  if (_imrAdd) _imrAdd.value = '';
+  var _imrmAdd = document.getElementById('item-modal-reminder-meta');
+  if (_imrmAdd) _imrmAdd.textContent = '';
   document.getElementById('item-attachment-list').innerHTML = '';
   document.getElementById('item-upload-status').textContent = '';
   document.getElementById('item-modal-msg').textContent = '';
@@ -1754,6 +1790,12 @@ function openEditItemDialog(item) {
       document.getElementById('item-modal-id').value = item.id;
       document.getElementById('item-modal-title').textContent = '編輯項目';
       document.getElementById('item-modal-text').value = item.text || '';
+      // F18: 帶入既有項目到期日 + 最後設定者 meta
+      var imr = document.getElementById('item-modal-reminder');
+      if (imr) imr.value = (item && item.reminder_date) ? item.reminder_date : '';
+      var imrm = document.getElementById('item-modal-reminder-meta');
+      if (imrm) imrm.textContent = (item && item.reminder_set_by_name && item.reminder_set_at)
+          ? ('最後由 ' + item.reminder_set_by_name + ' 於 ' + item.reminder_set_at) : '';
       document.getElementById('item-upload-status').textContent = '';
       document.getElementById('item-modal-msg').textContent = '';
       _itemAttachmentsPending = [];
@@ -1903,6 +1945,9 @@ function saveItemFromDialog() {
       method = 'POST';
       payload = { text: text, tag_ids: _itemModalTagIds.slice() };
     }
+    // F18: 項目級到期日（value 或 null）
+    var imrEl = document.getElementById('item-modal-reminder');
+    if (imrEl) payload.reminder_date = imrEl.value || null;
     return fetch(url, {
       method: method,
       headers: {'Content-Type': 'application/json'},
