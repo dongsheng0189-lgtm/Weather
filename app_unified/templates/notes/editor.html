@@ -54,6 +54,7 @@ body.review-mode #review-mode-banner { display: flex; }
 .ai-panel { margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem; }
 .ai-result { background: #f8f9fa; border-radius: 6px; padding: 1rem; margin-top: .5rem; font-size: .9rem; white-space: pre-wrap; }
 .save-status { font-size: .85rem; color: #aaa; margin-left: auto; }
+#btn-save.is-saved { background:#9e9e9e; cursor:default; opacity:.85; }
 .store-selector { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
 .store-selector label { font-size: .85rem; color: #666; margin-right: .25rem; }
 .store-btn { padding: .35rem .7rem; border-radius: 16px; font-size: .82rem; font-weight: 600; cursor: pointer; border: 2px solid #ddd; background: #f5f5f5; color: #555; transition: all .15s; min-height: 36px; }
@@ -283,7 +284,7 @@ body.review-mode #review-mode-banner { display: flex; }
     <input type="date" id="reminder-date" style="width:auto;flex:0 0 auto;"
            value="{{ note.reminder_date.isoformat() if note and note.reminder_date else '' }}">
     <button type="button" class="btn btn-secondary" style="font-size:.82rem;padding:.25rem .6rem;"
-            onclick="document.getElementById('reminder-date').value='';">清除</button>
+            onclick="document.getElementById('reminder-date').value=''; markDirty();">清除</button>
     <span id="reminder-meta" style="color:#888;font-size:.82rem;"></span>
   </div>
 
@@ -893,6 +894,7 @@ function selectStore(btn) {
     btn.classList.add('selected');
     currentStore = s;
   }
+  markDirty();
 }
 
 function selectStatus(btn) {
@@ -902,6 +904,7 @@ function selectStatus(btn) {
   currentStatus = btn.getAttribute('data-status');
   updateResolvedWarning();
   tryAcquireLock();  // 切狀態 → 觸發 lazy acquire
+  markDirty();
 }
 
 (function() {
@@ -922,12 +925,29 @@ function selectCategory(btn) {
   btn.classList.add('selected');
   currentCategory = btn.getAttribute('data-category');
   tryAcquireLock();  // 切類別 → 觸發 lazy acquire
+  markDirty();
 }
 
 // 暫存待上傳的檔案（新筆記用）
 var pendingFiles = [];
 
 var EDITOR_TYPE = (document.getElementById('editor-type') || {}).value || 'note';
+
+// ── 未存指示器狀態機 ─────────────────────────────────────────────
+var _dirty = false;
+var _leavingIntentionally = false;   // 點返回鈕「確定離開」時設 → 抑制 beforeunload 雙重彈窗
+function markDirty() {
+  if (IS_READONLY) return;           // 被鎖/唯讀不標 dirty
+  _dirty = true;
+  var b = document.getElementById('btn-save');
+  if (b) { b.textContent = '💾 儲存'; b.disabled = false; b.classList.remove('is-saved'); }
+}
+function setSaved() {
+  _dirty = false;
+  var b = document.getElementById('btn-save');
+  if (b) { b.textContent = '✓ 已儲存'; b.disabled = true; b.classList.add('is-saved'); }
+}
+window.markEditorDirty = markDirty;   // 給 tag_system.js 等外部呼叫
 
 function doSave() {
   var title = document.getElementById('title-input').value.trim() || '未命名筆記';
@@ -964,18 +984,23 @@ function doSave() {
     if (data.status === 'ok' || data.id) {
       if (!NOTE_ID && data.id) {
         NOTE_ID = data.id;
+        // 新筆記首存：就地把網址換成編輯 URL（保留 filter query string），
+        // 重整不掉內容、之後存檔走 PUT。不 redirect。
+        history.replaceState(null, '', '/notes/' + NOTE_ID + window.location.search);
       }
-      // 如果有暫存的檔案，先全部上傳完才跳轉
+      // 如果有暫存的檔案，先全部上傳完才標記已儲存
       if (pendingFiles.length > 0) {
         statusEl.textContent = '上傳附件中…';
         uploadPendingFiles().then(function() {
-          window.location.href = NOTES_INDEX_URL;
+          setSaved();
+          statusEl.textContent = '✓ 已儲存';
         }).catch(function(err) {
           statusEl.textContent = '附件上傳失敗：' + err.message;
           saveBtn.disabled = false;
         });
       } else {
-        window.location.href = NOTES_INDEX_URL;
+        setSaved();
+        statusEl.textContent = '✓ 已儲存';
       }
     }
     else { statusEl.textContent = '儲存失敗：' + (data.message || '未知錯誤'); saveBtn.disabled = false; }
@@ -1170,6 +1195,7 @@ function createAttItem(att, siblings) {
         if (d.status === 'ok') {
           var el = document.getElementById('att-' + att.id);
           if (el) el.remove();
+          markDirty();
         }
       });
   };
@@ -1191,6 +1217,7 @@ function handleFileUpload(input) {
     }
     statusEl.textContent = pendingFiles.length + ' 個檔案待儲存';
     input.value = '';
+    markDirty();
     return;
   }
 
@@ -1236,6 +1263,7 @@ function handleFileUpload(input) {
           statusEl.textContent = '';
           loadAttachments();
           input.value = '';
+          markDirty();
         }
       };
       xhr.onerror = function() {
@@ -1646,6 +1674,7 @@ function toggleChecklistItem(itemId, isChecked, rowEl) {
       return;
     }
     if (d.status !== 'ok') return;
+    markDirty();
     // 更新快取 is_checked 狀態：下次切換完成 tab 時 partition 才會用到最新值
     for (var i = 0; i < _cachedItems.length; i++) {
       if (_cachedItems[i].id === itemId) {
@@ -1702,7 +1731,7 @@ function deleteChecklistItem(itemId) {
     .then(function(pair) {
       var r = pair[0], d = pair[1];
       if (!handleMutationResponse(r, d)) return;
-      if (d.status === 'ok') loadChecklistItems();
+      if (d.status === 'ok') { markDirty(); loadChecklistItems(); }
     });
 }
 
@@ -1914,6 +1943,7 @@ function handleItemFileUpload(input) {
   files.forEach(function(f) { _itemAttachmentsPending.push(f); });
   renderItemAttachmentList();
   input.value = '';
+  markDirty();
 }
 
 function saveItemFromDialog() {
@@ -1991,6 +2021,7 @@ function saveItemFromDialog() {
     });
     return Promise.all(uploads).then(function() { return savedItemId; });
   }).then(function() {
+    markDirty();
     closeItemDialog();
     loadChecklistItems();
   }).catch(function(err) {
@@ -2003,6 +2034,43 @@ if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();
 
 /* ═══ keepalive（只保活 session，不存 draft）═══ */
 if (!IS_READONLY) EditKeepalive.init();
+
+/* ═══ 未存指示器：欄位掛勾 + 初始狀態 + 返回攔截 + beforeunload safety net ═══ */
+(function() {
+  // note 欄位 input/change → markDirty
+  var titleEl = document.getElementById('title-input');
+  if (titleEl) titleEl.addEventListener('input', markDirty);
+  // 可能有兩個 #content-area（ai-summary 隱藏版 + 一般版）；都掛、guard null
+  document.querySelectorAll('#content-area').forEach(function(ca) {
+    ca.addEventListener('input', markDirty);
+  });
+  var rdEl = document.getElementById('reminder-date');
+  if (rdEl) rdEl.addEventListener('change', markDirty);
+
+  // 初始狀態：既有筆記開啟 → 乾淨（已儲存、disabled）；
+  // 新筆記保留預設「儲存」可按、_dirty=false（未動前返回不攔截）
+  if (NOTE_ID) setSaved();
+
+  // 返回鈕未存攔截（兩顆 <a>）
+  function _guardLeave(e) {
+    if (_dirty && !window.confirm('尚未儲存變更，確定離開？')) {
+      e.preventDefault(); e.stopPropagation(); return false;
+    }
+    _leavingIntentionally = true;   // 確定要走 → 不要再被 beforeunload 攔
+  }
+  var backBtn = document.getElementById('btn-back');
+  if (backBtn) backBtn.addEventListener('click', _guardLeave);
+  // float-back 既有 click handler 也會 preventDefault + 導頁；guard 用 capture
+  // 先跑，dirty 取消時擋掉後續導頁，確定離開時設旗標再讓既有 handler 導頁。
+  var floatBack = document.getElementById('float-back-widget');
+  if (floatBack) floatBack.addEventListener('click', _guardLeave, true);
+})();
+
+// beforeunload safety net：dirty 時關分頁/重整/上一頁/改網址 → 原生彈窗；
+// 點返回鈕「確定離開」已設 _leavingIntentionally，不重複攔。
+window.addEventListener('beforeunload', function(e) {
+  if (_dirty && !_leavingIntentionally) { e.preventDefault(); e.returnValue = ''; }
+});
 
 </script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tag_system.css') }}">

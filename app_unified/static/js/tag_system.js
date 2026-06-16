@@ -412,6 +412,7 @@
         .then(function(r) {
           if (r.ok) {
             modal.classList.remove('is-open');
+            if (window.markEditorDirty) window.markEditorDirty();
             if (onSaved) onSaved(ids);
           } else alert(r.data.error || '儲存失敗');
         });
