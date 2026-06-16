@@ -81,3 +81,11 @@ def test_collapsible_css_and_js_linked(client, db):
     html = r.get_data(as_text=True)
     assert 'collapsible_sections.css' in html
     assert 'collapsible_sections.js' in html
+
+
+def test_reminders_section_present():
+    from pathlib import Path
+    idx = Path(__file__).parent.parent / 'templates' / 'notes' / 'index.html'
+    js = Path(__file__).parent.parent / 'static' / 'js' / 'collapsible_sections.js'
+    assert 'data-section="reminders"' in idx.read_text(encoding='utf-8')
+    assert 'initRemindersSection' in js.read_text(encoding='utf-8')

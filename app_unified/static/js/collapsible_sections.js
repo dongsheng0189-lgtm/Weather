@@ -110,11 +110,83 @@
     }
   }
 
+  var REM_KEY = 'notes_reminders_last_seen';
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function readRemSeen() {
+    try {
+      var p = JSON.parse(localStorage.getItem(REM_KEY) || 'null');
+      if (!p || typeof p !== 'object') return null;
+      return { date: String(p.date || ''), last_sig: String(p.last_sig || '') };
+    } catch (e) { return null; }
+  }
+
+  function renderReminders(box, list) {
+    if (!list.length) {
+      box.innerHTML = '<div style="color:#888;font-size:.85rem;padding:.5rem;">目前沒有到期提醒</div>';
+      return;
+    }
+    var html = '<ul class="rem-list">';
+    list.forEach(function(r) {
+      var chip = r.overdue ? '<span class="rem-chip overdue">逾期</span>'
+                           : '<span class="rem-chip">今日</span>';
+      var label = r.kind === 'item'
+        ? (escapeHtml(r.title) + ' — ' + escapeHtml(r.text))
+        : escapeHtml(r.title);
+      var noteId = encodeURIComponent(String(r.note_id == null ? '' : r.note_id));
+      html += '<li>' + chip + '<a href="/notes/' + noteId + '">' + label + '</a>'
+            + '<span class="rem-date">' + escapeHtml(r.reminder_date) + '</span></li>';
+    });
+    html += '</ul>';
+    box.innerHTML = html;
+  }
+
+  function initRemindersSection() {
+    var section = document.querySelector('.collapsible[data-section="reminders"]');
+    if (!section) return;
+    bindSectionBar(section);
+    var box = document.getElementById('reminders-box');
+    var store = (window.CURRENT_STORE || '');
+    var url = '/notes/api/reminders/today' + (store ? ('?store=' + encodeURIComponent(store)) : '');
+    fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+      var list = (data && data.reminders) || [];
+      var lastSig = (data && data.last_sig) || '';
+      var cnt = document.getElementById('reminders-count');
+      if (cnt) cnt.textContent = '(' + list.length + ')';
+      renderReminders(box, list);
+      var stored = readRemSeen();
+      var expand;
+      if (!list.length) {
+        expand = false;
+      } else if (!stored || stored.date < todayStr() || stored.last_sig < lastSig) {
+        expand = true;
+      } else {
+        expand = false;
+      }
+      setSectionExpanded(section, expand);
+      if (expand) {
+        try { localStorage.setItem(REM_KEY, JSON.stringify({date: todayStr(), last_sig: lastSig})); } catch (e) {}
+      }
+    }).catch(function() {
+      if (box) box.innerHTML = '<div style="color:#c00;font-size:.85rem;padding:.5rem;">提醒載入失敗</div>';
+      setSectionExpanded(section, false);
+    });
+  }
+
   function init() {
     initAnnouncementSection();
     initAiSummarySection();
     initTagManagementSection();
     initFilterSection();
+    initRemindersSection();
   }
 
   if (document.readyState === 'loading') {

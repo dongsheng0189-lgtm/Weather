@@ -108,6 +108,18 @@
 {% endif %}
 
 {% if not current_keyword %}
+<section class="collapsible" data-section="reminders" id="reminders-section">
+  <div class="collapsible-bar" data-role="section-bar">
+    <span class="bar-title">⏰ 今日提醒 <span id="reminders-count">(0)</span></span>
+    <span class="bar-chevron">▶</span>
+  </div>
+  <div class="collapsible-body">
+    <div id="reminders-box"><div style="color:#888;font-size:.85rem;padding:.5rem;">載入中…</div></div>
+  </div>
+</section>
+{% endif %}
+
+{% if not current_keyword %}
 <section class="collapsible" data-section="ai-summary">
   <div class="collapsible-bar" data-role="section-bar">
     <span class="bar-title">🤖 AI 摘要</span>
