@@ -870,16 +870,11 @@ function _maybeScrollToHashItem() {
   target.classList.add('tag-highlight');
 }
 
-{% if note and note.updated_by %}
+// 載入既有筆記資料：updated-by 顯示 + F18 note 級到期日「最後由誰設定」inline meta（單一 fetch）
+{% if note %}
 fetch('/notes/api/' + NOTE_ID).then(function(r) { return r.json(); }).then(function(data) {
   var el = document.getElementById('updated-by-name');
   if (el && data.updated_by) el.textContent = data.updated_by;
-}).catch(function() {});
-{% endif %}
-
-// F18: note 級到期日「最後由誰設定」inline meta（編輯既有筆記時載入）
-{% if note %}
-fetch('/notes/api/' + NOTE_ID).then(function(r) { return r.json(); }).then(function(data) {
   if (data.reminder_set_by_name && data.reminder_set_at) {
     var rm = document.getElementById('reminder-meta');
     if (rm) rm.textContent = '最後由 ' + data.reminder_set_by_name + ' 於 ' + data.reminder_set_at + ' 設定';
@@ -1795,7 +1790,7 @@ function openEditItemDialog(item) {
       if (imr) imr.value = (item && item.reminder_date) ? item.reminder_date : '';
       var imrm = document.getElementById('item-modal-reminder-meta');
       if (imrm) imrm.textContent = (item && item.reminder_set_by_name && item.reminder_set_at)
-          ? ('最後由 ' + item.reminder_set_by_name + ' 於 ' + item.reminder_set_at) : '';
+          ? ('最後由 ' + item.reminder_set_by_name + ' 於 ' + item.reminder_set_at + ' 設定') : '';
       document.getElementById('item-upload-status').textContent = '';
       document.getElementById('item-modal-msg').textContent = '';
       _itemAttachmentsPending = [];
