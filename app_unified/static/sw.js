@@ -5,7 +5,7 @@
  *   - API calls (/notes/api/*, /weather/api/*): network-first
  *   - Navigation: network-first, fallback to cache
  */
-const CACHE_NAME = 'note-weather-v40';
+const CACHE_NAME = 'note-weather-v41';
 const STATIC_CACHE_URLS = [
   '/static/js/camera.js',
   '/static/js/voice_input.js',

@@ -87,5 +87,9 @@ def test_reminders_section_present():
     from pathlib import Path
     idx = Path(__file__).parent.parent / 'templates' / 'notes' / 'index.html'
     js = Path(__file__).parent.parent / 'static' / 'js' / 'collapsible_sections.js'
+    js_src = js.read_text(encoding='utf-8')
     assert 'data-section="reminders"' in idx.read_text(encoding='utf-8')
-    assert 'initRemindersSection' in js.read_text(encoding='utf-8')
+    assert 'initRemindersSection' in js_src
+    # 跨店合併視圖才顯示店名 chip（super_admin 選「全部」）
+    assert 'rem-store' in js_src
+    assert 'showStore' in js_src

@@ -82,3 +82,4 @@
 .rem-list .rem-date { color: #e65100; font-size: .8rem; }
 .rem-chip { font-size: .7rem; padding: .1rem .45rem; border-radius: 8px; background: #fff8e1; color: #e65100; border: 1px solid #ffd54f; }
 .rem-chip.overdue { background: #ef5350; color: #fff; border-color: #ef5350; }
+.rem-store { font-size: .7rem; padding: .1rem .45rem; border-radius: 8px; background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; white-space: nowrap; }

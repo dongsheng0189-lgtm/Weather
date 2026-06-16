@@ -134,15 +134,21 @@
       box.innerHTML = '<div style="color:#888;font-size:.85rem;padding:.5rem;">目前沒有到期提醒</div>';
       return;
     }
+    // 跨店合併視圖（super_admin 選「全部」、清單橫跨 >1 店）才顯示店名 chip
+    var stores = {};
+    list.forEach(function(r) { if (r.store) stores[r.store] = 1; });
+    var showStore = Object.keys(stores).length > 1;
     var html = '<ul class="rem-list">';
     list.forEach(function(r) {
       var chip = r.overdue ? '<span class="rem-chip overdue">逾期</span>'
                            : '<span class="rem-chip">今日</span>';
+      var storeChip = (showStore && r.store)
+        ? '<span class="rem-store">' + escapeHtml(r.store) + '</span>' : '';
       var label = r.kind === 'item'
         ? (escapeHtml(r.title) + ' — ' + escapeHtml(r.text))
         : escapeHtml(r.title);
       var noteId = encodeURIComponent(String(r.note_id == null ? '' : r.note_id));
-      html += '<li>' + chip + '<a href="/notes/' + noteId + '">' + label + '</a>'
+      html += '<li>' + chip + storeChip + '<a href="/notes/' + noteId + '">' + label + '</a>'
             + '<span class="rem-date">' + escapeHtml(r.reminder_date) + '</span></li>';
     });
     html += '</ul>';
