@@ -428,6 +428,50 @@ def create_app():
                     ))
                 except Exception:
                     pass
+                # 店務筆記到期提醒 reminder_date + 稽核快照（2026-06-15）— notes
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_date DATE"))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_by INTEGER "
+                        "REFERENCES users(id) ON DELETE SET NULL"))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_by_name TEXT"))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_at TIMESTAMP"))
+                except Exception:
+                    pass
+                # 同上 — checklist_items
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_date DATE"))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_by INTEGER "
+                        "REFERENCES users(id) ON DELETE SET NULL"))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_by_name TEXT"))
+                except Exception:
+                    pass
+                try:
+                    db.session.execute(db.text(
+                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_at TIMESTAMP"))
+                except Exception:
+                    pass
 
                 db.session.commit()
             print("=== db.create_all() OK ===", flush=True)

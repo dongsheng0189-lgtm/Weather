@@ -139,9 +139,15 @@ class Note(db.Model):
     resolved_at = db.Column(db.DateTime, nullable=True)
     deleted_at = db.Column(db.DateTime, nullable=True, index=True)
     deleted_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # 到期提醒 + 稽核快照（2026-06-15）
+    reminder_date = db.Column(db.Date, nullable=True)
+    reminder_set_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reminder_set_by_name = db.Column(EncryptedText, nullable=True)
+    reminder_set_at = db.Column(db.DateTime, nullable=True)
 
     locker = db.relationship("User", foreign_keys=[locked_by])
     deleter = db.relationship("User", foreign_keys=[deleted_by])
+    reminder_setter = db.relationship("User", foreign_keys=[reminder_set_by])
 
     logs = db.relationship("NoteLog", backref="note", lazy=True,
                            foreign_keys="NoteLog.note_id",
@@ -229,6 +235,11 @@ class ChecklistItem(db.Model):
     updated_by_name = db.Column(EncryptedText, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)  # 排序用：新增/編輯/附件變更時 bump
+    # 到期提醒 + 稽核快照（2026-06-15）
+    reminder_date = db.Column(db.Date, nullable=True)
+    reminder_set_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reminder_set_by_name = db.Column(EncryptedText, nullable=True)
+    reminder_set_at = db.Column(db.DateTime, nullable=True)
 
     note = db.relationship("Note", backref=db.backref(
         "checklist_items", lazy=True, cascade="all, delete-orphan",
@@ -238,6 +249,7 @@ class ChecklistItem(db.Model):
     deleter = db.relationship("User", foreign_keys=[deleted_by])
     creator = db.relationship("User", foreign_keys=[created_by])
     modifier = db.relationship("User", foreign_keys=[updated_by])
+    reminder_setter = db.relationship("User", foreign_keys=[reminder_set_by])
     tags = db.relationship(
         "Tag",
         secondary="checklist_item_tags",
