@@ -116,8 +116,10 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
   }).catch(function(err){ stopTick(); setStatus('連線失敗：' + err.message); });
 });
 
-function reloadCaptcha() {
-  startTick('🔄 重整驗證碼中（會重跑三家查詢）');
+function reloadCaptcha(reason) {
+  var isErr = (reason === 'captcha_error');
+  startTick(isErr ? '❌ 驗證碼錯誤，正在換一張新的'
+                  : '🔄 重整驗證碼中（會重跑三家查詢）');
   fetch('/vetting/start', {
     method: 'POST', headers: VET_JSON_HEADERS,
     body: JSON.stringify({name: _name, id: _id})
@@ -127,7 +129,8 @@ function reloadCaptcha() {
     if (st === 200 && d && d.query_id) {
       _qid = d.query_id;
       document.getElementById('vet-captcha-img').src = 'data:image/jpeg;base64,' + d.captcha_b64;
-      setStatus('✓ 驗證碼已更新');
+      setStatus(isErr ? '❌ 驗證碼錯誤，已換一張新的，請重新輸入'
+                      : '✓ 驗證碼已更新');
     } else {
       setStatus('換驗證碼失敗：' + vetErrMsg(st, d));
     }
@@ -148,9 +151,8 @@ document.getElementById('vet-captcha-form').addEventListener('submit', function(
     if (!d) { setStatus('連線失敗：' + vetErrMsg(st, d)); return; }
     if (st !== 200) {
       if (d.error === 'captcha_invalid') {
-        setStatus('驗證碼錯誤，請點圖換一張再試');
         document.getElementById('vet-captcha-text').value = '';
-        reloadCaptcha();
+        reloadCaptcha('captcha_error');
         return;
       }
       if (d.error === 'query_expired') {
