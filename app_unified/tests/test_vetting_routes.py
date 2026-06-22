@@ -517,3 +517,14 @@ def test_vetting_fb_ig_use_brand_icons(app, client, db_session):
     assert "#1877F2" in html
     assert "linear-gradient(45deg,#feda75" in html
     assert "var FB_ICON" in html and "var IG_ICON" in html
+
+
+def test_vetting_phone_buttons_use_fitting_icons(app, client, db_session):
+    """D 段電話按鈕用相對應圖示 + 品牌色（取代純文字「→ Whoscall」）。"""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    html = client.get("/vetting/").get_data(as_text=True)
+    assert "→ Whoscall" not in html and "→ TrueCaller" not in html
+    # Whoscall teal、TrueCaller 藍、Google 四色 G
+    assert "#14B8A6" in html and "#0086FF" in html
+    assert "var SEARCH_ICON" in html and "var PHONE_ICON" in html and "var GOOGLE_G" in html
