@@ -972,39 +972,44 @@ function doSave() {
       body.tag_ids = window.__PRESAVE_TAG_IDS;
     }
   }
-  fetch(url, {
-    method: method,
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)
-  }).then(function(res) {
-    return res.json().catch(function() { return {}; }).then(function(j) { return [res, j]; });
-  }).then(function(pair) {
-    var res = pair[0], data = pair[1];
-    if (!handleMutationResponse(res, data)) { saveBtn.disabled = false; return; }
-    if (data.status === 'ok' || data.id) {
-      if (!NOTE_ID && data.id) {
-        NOTE_ID = data.id;
-        // 新筆記首存：就地把網址換成編輯 URL（保留 filter query string），
-        // 重整不掉內容、之後存檔走 PUT。不 redirect。
-        history.replaceState(null, '', '/notes/' + NOTE_ID + window.location.search);
-      }
-      // 如果有暫存的檔案，先全部上傳完才標記已儲存
-      if (pendingFiles.length > 0) {
-        statusEl.textContent = '上傳附件中…';
-        uploadPendingFiles().then(function() {
+  return new Promise(function(resolve) {
+    fetch(url, {
+      method: method,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(res) {
+      return res.json().catch(function() { return {}; }).then(function(j) { return [res, j]; });
+    }).then(function(pair) {
+      var res = pair[0], data = pair[1];
+      if (!handleMutationResponse(res, data)) { saveBtn.disabled = false; resolve(false); return; }
+      if (data.status === 'ok' || data.id) {
+        if (!NOTE_ID && data.id) {
+          NOTE_ID = data.id;
+          // 新筆記首存：就地把網址換成編輯 URL（保留 filter query string），
+          // 重整不掉內容、之後存檔走 PUT。不 redirect。
+          history.replaceState(null, '', '/notes/' + NOTE_ID + window.location.search);
+        }
+        // 如果有暫存的檔案，先全部上傳完才標記已儲存
+        if (pendingFiles.length > 0) {
+          statusEl.textContent = '上傳附件中…';
+          uploadPendingFiles().then(function() {
+            setSaved();
+            statusEl.textContent = '✓ 已儲存';
+            resolve(true);
+          }).catch(function(err) {
+            statusEl.textContent = '附件上傳失敗：' + err.message;
+            saveBtn.disabled = false;
+            resolve(false);
+          });
+        } else {
           setSaved();
           statusEl.textContent = '✓ 已儲存';
-        }).catch(function(err) {
-          statusEl.textContent = '附件上傳失敗：' + err.message;
-          saveBtn.disabled = false;
-        });
-      } else {
-        setSaved();
-        statusEl.textContent = '✓ 已儲存';
+          resolve(true);
+        }
       }
-    }
-    else { statusEl.textContent = '儲存失敗：' + (data.message || '未知錯誤'); saveBtn.disabled = false; }
-  }).catch(function(err) { statusEl.textContent = '儲存失敗：' + err.message; saveBtn.disabled = false; });
+      else { statusEl.textContent = '儲存失敗：' + (data.message || '未知錯誤'); saveBtn.disabled = false; resolve(false); }
+    }).catch(function(err) { statusEl.textContent = '儲存失敗：' + err.message; saveBtn.disabled = false; resolve(false); });
+  });
 }
 
 // 確保筆記已建立（checklist 新增項目前會呼叫）

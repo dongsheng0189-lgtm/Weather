@@ -52,3 +52,13 @@ def test_editor_save_no_longer_redirects_to_list():
 def test_tag_system_marks_editor_dirty_on_apply():
     src = TAG_SYSTEM.read_text(encoding='utf-8')
     assert 'markEditorDirty' in src
+
+
+def test_dosave_returns_promise():
+    """doSave 改回傳 Promise<boolean>，供浮動鈕「存後導頁」串接。"""
+    src = EDITOR.read_text(encoding='utf-8')
+    body = _dosave_body(src)
+    assert 'return new Promise(' in body
+    # 成功 / 失敗都要有明確 resolve
+    assert 'resolve(true)' in body
+    assert 'resolve(false)' in body
