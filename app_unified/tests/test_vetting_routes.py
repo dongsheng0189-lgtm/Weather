@@ -520,11 +520,13 @@ def test_vetting_fb_ig_use_brand_icons(app, client, db_session):
 
 
 def test_vetting_phone_buttons_use_fitting_icons(app, client, db_session):
-    """D 段電話按鈕用相對應圖示 + 品牌色（取代純文字「→ Whoscall」）。"""
+    """D 段電話按鈕用相對應圖示（取代純文字「→ Whoscall」）。TrueCaller 已移除。"""
     u = _mk_user(db_session, root_admin=True)
     _login(client, u)
     html = client.get("/vetting/").get_data(as_text=True)
-    assert "→ Whoscall" not in html and "→ TrueCaller" not in html
-    # Whoscall teal、TrueCaller 藍、Google 四色 G
-    assert "#14B8A6" in html and "#0086FF" in html
-    assert "var SEARCH_ICON" in html and "var PHONE_ICON" in html and "var GOOGLE_G" in html
+    assert "→ Whoscall" not in html
+    # TrueCaller 整個拿掉
+    assert "TrueCaller" not in html and "truecaller" not in html.lower()
+    # Whoscall 品牌徽章 icon + Google 四色 G（皆白底按鈕）
+    assert "var WHOSCALL_ICON" in html and "var GOOGLE_G" in html
+    assert "var PHONE_ICON" not in html  # 原本只給 TrueCaller 用，一併移除

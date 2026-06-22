@@ -13,7 +13,7 @@ FB_SEARCH     = "https://www.facebook.com/public/{}"
 IG_SEARCH     = "https://www.google.com/search?q={}"
 # Whoscall 公開 number 頁需要登入；改走 Google 搜尋包 site:whoscall.com 抓得到該號碼公開頁
 WHOSCALL      = 'https://www.google.com/search?q=%22{}%22+whoscall'
-TRUECALLER    = "https://www.truecaller.com/search/tw/{}"
+# TrueCaller 已移除（查不到資料）
 
 BUCKET_KEYWORDS = {
     "company":  ["公司", "商行", "負責人", "董事", "決標", "招標"],
@@ -156,7 +156,6 @@ def build_url_bundle(name, phone="", relatives=None, feature=""):
         phone_block = {
             "normalized":      _phone_display_format(canonical),
             "whoscall_url":    WHOSCALL.format(_phone_display_format(canonical)),  # 保留開頭 0
-            "truecaller_url": TRUECALLER.format(canonical),
             "google_phone_url": GOOGLE_SEARCH.format(quote_plus(or_query)),
         }
 

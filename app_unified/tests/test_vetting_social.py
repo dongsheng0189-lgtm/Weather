@@ -9,7 +9,6 @@ def test_module_imports_and_exposes_constants():
     assert hasattr(social, "FB_SEARCH")
     assert hasattr(social, "IG_SEARCH")
     assert hasattr(social, "WHOSCALL")
-    assert hasattr(social, "TRUECALLER")
     assert isinstance(social.BUCKET_KEYWORDS, dict)
     assert set(social.BUCKET_KEYWORDS.keys()) == {"company", "award", "negative"}
     # 至少各有 4 個 keyword（防退化）
@@ -184,7 +183,7 @@ def test_build_url_bundle_employee_only():
 
 
 def test_build_url_bundle_with_phone():
-    """Phone provided → phone dict populated with 3 link-out URLs."""
+    """Phone provided → phone dict populated with link-out URLs (Whoscall + Google)."""
     bundle = social.build_url_bundle("王小明", phone="0912-345-678")
     p = bundle["phone"]
     assert p is not None
@@ -194,7 +193,8 @@ def test_build_url_bundle_with_phone():
     decoded_w = unquote_plus(p["whoscall_url"].split("q=", 1)[1])
     assert "whoscall" in decoded_w.lower()
     assert "0912-345-678" in decoded_w  # 保留開頭 0（跟一般人寫號碼一致）
-    assert p["truecaller_url"].startswith("https://www.truecaller.com/")
+    # TrueCaller 已移除（查不到資料）
+    assert "truecaller_url" not in p
     assert p["google_phone_url"].startswith("https://www.google.com/search?q=")
     # 電話有專屬 D 段；一般搜尋不再 bake 電話變體（避免過度 AND → 0 結果）
     emp = bundle["people"][0]
