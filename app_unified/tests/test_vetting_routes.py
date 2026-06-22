@@ -493,17 +493,12 @@ def test_vetting_index_has_social_render_logic(app, client, db_session):
     _login(client, u)
     res = client.get("/vetting/")
     html = res.get_data(as_text=True)
-    # Banner text
-    assert "如何用無痕模式開啟" in html
     # Section headers (in the JS, will be rendered when social data present)
     assert "D. 📞 電話標記" in html
     assert "E + F. 🌐 社群 / Google 搜尋連結" in html
-    # All 5 platform incognito guides present
-    assert "Chrome / Edge" in html
-    assert "Safari（Mac）" in html
-    assert "Firefox" in html
-    assert "Chrome（Android）" in html
-    assert "Safari（iPhone" in html
+    # 無痕模式提示 banner 已移除
+    assert "如何用無痕模式開啟" not in html
+    assert "無痕視窗" not in html
 
 
 def test_vetting_fb_ig_use_brand_icons(app, client, db_session):
