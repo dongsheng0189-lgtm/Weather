@@ -828,9 +828,22 @@ document.addEventListener('DOMContentLoaded', function() {
   var fb = document.getElementById('float-back-widget');
   var bb = document.getElementById('btn-back');
   if (!fb || !bb) return;
+  // dirty 時「儲存並返回」：doSave() 成功才導頁；失敗留在頁面、不導頁。
+  // 非 dirty（或 review/唯讀）→ 直接導頁，行為同舊版。
   fb.addEventListener('click', function(e) {
     e.preventDefault();
-    if (bb.href) window.location.href = bb.href;
+    if (!bb.href) return;
+    var dest = bb.href;
+    var canSave = _dirty && !IS_READONLY && !document.body.classList.contains('review-mode');
+    if (!canSave) { window.location.href = dest; return; }
+    if (_fbSaving) return;             // 存檔進行中、擋重複點擊
+    _fbSaving = true;
+    fb.textContent = '💾 儲存中…';
+    doSave().then(function(ok) {
+      _fbSaving = false;
+      if (ok) { _leavingIntentionally = true; window.location.href = dest; }
+      else if (window._refreshFloatBack) window._refreshFloatBack();   // 還原「💾 儲存並返回」
+    });
   });
   function searchHitVisible() {
     var sh = document.getElementById('search-hit-widget');
@@ -841,6 +854,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (searchHitVisible()) { fb.style.display = 'none'; return; }
     if (document.body.classList.contains('review-mode')) { fb.style.display = 'inline-flex'; return; }
     fb.style.display = _btnBackInView ? 'none' : 'inline-flex';
+    // 標籤跟 dirty 狀態連動（存檔進行中不覆蓋「💾 儲存中…」）
+    if (!_fbSaving) fb.textContent = _dirty ? '💾 儲存並返回' : '← 返回';
   }
   window._refreshFloatBack = refresh;
   if ('IntersectionObserver' in window) {
@@ -936,16 +951,19 @@ var EDITOR_TYPE = (document.getElementById('editor-type') || {}).value || 'note'
 // ── 未存指示器狀態機 ─────────────────────────────────────────────
 var _dirty = false;
 var _leavingIntentionally = false;   // 點返回鈕「確定離開」時設 → 抑制 beforeunload 雙重彈窗
+var _fbSaving = false;               // 浮動鈕「儲存並返回」進行中 → 擋重複點擊、勿被 refresh 覆蓋標籤
 function markDirty() {
   if (IS_READONLY) return;           // 被鎖/唯讀不標 dirty
   _dirty = true;
   var b = document.getElementById('btn-save');
   if (b) { b.textContent = '💾 儲存'; b.disabled = false; b.classList.remove('is-saved'); }
+  if (window._refreshFloatBack) window._refreshFloatBack();
 }
 function setSaved() {
   _dirty = false;
   var b = document.getElementById('btn-save');
   if (b) { b.textContent = '✓ 已儲存'; b.disabled = true; b.classList.add('is-saved'); }
+  if (window._refreshFloatBack) window._refreshFloatBack();
 }
 window.markEditorDirty = markDirty;   // 給 tag_system.js 等外部呼叫
 
@@ -2065,10 +2083,8 @@ if (!IS_READONLY) EditKeepalive.init();
   }
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.addEventListener('click', _guardLeave);
-  // float-back 既有 click handler 也會 preventDefault + 導頁；guard 用 capture
-  // 先跑，dirty 取消時擋掉後續導頁，確定離開時設旗標再讓既有 handler 導頁。
-  var floatBack = document.getElementById('float-back-widget');
-  if (floatBack) floatBack.addEventListener('click', _guardLeave, true);
+  // 浮動返回鈕 dirty 時改走「儲存並返回」（doSave 成功才導頁），
+  // 不再掛 _guardLeave 放棄-confirm。
 })();
 
 // beforeunload safety net：dirty 時關分頁/重整/上一頁/改網址 → 原生彈窗；
