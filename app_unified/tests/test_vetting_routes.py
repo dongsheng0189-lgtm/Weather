@@ -512,6 +512,9 @@ def test_vetting_fb_ig_use_brand_icons(app, client, db_session):
     assert "#1877F2" in html
     assert "linear-gradient(45deg,#feda75" in html
     assert "var FB_ICON" in html and "var IG_ICON" in html
+    # FB 依裝置切換：手機→fb_app_url(search/top)、平板電腦→fb_search_url(公開目錄)
+    assert "IS_PHONE" in html
+    assert "person.fb_app_url" in html and "person.fb_search_url" in html
 
 
 def test_vetting_phone_buttons_use_fitting_icons(app, client, db_session):

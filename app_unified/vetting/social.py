@@ -5,9 +5,12 @@ See docs/superpowers/specs/2026-05-13-vetting-social-search-design.md
 """
 
 GOOGLE_SEARCH = "https://www.google.com/search?q={}"
-# FB 改走公開人名目錄 /public/<name>：登出也能列出同名的人，不必登入搜尋
-# （search/top 登出會 not found）。名字放 path，用 quote（空白→%20）。
+# FB 給兩個入口、前端依裝置選：
+# - FB_SEARCH 公開人名目錄 /public/<name>：平板/電腦、登出也列得出同名的人。
+# - FB_APP_SEARCH search/top：手機已登入 FB app 時較可能直接深連結進 app 搜尋
+#   （但登出/桌機瀏覽器會 not found，故只給手機用）。
 FB_SEARCH     = "https://www.facebook.com/public/{}"
+FB_APP_SEARCH = "https://www.facebook.com/search/top/?q={}"
 # IG 改走 Google 包「"name" instagram」：site:instagram.com 對中文名常查無、
 # IG 站內找人又需登入；Google 包繞開登入牆最穩。沿用 GOOGLE_SEARCH template。
 IG_SEARCH     = "https://www.google.com/search?q={}"
@@ -119,8 +122,10 @@ def _build_person(name, *, role, disambiguators, conjunction_with=None):
         "google_company_url":  google_search_url(name, bucket="company"),
         "google_award_url":    google_search_url(name, bucket="award"),
         "google_negative_url": google_search_url(name, bucket="negative"),
-        # FB 公開人名目錄：名字在 path，用 quote（空白→%20，不可用 + 號）
+        # FB 公開人名目錄（平板/電腦）：名字在 path，用 quote（空白→%20，不可用 + 號）
         "fb_search_url": FB_SEARCH.format(quote(name)),
+        # FB search/top（手機 app 深連結）：名字在 query，用 quote_plus
+        "fb_app_url": FB_APP_SEARCH.format(quote_plus(name)),
         # IG 走 Google 包「"name" instagram」（繞開 IG 登入牆、中文名也查得到）
         "ig_search_url": IG_SEARCH.format(quote_plus(f'"{name}" instagram')),
         "conjunction_with_employee_url": (

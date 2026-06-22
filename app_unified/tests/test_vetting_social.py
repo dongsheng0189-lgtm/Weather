@@ -171,9 +171,11 @@ def test_build_url_bundle_employee_only():
     assert emp["google_company_url"]
     assert emp["google_award_url"]
     assert emp["google_negative_url"]
-    # FB 改走公開人名目錄 /public/<name>（登出也能列同名的人，不必登入搜尋）
+    # FB 給兩個 URL：公開目錄(平板/電腦) + search/top(手機 app)；前端依裝置選
     assert emp["fb_search_url"].startswith("https://www.facebook.com/public/")
     assert "王小明" in unquote_plus(emp["fb_search_url"])
+    assert emp["fb_app_url"].startswith("https://www.facebook.com/search/top/?q=")
+    assert "王小明" in unquote_plus(emp["fb_app_url"])
     # IG 改走 Google 包「"name" instagram」（site:instagram.com 對中文名常查無、
     # 站內找人又需登入；Google 包完全繞開登入牆、最穩）
     assert emp["ig_search_url"].startswith("https://www.google.com/search?q=")
