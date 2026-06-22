@@ -114,6 +114,20 @@ def test_google_search_url_with_disambiguators():
     assert '"新北市"' in q
 
 
+def test_google_search_url_disambiguators_unquoted_when_flagged():
+    """quote_disambiguators=False → 主體姓名加引號、disambiguator 不加（軟性輔助詞，
+    避免一般搜尋把一堆精確片語 AND 起來 → 0 結果）。"""
+    url = social.google_search_url(
+        "王小明",
+        disambiguators=["李美麗", "新北市"],
+        quote_disambiguators=False,
+    )
+    q = _decode_q(url)
+    assert '"王小明"' in q        # 主體仍加引號
+    assert '李美麗' in q and '"李美麗"' not in q   # 輔助詞不加引號
+    assert '新北市' in q and '"新北市"' not in q
+
+
 def test_google_search_url_bucket_and_disambiguators_together():
     """bucket + disambiguators → both appear in query."""
     url = social.google_search_url(
@@ -159,7 +173,10 @@ def test_build_url_bundle_employee_only():
     assert emp["google_award_url"]
     assert emp["google_negative_url"]
     assert emp["fb_search_url"].startswith("https://www.facebook.com/search/")
-    assert emp["ig_search_url"].startswith("https://www.instagram.com/explore/")
+    # IG 個人頁改走 Google site 搜尋（站內找人需登入、人名當 hashtag 查不到本人）
+    assert emp["ig_search_url"].startswith("https://www.google.com/search?q=")
+    ig_q = unquote_plus(emp["ig_search_url"].split("q=", 1)[1])
+    assert "site:instagram.com" in ig_q and "王小明" in ig_q
 
 
 def test_build_url_bundle_with_phone():
@@ -172,14 +189,13 @@ def test_build_url_bundle_with_phone():
     assert p["whoscall_url"].startswith("https://www.google.com/search?q=")
     decoded_w = unquote_plus(p["whoscall_url"].split("q=", 1)[1])
     assert "whoscall" in decoded_w.lower()
-    assert "912-345-678" in decoded_w  # phone (no leading 0) in the query
-    assert "0912" not in decoded_w  # leading 0 must be stripped
+    assert "0912-345-678" in decoded_w  # 保留開頭 0（跟一般人寫號碼一致）
     assert p["truecaller_url"].startswith("https://www.truecaller.com/")
     assert p["google_phone_url"].startswith("https://www.google.com/search?q=")
-    # employee URLs should also bake in phone as disambiguator
+    # 電話有專屬 D 段；一般搜尋不再 bake 電話變體（避免過度 AND → 0 結果）
     emp = bundle["people"][0]
     decoded = unquote_plus(emp["google_general_url"].split("q=", 1)[1])
-    assert "0912-345-678" in decoded or "0912345678" in decoded
+    assert "0912" not in decoded
 
 
 def test_build_url_bundle_with_2_relatives():
@@ -248,9 +264,10 @@ def test_build_url_bundle_relatives_disambiguate_each_other():
     )
     li = bundle["people"][1]  # 李美麗
     q = unquote_plus(li["google_general_url"].split("q=", 1)[1])
-    assert '"李美麗"' in q
-    assert '"王小明"' in q
-    assert '"張三"' in q
+    assert '"李美麗"' in q          # 主體姓名仍加引號（必要精確詞）
+    assert '"王小明"' not in q      # disambiguator 不再加引號（避免過度 AND）
+    assert '王小明' in q            # 但仍出現，當排序輔助詞
+    assert '張三' in q
     assert "新北市" in q
 
 

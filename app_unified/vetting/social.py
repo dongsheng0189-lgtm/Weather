@@ -7,7 +7,8 @@ See docs/superpowers/specs/2026-05-13-vetting-social-search-design.md
 GOOGLE_SEARCH = "https://www.google.com/search?q={}"
 # FB people-search 直連已停掉，改走 top 搜尋（公開無需登入也會出名單預覽）
 FB_SEARCH     = "https://www.facebook.com/search/top/?q={}"
-IG_SEARCH     = "https://www.instagram.com/explore/tags/{}"
+# IG 個人頁改走 Google site 搜尋（站內找人需登入；人名當 hashtag 查不到本人）
+IG_SEARCH     = "https://www.google.com/search?q={}"
 # Whoscall 公開 number 頁需要登入；改走 Google 搜尋包 site:whoscall.com 抓得到該號碼公開頁
 WHOSCALL      = 'https://www.google.com/search?q=%22{}%22+whoscall'
 TRUECALLER    = "https://www.truecaller.com/search/tw/{}"
@@ -61,16 +62,22 @@ def phone_query_variants(canonical: str) -> list:
 from urllib.parse import quote_plus
 
 
-def google_search_url(name: str, *, bucket=None, disambiguators=None) -> str:
+def google_search_url(name: str, *, bucket=None, disambiguators=None,
+                      quote_disambiguators=True) -> str:
     """Build a Google search URL for `name`, optionally narrowed by a keyword
     bucket and disambiguator tokens.
 
     Args:
-        name: Person's name (will be quoted in the query).
+        name: Person's name (always quoted = required exact phrase).
         bucket: One of 'company' / 'award' / 'negative' / None.
                 None = general search (no keyword filter).
-        disambiguators: Extra tokens to AND-narrow the search (phone variants,
-                relative names, feature words). Each gets quote-wrapped.
+        disambiguators: Extra tokens to narrow the search (relative names,
+                feature words). Quoted only when `quote_disambiguators` is True.
+        quote_disambiguators: True → each disambiguator is quoted (exact-phrase
+                AND, used by the「與員工共同搜尋」conjunction so both names must
+                co-occur). False → disambiguators stay unquoted (soft ranking
+                terms; used by the general person search so it narrows without
+                over-AND-ing every token into a 0-result query).
 
     Returns:
         Full https URL string with q= encoded.
@@ -89,7 +96,7 @@ def google_search_url(name: str, *, bucket=None, disambiguators=None) -> str:
     if disambiguators:
         for tok in disambiguators:
             if tok:  # skip empty strings
-                parts.append(f'"{tok}"')
+                parts.append(f'"{tok}"' if quote_disambiguators else tok)
 
     q = " ".join(parts)
     return GOOGLE_SEARCH.format(quote_plus(q))
@@ -105,12 +112,14 @@ def _build_person(name, *, role, disambiguators, conjunction_with=None):
     return {
         "name": name,
         "role": role,
-        "google_general_url":  google_search_url(name, disambiguators=disambiguators),
+        "google_general_url":  google_search_url(
+            name, disambiguators=disambiguators, quote_disambiguators=False),
         "google_company_url":  google_search_url(name, bucket="company"),
         "google_award_url":    google_search_url(name, bucket="award"),
         "google_negative_url": google_search_url(name, bucket="negative"),
         "fb_search_url": FB_SEARCH.format(quote_plus(name)),
-        "ig_search_url": IG_SEARCH.format(quote_plus(name.replace(" ", ""))),
+        # IG 站內找人需登入、人名當 hashtag 查不到本人 → 改用 Google site 搜尋找 IG 個人頁
+        "ig_search_url": IG_SEARCH.format(quote_plus(f'site:instagram.com "{name}"')),
         "conjunction_with_employee_url": (
             google_search_url(conjunction_with, disambiguators=[name])
             if conjunction_with else None
@@ -143,7 +152,7 @@ def build_url_bundle(name, phone="", relatives=None, feature=""):
         or_query = " OR ".join(f'"{v}"' for v in variants)
         phone_block = {
             "normalized":      _phone_display_format(canonical),
-            "whoscall_url":    WHOSCALL.format(_phone_display_format(canonical)[1:]),
+            "whoscall_url":    WHOSCALL.format(_phone_display_format(canonical)),  # 保留開頭 0
             "truecaller_url": TRUECALLER.format(canonical),
             "google_phone_url": GOOGLE_SEARCH.format(quote_plus(or_query)),
         }
@@ -151,10 +160,9 @@ def build_url_bundle(name, phone="", relatives=None, feature=""):
     # People list
     people = []
 
-    # Employee: disambiguators = phone variants + relatives + feature
-    emp_disambig = (
-        phone_query_variants(canonical) if canonical else []
-    ) + relatives + feature_tokens
+    # Employee: disambiguators = relatives + feature（電話有專屬 D 段，不再 bake 進
+    # 一般搜尋——三個電話格式變體全 AND 進去會讓 Google 0 結果）
+    emp_disambig = relatives + feature_tokens
     people.append(_build_person(
         name, role="employee",
         disambiguators=emp_disambig,
