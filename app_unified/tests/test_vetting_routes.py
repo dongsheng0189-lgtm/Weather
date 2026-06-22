@@ -504,3 +504,16 @@ def test_vetting_index_has_social_render_logic(app, client, db_session):
     assert "Firefox" in html
     assert "Chrome（Android）" in html
     assert "Safari（iPhone" in html
+
+
+def test_vetting_fb_ig_use_brand_icons(app, client, db_session):
+    """FB/IG 按鈕用品牌色 + 品牌 SVG（取代不直覺的通用 📱）。"""
+    u = _mk_user(db_session, root_admin=True)
+    _login(client, u)
+    html = client.get("/vetting/").get_data(as_text=True)
+    # 不再用通用手機 emoji
+    assert "📱 FB" not in html and "📱 IG" not in html
+    # FB 品牌藍 + IG 漸層；各自有品牌 SVG icon 常數
+    assert "#1877F2" in html
+    assert "linear-gradient(45deg,#feda75" in html
+    assert "var FB_ICON" in html and "var IG_ICON" in html
