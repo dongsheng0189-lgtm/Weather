@@ -5,9 +5,11 @@ See docs/superpowers/specs/2026-05-13-vetting-social-search-design.md
 """
 
 GOOGLE_SEARCH = "https://www.google.com/search?q={}"
-# FB people-search 直連已停掉，改走 top 搜尋（公開無需登入也會出名單預覽）
-FB_SEARCH     = "https://www.facebook.com/search/top/?q={}"
-# IG 個人頁改走 Google site 搜尋（站內找人需登入；人名當 hashtag 查不到本人）
+# FB 改走公開人名目錄 /public/<name>：登出也能列出同名的人，不必登入搜尋
+# （search/top 登出會 not found）。名字放 path，用 quote（空白→%20）。
+FB_SEARCH     = "https://www.facebook.com/public/{}"
+# IG 改走 Google 包「"name" instagram」：site:instagram.com 對中文名常查無、
+# IG 站內找人又需登入；Google 包繞開登入牆最穩。沿用 GOOGLE_SEARCH template。
 IG_SEARCH     = "https://www.google.com/search?q={}"
 # Whoscall 公開 number 頁需要登入；改走 Google 搜尋包 site:whoscall.com 抓得到該號碼公開頁
 WHOSCALL      = 'https://www.google.com/search?q=%22{}%22+whoscall'
@@ -59,7 +61,7 @@ def phone_query_variants(canonical: str) -> list:
     ]
 
 
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 
 
 def google_search_url(name: str, *, bucket=None, disambiguators=None,
@@ -117,9 +119,10 @@ def _build_person(name, *, role, disambiguators, conjunction_with=None):
         "google_company_url":  google_search_url(name, bucket="company"),
         "google_award_url":    google_search_url(name, bucket="award"),
         "google_negative_url": google_search_url(name, bucket="negative"),
-        "fb_search_url": FB_SEARCH.format(quote_plus(name)),
-        # IG 站內找人需登入、人名當 hashtag 查不到本人 → 改用 Google site 搜尋找 IG 個人頁
-        "ig_search_url": IG_SEARCH.format(quote_plus(f'site:instagram.com "{name}"')),
+        # FB 公開人名目錄：名字在 path，用 quote（空白→%20，不可用 + 號）
+        "fb_search_url": FB_SEARCH.format(quote(name)),
+        # IG 走 Google 包「"name" instagram」（繞開 IG 登入牆、中文名也查得到）
+        "ig_search_url": IG_SEARCH.format(quote_plus(f'"{name}" instagram')),
         "conjunction_with_employee_url": (
             google_search_url(conjunction_with, disambiguators=[name])
             if conjunction_with else None

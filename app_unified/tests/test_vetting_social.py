@@ -172,11 +172,15 @@ def test_build_url_bundle_employee_only():
     assert emp["google_company_url"]
     assert emp["google_award_url"]
     assert emp["google_negative_url"]
-    assert emp["fb_search_url"].startswith("https://www.facebook.com/search/")
-    # IG 個人頁改走 Google site 搜尋（站內找人需登入、人名當 hashtag 查不到本人）
+    # FB 改走公開人名目錄 /public/<name>（登出也能列同名的人，不必登入搜尋）
+    assert emp["fb_search_url"].startswith("https://www.facebook.com/public/")
+    assert "王小明" in unquote_plus(emp["fb_search_url"])
+    # IG 改走 Google 包「"name" instagram」（site:instagram.com 對中文名常查無、
+    # 站內找人又需登入；Google 包完全繞開登入牆、最穩）
     assert emp["ig_search_url"].startswith("https://www.google.com/search?q=")
     ig_q = unquote_plus(emp["ig_search_url"].split("q=", 1)[1])
-    assert "site:instagram.com" in ig_q and "王小明" in ig_q
+    assert "王小明" in ig_q and "instagram" in ig_q
+    assert "site:instagram.com" not in ig_q
 
 
 def test_build_url_bundle_with_phone():
