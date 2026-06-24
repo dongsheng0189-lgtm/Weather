@@ -39,6 +39,11 @@
 .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .note-card { background: #fff; border-radius: 8px; padding: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.07); cursor: pointer; transition: box-shadow .2s; border-left: 4px solid #3498db; }
 .note-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+.note-card.note-return-highlight { animation: note-return-flash 2s ease-out; }
+@keyframes note-return-flash {
+  0%   { background:#fff3b0; box-shadow:0 0 0 3px #ffd54f; }
+  100% { background:#fff;     box-shadow:0 2px 8px rgba(0,0,0,.07); }
+}
 .note-card h3 { font-size: 1rem; margin-bottom: .4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note-card p { font-size: .85rem; color: #666; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .note-card .meta { font-size: .75rem; color: #aaa; margin-top: .6rem; display: flex; align-items: center; gap: .5rem; }
@@ -736,4 +741,22 @@ document.getElementById('enroll-submit').onclick = async () => {
 </script>
 <script src="{{ url_for('static', filename='js/collapsible_sections.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/tag_system.js') }}" defer></script>
+<script>
+// 返回列表時還原捲動位置：讀 Task 1 存的 notes_return_to → 捲到該卡片 + 短暫黃底。
+(function(){
+  function restoreScrollToNote(){
+    var id;
+    try { id = sessionStorage.getItem('notes_return_to'); } catch(e){ return; }
+    if (!id) return;
+    try { sessionStorage.removeItem('notes_return_to'); } catch(e){}  // 用過即清
+    var el = document.getElementById('note-' + id);
+    if (!el) return;  // 卡片不在這頁（被刪/濾掉/換頁）→ 安靜不捲
+    el.scrollIntoView({block:'center'});
+    el.classList.add('note-return-highlight');
+    setTimeout(function(){ el.classList.remove('note-return-highlight'); }, 2000);
+  }
+  document.addEventListener('DOMContentLoaded', restoreScrollToNote);
+  window.addEventListener('pageshow', restoreScrollToNote);  // 涵蓋 bfcache 還原
+})();
+</script>
 {% endblock %}
