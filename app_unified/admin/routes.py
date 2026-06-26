@@ -21,22 +21,10 @@ def _log_user_action(action, target_user, detail=None):
     db.session.add(log)
 
 
-def _sync_features_for_role(user, role):
-    """同步 user.features 與 role：
-    - admin/super_admin → 補 notes + vetting（若還沒有）
-    - user → 確保 notes 存在，移除 vetting
-    其他 feature（mynotes 等）不動 — 由「設定模組權限」UI 獨立管理。
-    """
-    current = list(user.get_features())
-    if role in ("admin", "super_admin"):
-        for key in ("notes", "vetting"):
-            if key not in current:
-                current.append(key)
-    elif role == "user":
-        if "notes" not in current:
-            current.append("notes")
-        current = [f for f in current if f != "vetting"]
-    user.set_features(current)
+# NOTE: 角色（role）與模組權限（features）刻意「完全脫鉤」。改角色絕不增刪任何
+# feature——模組權限只透過 root-admin（username=='admin'）的「設定模組權限」UI
+# (set_user_features) 管理。歷史上 set_role 會 sync features，導致「admin→user 被
+# 降級者靜默掉 vetting / 人員查詢變 404」、且只留『改角色』log 查不到，故移除。
 
 try:
     import face_recognition_models
@@ -348,7 +336,6 @@ def set_role(user_id):
     user.role = role
     if old_role != role:
         _log_user_action("set_role", user, detail=f"{old_role}→{role}")
-        _sync_features_for_role(user, role)
     db.session.commit()
     return jsonify({"status": "ok"})
 

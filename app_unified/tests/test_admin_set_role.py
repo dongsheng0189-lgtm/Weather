@@ -1,4 +1,13 @@
-"""Tests for admin/routes.py::set_role auto-features sync (Task 9)."""
+"""Tests for admin/routes.py::set_role.
+
+Role and module-permissions (features) are fully DECOUPLED: changing a user's
+role must never add or remove any feature. Module permissions are managed only
+through the root-admin "設定模組權限" UI (set_user_features, require_root_admin).
+
+Regression: a 店員 was demoted admin→user and silently lost "vetting" (人員查詢
+變 404) because the old set_role side-effect stripped it. That must never happen
+again.
+"""
 import json
 import uuid
 import pytest
@@ -43,8 +52,8 @@ def _make_target(role="user", features=None):
     return u
 
 
-def test_promote_user_to_admin_adds_vetting(app, admin_user):
-    """user → admin: features 補 vetting（notes 已有）。"""
+def test_set_role_changes_role(app, admin_user):
+    """Sanity: set-role still updates the role itself."""
     client = app.test_client()
     _login_as(client, admin_user)
     with app.app_context():
@@ -53,30 +62,42 @@ def test_promote_user_to_admin_adds_vetting(app, admin_user):
     r = client.post(f"/admin/users/{tid}/set-role", json={"role": "admin"})
     assert r.status_code == 200
     with app.app_context():
-        t2 = User.query.get(tid)
-        feats = json.loads(t2.features)
-        assert "notes" in feats
-        assert "vetting" in feats
+        assert User.query.get(tid).role == "admin"
 
 
-def test_promote_user_to_super_admin_adds_both(app, admin_user):
-    """user(features=[]) → super_admin: 補 notes + vetting。"""
+def test_promote_user_to_admin_does_not_touch_features(app, admin_user):
+    """user → admin: features untouched — vetting is NOT auto-added."""
     client = app.test_client()
     _login_as(client, admin_user)
     with app.app_context():
-        target = _make_target(role="user", features=[])  # 空 features 起步
+        target = _make_target(role="user", features=["notes"])
+        tid = target.id
+    r = client.post(f"/admin/users/{tid}/set-role", json={"role": "admin"})
+    assert r.status_code == 200
+    with app.app_context():
+        feats = json.loads(User.query.get(tid).features)
+        assert feats == ["notes"]  # 完全不變
+
+
+def test_promote_to_super_admin_does_not_touch_features(app, admin_user):
+    """user(features=[]) → super_admin: still empty — nothing auto-added."""
+    client = app.test_client()
+    _login_as(client, admin_user)
+    with app.app_context():
+        target = _make_target(role="user", features=[])
         tid = target.id
     r = client.post(f"/admin/users/{tid}/set-role", json={"role": "super_admin"})
     assert r.status_code == 200
     with app.app_context():
-        t2 = User.query.get(tid)
-        feats = json.loads(t2.features)
-        assert "notes" in feats
-        assert "vetting" in feats
+        feats = json.loads(User.query.get(tid).features)
+        assert feats == []  # 完全不變
 
 
-def test_demote_admin_to_user_removes_vetting_keeps_notes(app, admin_user):
-    """admin → user: 移除 vetting、保留 notes（mynotes 也保留 — 不在自動 sync 範圍）。"""
+def test_demote_admin_to_user_keeps_vetting(app, admin_user):
+    """admin → user: vetting (and all features) preserved.
+
+    This is the 茹佳 regression — demotion must NOT strip 人員查詢.
+    """
     client = app.test_client()
     _login_as(client, admin_user)
     with app.app_context():
@@ -85,8 +106,7 @@ def test_demote_admin_to_user_removes_vetting_keeps_notes(app, admin_user):
     r = client.post(f"/admin/users/{tid}/set-role", json={"role": "user"})
     assert r.status_code == 200
     with app.app_context():
-        t2 = User.query.get(tid)
-        feats = json.loads(t2.features)
+        feats = json.loads(User.query.get(tid).features)
+        assert "vetting" in feats  # 不再被拔掉
         assert "notes" in feats
-        assert "vetting" not in feats  # 移除
-        assert "mynotes" in feats  # 不在自動 sync 範圍 → 保留
+        assert "mynotes" in feats
