@@ -406,6 +406,16 @@ class VettingQueryLog(db.Model):
     )
 
 
+class VettingWhitelistPhone(db.Model):
+    """電話白名單 — 人員查詢電話比對用。全店共用、號碼加密存。"""
+    __tablename__ = "vetting_whitelist_phones"
+    id = db.Column(db.Integer, primary_key=True)
+    phone = db.Column(EncryptedText, nullable=False)          # 正規化 09xxxxxxxx，加密
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_by_name = db.Column(EncryptedText, nullable=True)  # 新增者帳號快照（加密）
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
 # ════════════════════════════════════════════════════════
 # 公告（announcements）— 與店務筆記表獨立，UI 整合進 notes 模組
 # super_admin 可發「全部」或單店；admin 只能發自己店；user 唯讀

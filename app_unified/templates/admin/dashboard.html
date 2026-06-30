@@ -1072,14 +1072,27 @@ function _loadFeatureCatalog() {
 function _loadFeatureUserList() {
   fetch('/admin/features/users').then(function(r){return r.json();}).then(function(users){
     var sel = document.getElementById('feat-user-select');
+    var groups = {};           // store -> [users]，保留後端排序
+    var order = [];
     users.forEach(function(u) {
-      var opt = document.createElement('option');
-      opt.value = u.id;
-      opt.textContent = u.username + (u.store ? ' (' + u.store + ')' : '');
-      sel.appendChild(opt);
+      var key = u.store || '（未綁店）';
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(u);
+    });
+    order.forEach(function(store) {
+      var og = document.createElement('optgroup');
+      og.label = store;
+      groups[store].forEach(function(u) {
+        var opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.username;
+        og.appendChild(opt);
+      });
+      sel.appendChild(og);
     });
   });
 }
+
 _loadFeatureCatalog();
 _loadFeatureUserList();
 

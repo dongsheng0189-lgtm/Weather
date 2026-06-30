@@ -54,3 +54,18 @@ cap_%d/
 # Worktrees (subagent-driven dev)
 .worktrees/
 .superpowers/
+
+# Rust/wasm build artifacts (build output, never commit)
+app_unified/wasm/target/
+app_unified/wasm/Cargo.lock
+
+# Local-only seed scripts (刻意不 commit；檔名不帶 _test 避 pytest glob)
+app_unified/scripts/seed_dev_attachments.py
+app_unified/scripts/seed_swipe_test.py
+app_unified/scripts/seed_tag_filter.py
+app_unified/scripts/seed_visible_stores.py
+
+# Generated manuals + output PDFs (local only)
+generate_manual.py
+generate_manuals.py
+*.pdf

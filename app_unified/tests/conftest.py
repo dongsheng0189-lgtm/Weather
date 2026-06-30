@@ -119,6 +119,21 @@ def db_session(app):
         ctx.pop()
 
 
+@pytest.fixture(autouse=True)
+def _clean_vetting_whitelist(app):
+    """白名單表沒有 per-test rollback 隔離（app 為 session-scoped、db_session 不回滾），
+    且白名單測試用固定號碼會跨檔互撞 → 每個 test 前後清空此表。"""
+    from extensions import db
+    from models import VettingWhitelistPhone
+    with app.app_context():
+        VettingWhitelistPhone.query.delete()
+        db.session.commit()
+    yield
+    with app.app_context():
+        VettingWhitelistPhone.query.delete()
+        db.session.commit()
+
+
 @pytest.fixture
 def test_user(app, db_session):
     """Create and return a test user (not admin)."""

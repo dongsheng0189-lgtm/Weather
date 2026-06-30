@@ -439,7 +439,7 @@ def features_user_list():
     """供模組權限管理下拉使用的完整使用者清單（僅種子 admin 可呼叫）"""
     from features import require_root_admin
     require_root_admin()
-    users = User.query.order_by(User.username).all()
+    users = User.query.order_by(User.store, User.username).all()
     return jsonify([{
         "id": u.id, "username": u.username, "store": u.store, "role": u.role,
     } for u in users])

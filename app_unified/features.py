@@ -30,6 +30,13 @@ AVAILABLE_FEATURES = [
         "url": "/vetting/",
         "enabled": True,
     },
+    {
+        "key": "vetting_whitelist_add",
+        "label": "新增白名單電話",
+        "emoji": "📞",
+        "enabled": True,
+        "grant_only": True,
+    },
 ]
 
 
@@ -56,13 +63,14 @@ def user_has_feature(user, key):
 
 
 def user_visible_features(user):
-    """使用者可看到的模組清單（給導覽列/選單頁用）"""
+    """使用者可看到的模組清單（給導覽列/選單頁用）。grant_only 權限不算模組、不顯示。"""
     if not user or not user.is_authenticated:
         return []
+    modules = [f for f in AVAILABLE_FEATURES if not f.get("grant_only")]
     if user.is_root_admin():
-        return list(AVAILABLE_FEATURES)
+        return list(modules)
     keys = set(user.get_features())
-    return [f for f in AVAILABLE_FEATURES if f["key"] in keys]
+    return [f for f in modules if f["key"] in keys]
 
 
 def require_feature(key):

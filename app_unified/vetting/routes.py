@@ -239,6 +239,18 @@ def start():
         mjib_results = None
 
     # 暫存 NPA 必要 state + 已查好的兩段結果 + 使用者輸入
+    social_bundle = social.build_url_bundle(
+        name, phone=phone, relatives=relatives, feature=feature
+    )
+    # 電話命中內部白名單 → 標記（隨加密 social blob 跨 worker，不另存明文）
+    if social_bundle.get("phone"):
+        try:
+            from vetting import whitelist
+            social_bundle["phone"]["is_whitelisted"] = whitelist.is_whitelisted(phone)
+        except Exception as e:
+            logger.warning("vetting: whitelist check failed: %s", e)
+            social_bundle["phone"]["is_whitelisted"] = False
+
     qid = _put_state({
         "npa_session": npa_session,
         "npa_tokens": npa_tokens,
@@ -247,9 +259,7 @@ def start():
         "id_no": id_no,
         "judicial": judicial_results,
         "mjib": mjib_results,
-        "social": social.build_url_bundle(
-            name, phone=phone, relatives=relatives, feature=feature
-        ),
+        "social": social_bundle,
     })
 
     return jsonify({
@@ -302,3 +312,57 @@ def submit():
         "npa": npa_results,
         "social": entry.get("social"),
     })
+
+
+@vetting_bp.route("/whitelist/add", methods=["POST"])
+@login_required
+@limiter.limit("20/minute", key_func=lambda: f"vet-wl-add:{current_user.id}")
+def whitelist_add():
+    """授權者新增白名單號碼（只能新增；看不到清單、不能改刪）。"""
+    if not user_has_feature(current_user, "vetting_whitelist_add"):
+        abort(404)
+    from vetting import whitelist
+    data = request.get_json(silent=True) or {}
+    phone = (data.get("phone") or "").strip()
+    status = whitelist.add(phone, user_id=current_user.id,
+                           user_name=current_user.username)
+    if status == "invalid":
+        return jsonify({"error": "invalid_phone", "message": "電話格式錯誤"}), 400
+    if status == "exists":
+        return jsonify({"status": "exists", "message": "此號碼已在白名單"}), 200
+    return jsonify({"status": "ok", "message": "已加入白名單"}), 200
+
+
+@vetting_bp.route("/whitelist", methods=["GET"])
+@login_required
+def whitelist_list():
+    if not user_has_feature(current_user, "vetting_whitelist_add"):
+        abort(404)
+    from vetting import whitelist
+    return jsonify({"entries": whitelist.list_all()})
+
+
+@vetting_bp.route("/whitelist/<int:eid>", methods=["POST"])
+@login_required
+@limiter.limit("20/minute", key_func=lambda: f"vet-wl-edit:{current_user.id}")
+def whitelist_update(eid):
+    if not user_has_feature(current_user, "vetting_whitelist_add"):
+        abort(404)
+    from vetting import whitelist
+    data = request.get_json(silent=True) or {}
+    phone = (data.get("phone") or "").strip()
+    status = whitelist.update(eid, phone)
+    if status == "invalid":
+        return jsonify({"error": "invalid_phone", "message": "電話格式錯誤"}), 400
+    return jsonify({"status": status}), 200
+
+
+@vetting_bp.route("/whitelist/<int:eid>", methods=["DELETE"])
+@login_required
+@limiter.limit("20/minute", key_func=lambda: f"vet-wl-del:{current_user.id}")
+def whitelist_delete(eid):
+    if not user_has_feature(current_user, "vetting_whitelist_add"):
+        abort(404)
+    from vetting import whitelist
+    ok = whitelist.delete(eid)
+    return jsonify({"status": "ok" if ok else "not_found"}), 200
