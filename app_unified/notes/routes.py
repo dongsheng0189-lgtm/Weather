@@ -2035,6 +2035,8 @@ def delete_attachment_api(attachment_id):
                         "message": f"目前由 {locker.username if locker else '其他人'} 編輯中"}), 409
 
     delete_attachment(attachment.object_key)
+    if attachment.thumb_key:
+        delete_attachment(attachment.thumb_key)
     item_id = attachment.checklist_item_id
     db.session.delete(attachment)
     # 若是 checklist 項目附件，bump 項目 updated_at + updated_by（F11）

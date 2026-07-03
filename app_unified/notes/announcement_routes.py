@@ -258,6 +258,8 @@ def announcement_delete(announcement_id):
     # 先 R2 清理（cascade=delete-orphan 會處理 DB rows）
     for att in list(a.attachments or []):
         _r2_delete(att.object_key)
+        if att.thumb_key:
+            _r2_delete(att.thumb_key)
 
     db.session.delete(a)
     db.session.commit()
@@ -366,6 +368,8 @@ def announcement_attachment_delete(attachment_id):
         return jsonify({"status": "error", "message": "無權限"}), 403
 
     _r2_delete(att.object_key)
+    if att.thumb_key:
+        _r2_delete(att.thumb_key)
     db.session.delete(att)
     a.updated_at = datetime.utcnow()
     db.session.commit()

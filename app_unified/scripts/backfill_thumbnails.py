@@ -54,7 +54,7 @@ def main():
         cur = conn.cursor()
         cur.execute(
             f"SELECT id, object_key, content_type FROM {tbl} "
-            f"WHERE thumb_key IS NULL AND content_type LIKE 'image/%'"
+            f"WHERE thumb_key IS NULL AND content_type IN ('image/jpeg','image/png','image/webp')"
         )
         rows = cur.fetchall()
         print(f"[{tbl}] {len(rows)} 筆待處理", flush=True)

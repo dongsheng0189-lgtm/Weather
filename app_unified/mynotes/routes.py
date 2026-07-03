@@ -271,6 +271,8 @@ def delete_note(note_id):
     for a in list(n.attachments):
         try:
             delete_attachment(a.object_key)
+            if a.thumb_key:
+                delete_attachment(a.thumb_key)
         except Exception:
             pass
     db.session.delete(n)
@@ -368,6 +370,8 @@ def delete_item(item_id):
     for a in list(item.attachments):
         try:
             delete_attachment(a.object_key)
+            if a.thumb_key:
+                delete_attachment(a.thumb_key)
         except Exception:
             pass
     db.session.delete(item)
@@ -433,6 +437,8 @@ def delete_attachment_api(attachment_id):
     n = _get_my_note(att.note_id)
     try:
         delete_attachment(att.object_key)
+        if att.thumb_key:
+            delete_attachment(att.thumb_key)
     except Exception:
         pass
     item_id = att.item_id
