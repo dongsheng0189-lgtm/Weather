@@ -62,16 +62,17 @@ def main():
             total += 1
             try:
                 tk = backfill_one(content_type, object_key, get_bytes, put_bytes)
+                if tk:
+                    up = conn.cursor()
+                    up.execute(f"UPDATE {tbl} SET thumb_key=%s WHERE id=%s", (tk, aid))
+                    conn.commit()
+                    done += 1
+                    if done % 20 == 0:
+                        print(f"  ...{done} 完成", flush=True)
             except Exception as e:
+                conn.rollback()
                 print(f"  ! {tbl}#{aid} {object_key}: {e}", flush=True)
                 continue
-            if tk:
-                up = conn.cursor()
-                up.execute(f"UPDATE {tbl} SET thumb_key=%s WHERE id=%s", (tk, aid))
-                conn.commit()
-                done += 1
-                if done % 20 == 0:
-                    print(f"  ...{done} 完成", flush=True)
     conn.close()
     print(f"完成:{done}/{total} 補上縮圖", flush=True)
 
