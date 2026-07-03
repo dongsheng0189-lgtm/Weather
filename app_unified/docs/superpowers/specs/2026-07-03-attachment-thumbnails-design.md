@@ -19,7 +19,8 @@
 
 1. **範圍:** 縮圖 + lazy-load。**不做 B 快取**(縮圖把單張 5MB→~80KB,就算重載也差 50–100 倍,B 的痛幾乎消失;B 牽涉店務照片隱私,另評估)。
 2. **既有舊圖:** 寫 backfill 一次性補產縮圖。
-3. **上傳壓縮:** 新上傳的原圖壓縮,長邊上限 2048px(此為 user 離開時的推薦預設,待 user 確認)。
+3. **上傳壓縮:** 新上傳的原圖壓縮,長邊上限 **3200px**(5MB→~1–1.5MB,保留證件/文件細節)。
+4. **舊圖 backfill:** 完全安全版——**舊原圖不動,只補產縮圖**(不覆寫既有 R2 物件)。壓縮只套用在新上傳。
 
 ## 架構
 
@@ -30,12 +31,12 @@
 ```
 process_upload_image(raw_bytes, content_type) -> (main_bytes, thumb_bytes)
     # 只處理 jpeg/png/webp。gif / video / 其他 → 回 (raw_bytes, None)(不處理)
-    # main_bytes:  長邊 > 2048 → 縮到 2048;re-encode(JPEG q85 / PNG optimize / WebP q85)
+    # main_bytes:  長邊 > 3200 → 縮到 3200;re-encode(JPEG q85 / PNG optimize / WebP q85)
     #             honor EXIF orientation(ImageOps.exif_transpose)
     # thumb_bytes: 長邊縮到 640;一律輸出 JPEG q78(PNG 透明先 flatten 白底)
 ```
 
-常數(可調):`MAX_LONG_EDGE = 2048`、`THUMB_LONG_EDGE = 640`、`MAIN_QUALITY = 85`、`THUMB_QUALITY = 78`。
+常數(可調):`MAX_LONG_EDGE = 3200`、`THUMB_LONG_EDGE = 640`、`MAIN_QUALITY = 85`、`THUMB_QUALITY = 78`。
 
 **容量 / gevent:** Pillow resize 是 CPU-heavy native code,依 [[feedback_gevent_monkey_threadpool]] 必須走 `gevent.threadpool`(比照 `face/routes.py` dlib 的既有做法),不可直接在 request greenlet 跑而卡 hub。上傳非高頻(店員偶爾傳照),2 CPU / 8GB 容量無虞。
 
@@ -74,7 +75,7 @@ process_upload_image(raw_bytes, content_type) -> (main_bytes, thumb_bytes)
 
 - **列表/編輯器縮圖**(`editor.html:1149`、1316、1613 等 `img.src`):
   `img.src = att.thumb_url || att.url;` + `img.loading = 'lazy';`
-- **全螢幕 gallery**:開啟時仍用 `att.url`(壓縮後 2048 原圖),看大圖清晰。`markGalleryItem` 縮圖 grid 用 thumb、fullscreen 用 url。
+- **全螢幕 gallery**:開啟時仍用 `att.url`(新上傳=壓縮後 3200 原圖;舊圖=原檔),看大圖清晰。`markGalleryItem` 縮圖 grid 用 thumb、fullscreen 用 url。
 - 若動到 `/static/js/fullscreen_viewer.js`(swipe gallery 共用元件),**必 bump SW CACHE_NAME**(踩雷 #5)。純 `editor.html` inline script 改動不 bump(network-first)。
 
 ### 6. Backfill(既有舊圖)
@@ -83,7 +84,7 @@ process_upload_image(raw_bytes, content_type) -> (main_bytes, thumb_bytes)
 
 - 掃所有 attachment(3 表)where `thumb_key IS NULL` and content_type 屬靜態圖。
 - 從 R2 下載 `object_key` → `process_upload_image()` 取 `thumb_bytes` → 上傳 thumb → 寫回 `thumb_key`。
-- **只補縮圖,不動既有原圖**(不覆寫既有 R2 物件、不 re-encode,避免破壞性操作與資料遺失)。→ 壓縮(2048)只套用在**新上傳**;舊圖維持原圖 + 新增一張縮圖。列表(主訴)舊圖也會變快;舊圖的全螢幕仍載大原圖(可接受,非主訴)。
+- **只補縮圖,不動既有原圖**(不覆寫既有 R2 物件、不 re-encode,避免破壞性操作與資料遺失)。→ 壓縮(3200)只套用在**新上傳**;舊圖維持原圖 + 新增一張縮圖。列表(主訴)舊圖也會變快;舊圖的全螢幕仍載大原圖(可接受,非主訴)。
 - 冪等:重跑跳過已有 thumb_key 的。分批 commit、印進度。
 
 ## 資料流
@@ -92,7 +93,7 @@ process_upload_image(raw_bytes, content_type) -> (main_bytes, thumb_bytes)
 上傳: file → upload_attachment → process_upload_image → put(main) + put(thumb)
                                                        → row.object_key + row.thumb_key
 讀取(列表): API → thumb_url(get_signed_url thumb_key) → <img loading=lazy src=thumb_url>
-讀取(點開): gallery → url(get_signed_url object_key, 壓縮後 2048) → 全螢幕
+讀取(點開): gallery → url(get_signed_url object_key, 新上傳=壓縮後 3200) → 全螢幕
 Backfill: 舊 row(thumb_key null) → 下載 object_key → 產 thumb → put + 寫 thumb_key
 ```
 
@@ -104,7 +105,7 @@ Backfill: 舊 row(thumb_key null) → 下載 object_key → 產 thumb → put + 
 
 ## 測試
 
-- **`tests/test_image_utils.py`**:resize 尺寸正確、長邊 ≤2048 不放大、thumb 長邊 640、gif/影片/非圖 回 (raw, None)、EXIF 方向、壞 bytes 不 raise。
+- **`tests/test_image_utils.py`**:resize 尺寸正確、長邊 ≤3200 不放大、thumb 長邊 640、gif/影片/非圖 回 (raw, None)、EXIF 方向、壞 bytes 不 raise。
 - **上傳整合測試**:upload image → row.thumb_key 有值、main 被壓縮;upload gif → thumb_key None。
 - **序列化測試**:attachment JSON 含 thumb_url;thumb_key null → thumb_url == url(或 None,擇一,前端都 fallback)。
 - **backfill 測試**:null thumb_key 的舊圖跑完有 thumb_key、原 object_key 不變;冪等重跑不重產。
