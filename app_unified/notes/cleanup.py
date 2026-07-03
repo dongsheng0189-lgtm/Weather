@@ -38,6 +38,8 @@ def cleanup_resolved_notes(force: bool = False) -> int:
         for att in NoteAttachment.query.filter_by(note_id=n.id).all():
             try:
                 delete_attachment(att.object_key)
+                if att.thumb_key:
+                    delete_attachment(att.thumb_key)
             except Exception:
                 current_app.logger.exception(
                     "R2 delete failed (orphan tolerated): note_id=%s key=%s",
@@ -74,6 +76,8 @@ def cleanup_soft_deleted(force: bool = False) -> tuple:
         for att in NoteAttachment.query.filter_by(note_id=n.id).all():
             try:
                 delete_attachment(att.object_key)
+                if att.thumb_key:
+                    delete_attachment(att.thumb_key)
             except Exception:
                 current_app.logger.exception(
                     "R2 delete failed (orphan tolerated): note_id=%s key=%s",
@@ -92,6 +96,8 @@ def cleanup_soft_deleted(force: bool = False) -> tuple:
         for att in NoteAttachment.query.filter_by(checklist_item_id=item.id).all():
             try:
                 delete_attachment(att.object_key)
+                if att.thumb_key:
+                    delete_attachment(att.thumb_key)
             except Exception:
                 current_app.logger.exception(
                     "R2 delete failed (orphan tolerated): item_id=%s key=%s",
