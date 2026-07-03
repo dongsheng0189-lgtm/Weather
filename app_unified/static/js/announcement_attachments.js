@@ -31,7 +31,8 @@ function _renderMedia(att, siblings) {
 
   if (att.content_type && att.content_type.indexOf('image/') === 0) {
     var img = document.createElement('img');
-    img.src = att.url;
+    img.loading = 'lazy';
+    img.src = att.thumb_url || att.url;
     img.alt = att.filename;
     window.markGalleryItem(img, att, _annDownloadHref(att));
     img.onclick = function(e) {

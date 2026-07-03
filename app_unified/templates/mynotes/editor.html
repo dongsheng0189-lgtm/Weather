@@ -314,7 +314,8 @@ function addAttachmentToList(a, siblings) {
   wrap.dataset.attId = a.id;
   if (a.content_type && a.content_type.indexOf('image/') === 0) {
     var img = document.createElement('img');
-    img.src = a.url;
+    img.loading = 'lazy';
+    img.src = a.thumb_url || a.url;
     window.markGalleryItem(img, a, null);
     img.onclick = function(){ window.openGalleryFromEl(img); };
     wrap.appendChild(img);
@@ -395,7 +396,8 @@ function renderChecklist(items) {
       item.attachments.forEach(function(a){
         if (a.content_type && a.content_type.indexOf('image/') === 0) {
           var im = document.createElement('img');
-          im.src = a.url;
+          im.loading = 'lazy';
+          im.src = a.thumb_url || a.url;
           window.markGalleryItem(im, a, null);
           im.onclick = function(){ window.openGalleryFromEl(im); };
           atts.appendChild(im);
@@ -493,7 +495,8 @@ function renderItemDialogAtts() {
     wrap.className = 'att-item';
     if (a.content_type && a.content_type.indexOf('image/') === 0) {
       var img = document.createElement('img');
-      img.src = a.url;
+      img.loading = 'lazy';
+      img.src = a.thumb_url || a.url;
       window.markGalleryItem(img, a, null);
       img.onclick = function(){ window.openGalleryFromEl(img); };
       wrap.appendChild(img);

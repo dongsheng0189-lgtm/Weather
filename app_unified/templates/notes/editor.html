@@ -1147,7 +1147,8 @@ function createAttItem(att, siblings) {
     var wrap = document.createElement('div');
     wrap.className = 'att-thumb-wrap';
     var img = document.createElement('img');
-    img.src = att.url;
+    img.loading = 'lazy';
+    img.src = att.thumb_url || att.url;
     img.alt = att.filename;
     window.markGalleryItem(img, att, _notesDownloadHref(att));
     img.onclick = function() {
@@ -1314,7 +1315,8 @@ function addPendingPreview(file) {
     var wrapP = document.createElement('div');
     wrapP.className = 'att-thumb-wrap';
     var img = document.createElement('img');
-    img.src = url;
+    img.loading = 'lazy';
+    img.src = pendingAtt.thumb_url || url;
     window.markGalleryItem(img, pendingAtt, null);
     img.onclick = function() {
       window.openGalleryFromEl(img);
@@ -1611,7 +1613,8 @@ function createItemAttThumb(a, siblings) {
   wrap.className = 'att-thumb-wrap';
   if (a.content_type && a.content_type.indexOf('image/') === 0) {
     var img = document.createElement('img');
-    img.src = a.url;
+    img.loading = 'lazy';
+    img.src = a.thumb_url || a.url;
     img.style.cssText = 'width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid #ddd;';
     window.markGalleryItem(img, a, _notesDownloadHref(a));
     img.onclick = function() {
