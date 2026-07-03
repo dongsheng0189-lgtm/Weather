@@ -106,6 +106,7 @@ def _attachment_json(a: PrivateAttachment):
         "content_type": a.content_type,
         "file_size": a.file_size,
         "url": get_signed_url(a.object_key, expires_in=3600),
+        "thumb_url": get_signed_url(a.thumb_key, expires_in=3600) if a.thumb_key else None,
         "item_id": a.item_id,
     }
 

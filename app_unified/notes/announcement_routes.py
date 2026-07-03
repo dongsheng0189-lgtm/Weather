@@ -76,6 +76,7 @@ def _ann_to_json(a: Announcement, include_attachments: bool = True):
                 "content_type": att.content_type,
                 "file_size": att.file_size,
                 "url": get_signed_url(att.object_key, expires_in=3600),
+                "thumb_url": get_signed_url(att.thumb_key, expires_in=3600) if att.thumb_key else None,
             }
             for att in (a.attachments or [])
         ]
@@ -321,6 +322,7 @@ def announcement_attachment_upload(announcement_id):
             "content_type": att.content_type,
             "file_size": att.file_size,
             "url": get_signed_url(att.object_key, expires_in=3600),
+            "thumb_url": get_signed_url(att.thumb_key, expires_in=3600) if att.thumb_key else None,
         },
     }), 201
 
@@ -342,6 +344,7 @@ def announcement_attachment_list(announcement_id):
                 "content_type": att.content_type,
                 "file_size": att.file_size,
                 "url": get_signed_url(att.object_key, expires_in=3600),
+                "thumb_url": get_signed_url(att.thumb_key, expires_in=3600) if att.thumb_key else None,
                 "created_at": tw_iso(att.created_at),
             }
             for att in (a.attachments or [])

@@ -1624,6 +1624,11 @@ def _get_note_for_edit(note_id):
         return Note.active().filter_by(id=note_id, store=current_user.store).first()
 
 
+def _thumb_url(att):
+    from storage import get_signed_url
+    return get_signed_url(att.thumb_key) if att.thumb_key else None
+
+
 def _checklist_item_json(item):
     from storage import get_signed_url
     # F2: 加 lock 狀態給 frontend render lock chip
@@ -1651,6 +1656,7 @@ def _checklist_item_json(item):
             "content_type": a.content_type,
             "file_size": a.file_size,
             "url": get_signed_url(a.object_key),
+            "thumb_url": _thumb_url(a),
         } for a in item.attachments],
     }
 
@@ -1948,6 +1954,7 @@ def upload_attachment_api():
     db.session.commit()
 
     url = get_signed_url(object_key)
+    thumb_url = get_signed_url(thumb_key) if thumb_key else None
     return jsonify({
         "status": "ok",
         "attachment": {
@@ -1956,6 +1963,7 @@ def upload_attachment_api():
             "content_type": attachment.content_type,
             "file_size": attachment.file_size,
             "url": url,
+            "thumb_url": thumb_url,
         }
     }), 201
 
@@ -1984,12 +1992,14 @@ def list_attachments():
     result = []
     for a in attachments:
         url = get_signed_url(a.object_key)
+        thumb_url = get_signed_url(a.thumb_key) if a.thumb_key else None
         result.append({
             "id": a.id,
             "filename": a.filename,
             "content_type": a.content_type,
             "file_size": a.file_size,
             "url": url,
+            "thumb_url": thumb_url,
             "uploader": a.uploader.username if a.uploader else "",
             "created_at": tw_iso(a.created_at),
         })
