@@ -398,7 +398,7 @@ def upload_attachment_api():
     if len(data) > MAX_FILE_SIZE:
         return jsonify({"status": "error", "message": "檔案過大（最大 50MB）"}), 400
     prefix = f"private/{current_user.id}"
-    key = upload_attachment(data, n.id, file.filename or "file", ct, prefix=prefix)
+    key, thumb_key = upload_attachment(data, n.id, file.filename or "file", ct, prefix=prefix)
     if not key:
         return jsonify({"status": "error", "message": "儲存失敗"}), 500
     att = PrivateAttachment(
@@ -406,6 +406,7 @@ def upload_attachment_api():
         item_id=item_id,
         user_id=current_user.id,
         object_key=key,
+        thumb_key=thumb_key,
         filename=file.filename or "file",
         content_type=ct,
         file_size=len(data),

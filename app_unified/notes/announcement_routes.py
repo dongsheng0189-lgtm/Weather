@@ -295,8 +295,8 @@ def announcement_attachment_upload(announcement_id):
     if len(file_bytes) > MAX_FILE_SIZE:
         return jsonify({"status": "error", "message": "檔案超過 50MB 上限"}), 413
 
-    object_key = upload_attachment(file_bytes, a.id, file.filename,
-                                    content_type, prefix="announcements")
+    object_key, thumb_key = upload_attachment(file_bytes, a.id, file.filename,
+                                              content_type, prefix="announcements")
     if not object_key:
         return jsonify({"status": "error", "message": "儲存服務未設定"}), 503
 
@@ -304,6 +304,7 @@ def announcement_attachment_upload(announcement_id):
         announcement_id=a.id,
         user_id=current_user.id,
         object_key=object_key,
+        thumb_key=thumb_key,
         filename=file.filename,
         content_type=content_type,
         file_size=len(file_bytes),

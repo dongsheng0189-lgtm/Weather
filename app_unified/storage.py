@@ -59,28 +59,60 @@ ALLOWED_CONTENT_TYPES_MYNOTES = ALLOWED_CONTENT_TYPES | {'application/pdf'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
-def upload_attachment(file_bytes: bytes, note_id: int, filename: str, content_type: str, prefix: str = "attachments") -> str | None:
-    """Upload attachment to R2. Returns object_key or None if R2 not configured.
+def _offload(fn, *args):
+    """CPU-heavy 工作丟 gevent threadpool 跑，避免卡 hub。無 gevent 則直接跑（測試/dev）。"""
+    try:
+        import gevent
+        hub = gevent.get_hub()
+    except Exception:
+        return fn(*args)
+    return hub.threadpool.apply(fn, args)
+
+
+def upload_attachment(file_bytes: bytes, note_id: int, filename: str, content_type: str, prefix: str = "attachments"):
+    """Upload attachment to R2. 回 (object_key, thumb_key)。
+
+    - 靜態圖（jpeg/png/webp）：壓縮原圖（長邊≤3200）+ 產縮圖（640，JPEG），兩顆都上傳。
+    - gif/影片/其他：原檔上傳，thumb_key=None。
+    - R2 未設定 / boto3 不可用：回 (None, None)。
 
     prefix 可傳不同前綴以隔離不同模組（例：私人筆記傳 "private/{user_id}"）。
     """
+    from image_utils import process_upload_image, thumb_key_for
+
     if not BOTO3_AVAILABLE:
-        return None
+        return None, None
     cfg = current_app.config
     if not cfg.get("R2_ENDPOINT_URL"):
-        return None
+        return None, None
 
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
     object_key = f"{prefix}/{note_id}/{uuid.uuid4().hex}.{ext}"
+
+    main_bytes, thumb_bytes = _offload(process_upload_image, file_bytes, content_type)
 
     client = _get_client()
     client.put_object(
         Bucket=cfg["R2_BUCKET_NAME"],
         Key=object_key,
-        Body=file_bytes,
+        Body=main_bytes,
         ContentType=content_type,
     )
-    return object_key
+
+    thumb_key = None
+    if thumb_bytes is not None:
+        thumb_key = thumb_key_for(object_key)
+        try:
+            client.put_object(
+                Bucket=cfg["R2_BUCKET_NAME"],
+                Key=thumb_key,
+                Body=thumb_bytes,
+                ContentType="image/jpeg",
+            )
+        except Exception:
+            thumb_key = None   # 縮圖失敗不擋主上傳，前端 fallback 原圖
+
+    return object_key, thumb_key
 
 
 def delete_attachment(object_key: str) -> bool:

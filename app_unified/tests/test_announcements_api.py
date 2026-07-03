@@ -374,7 +374,7 @@ def test_attachment_upload_returns_signed_url(client, db, monkeypatch):
     fake_signed = ("https://r2.example.com/announcements/1/abc.jpg"
                    "?X-Amz-Signature=fakesig&X-Amz-Expires=3600")
     monkeypatch.setattr("storage.upload_attachment",
-                        lambda *a, **kw: fake_key)
+                        lambda *a, **kw: (fake_key, None))
     monkeypatch.setattr("storage.get_signed_url",
                         lambda key, expires_in=3600: fake_signed)
 
@@ -402,7 +402,7 @@ def test_attachment_storage_prefix(client, db, monkeypatch):
     def _capture(file_bytes, ann_id, filename, content_type, prefix="attachments"):
         captured["prefix"] = prefix
         captured["ann_id"] = ann_id
-        return f"{prefix}/{ann_id}/uuid.jpg"
+        return f"{prefix}/{ann_id}/uuid.jpg", None
     monkeypatch.setattr("storage.upload_attachment", _capture)
     monkeypatch.setattr("storage.get_signed_url", lambda *a, **kw: "https://x")
 
@@ -422,7 +422,7 @@ def test_attachment_storage_prefix(client, db, monkeypatch):
 
 
 def test_attachment_disallowed_content_type(client, db, monkeypatch):
-    monkeypatch.setattr("storage.upload_attachment", lambda *a, **kw: "x")
+    monkeypatch.setattr("storage.upload_attachment", lambda *a, **kw: ("x", None))
     monkeypatch.setattr("storage.get_signed_url", lambda *a, **kw: "https://x")
     sa = _make_user(db, "super_admin", username="sa_att_disallow")
     _login(client, sa)
@@ -438,7 +438,7 @@ def test_attachment_disallowed_content_type(client, db, monkeypatch):
 
 
 def test_attachment_user_forbidden(client, db, monkeypatch):
-    monkeypatch.setattr("storage.upload_attachment", lambda *a, **kw: "x")
+    monkeypatch.setattr("storage.upload_attachment", lambda *a, **kw: ("x", None))
     monkeypatch.setattr("storage.get_signed_url", lambda *a, **kw: "https://x")
 
     sa = _make_user(db, "super_admin", username="sa_att_user_seed")
@@ -459,7 +459,7 @@ def test_attachment_user_forbidden(client, db, monkeypatch):
 def test_attachment_delete_cascades_when_announcement_deleted(client, db, monkeypatch):
     """刪公告後 attachment row 被 cascade 刪掉."""
     monkeypatch.setattr("storage.upload_attachment",
-                        lambda *a, **kw: "announcements/1/x.jpg")
+                        lambda *a, **kw: ("announcements/1/x.jpg", None))
     monkeypatch.setattr("storage.get_signed_url",
                         lambda *a, **kw: "https://x")
     monkeypatch.setattr("notes.announcement_routes._r2_delete",
@@ -487,7 +487,7 @@ def test_attachment_delete_cascades_when_announcement_deleted(client, db, monkey
 def test_attachment_delete_endpoint_super_admin_ok(client, db, monkeypatch):
     """Direct DELETE on attachment endpoint as super_admin → 200, row gone."""
     monkeypatch.setattr("storage.upload_attachment",
-                        lambda *a, **kw: "announcements/1/x.jpg")
+                        lambda *a, **kw: ("announcements/1/x.jpg", None))
     monkeypatch.setattr("storage.get_signed_url",
                         lambda *a, **kw: "https://x")
     monkeypatch.setattr("notes.announcement_routes._r2_delete",
@@ -515,7 +515,7 @@ def test_attachment_delete_endpoint_super_admin_ok(client, db, monkeypatch):
 def test_attachment_delete_endpoint_user_forbidden(client, db, monkeypatch):
     """User without modify permission → 403."""
     monkeypatch.setattr("storage.upload_attachment",
-                        lambda *a, **kw: "announcements/1/x.jpg")
+                        lambda *a, **kw: ("announcements/1/x.jpg", None))
     monkeypatch.setattr("storage.get_signed_url",
                         lambda *a, **kw: "https://x")
     monkeypatch.setattr("notes.announcement_routes._r2_delete",

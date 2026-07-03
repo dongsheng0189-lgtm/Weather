@@ -1923,7 +1923,7 @@ def upload_attachment_api():
     if len(file_bytes) > MAX_FILE_SIZE:
         return jsonify({"status": "error", "message": "檔案超過 50MB 上限"}), 400
 
-    object_key = upload_attachment(file_bytes, note_id, file.filename, content_type)
+    object_key, thumb_key = upload_attachment(file_bytes, note_id, file.filename, content_type)
     if not object_key:
         return jsonify({"status": "error", "message": "儲存服務未設定"}), 503
 
@@ -1932,6 +1932,7 @@ def upload_attachment_api():
         checklist_item_id=item_id,
         user_id=current_user.id,
         object_key=object_key,
+        thumb_key=thumb_key,
         filename=file.filename,
         content_type=content_type,
         file_size=len(file_bytes),
