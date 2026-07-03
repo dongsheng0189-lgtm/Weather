@@ -486,6 +486,15 @@ def create_app():
                 except Exception:
                     pass
 
+                # 附件縮圖 thumb_key(2026-07-03）— 3 張 attachment 表
+                for _tbl in ("note_attachments", "private_attachments",
+                             "announcement_attachments"):
+                    try:
+                        db.session.execute(db.text(
+                            f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS thumb_key TEXT"))
+                    except Exception:
+                        pass
+
                 db.session.commit()
             print("=== db.create_all() OK ===", flush=True)
         except Exception as e:

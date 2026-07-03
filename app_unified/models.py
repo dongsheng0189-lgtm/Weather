@@ -274,6 +274,7 @@ class NoteAttachment(db.Model):
     filename = db.Column(db.Text, nullable=False)
     content_type = db.Column(db.Text, nullable=False)
     file_size = db.Column(db.Integer, nullable=False)
+    thumb_key = db.Column(db.Text, nullable=True)   # 縮圖 R2 key；舊圖/gif/影片為 None
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     note = db.relationship("Note", backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"))
@@ -368,6 +369,7 @@ class PrivateAttachment(db.Model):
     filename = db.Column(db.Text, nullable=False)
     content_type = db.Column(db.Text, nullable=False)
     file_size = db.Column(db.Integer, nullable=False)
+    thumb_key = db.Column(db.Text, nullable=True)   # 縮圖 R2 key；舊圖/gif/影片為 None
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     note = db.relationship("PrivateNote", backref=db.backref("attachments", lazy=True, cascade="all, delete-orphan"))
@@ -466,6 +468,7 @@ class AnnouncementAttachment(db.Model):
     filename = db.Column(db.Text, nullable=False)
     content_type = db.Column(db.Text, nullable=False)
     file_size = db.Column(db.Integer, nullable=False)
+    thumb_key = db.Column(db.Text, nullable=True)   # 縮圖 R2 key；舊圖/gif/影片為 None
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     announcement = db.relationship(
