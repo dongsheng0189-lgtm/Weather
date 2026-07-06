@@ -281,7 +281,10 @@ def delete_user(user_id):
     user = User.query.get_or_404(user_id)
     if user.id == current_user.id:
         return jsonify({"status": "error", "message": "不可刪除自己"}), 400
-    from models import NoteLog, NoteAttachment, LoginToken, ChecklistItem, TrustedDevice
+    from models import (
+        NoteLog, NoteAttachment, LoginToken, ChecklistItem, TrustedDevice,
+        VettingQueryLog, IcinfoQueryLog, VettingWhitelistPhone,
+    )
 
     # 先查綁定裝置；有裝置且未帶 confirm=1 → 回 409 讓前端二次確認
     bound_devices = TrustedDevice.query.filter_by(user_id=user.id).all()
@@ -308,6 +311,13 @@ def delete_user(user_id):
     NoteLog.query.filter_by(user_id=user.id).update({"user_id": None})
     NoteAttachment.query.filter_by(user_id=user.id).update({"user_id": None})
     ChecklistItem.query.filter_by(checked_by=user.id).update({"checked_by": None})
+    # 人員查詢（vetting）相關 FK — 這些表用普通 FK（無 ON DELETE）指向 users.id，
+    # 若不清掉，被刪帳號只要查過人員就會踩 FK 違規 → rollback → 帳號刪不掉。
+    #   vetting_query_logs / v_aux_logs.user_id 為 NOT NULL 且是該員工自己的查詢
+    #   紀錄 → 隨帳號一併刪除；whitelist 為全店共用資料要留著，只斷開建立者。
+    VettingQueryLog.query.filter_by(user_id=user.id).delete()
+    IcinfoQueryLog.query.filter_by(user_id=user.id).delete()
+    VettingWhitelistPhone.query.filter_by(created_by=user.id).update({"created_by": None})
     # 綁定裝置：與 user 一併刪除（使用者已確認），避免產生 orphan device
     for d in bound_devices:
         db.session.delete(d)

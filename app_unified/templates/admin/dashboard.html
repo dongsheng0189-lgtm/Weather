@@ -637,24 +637,33 @@ async function renameUser(uid, oldName) {
   }
 }
 
+// 安全解析回應：後端若丟 500 會回 HTML，res.json() 會 throw；統一在這裡吞掉並回 null
+async function _safeJson(res) {
+  try { return await res.json(); } catch (e) { return null; }
+}
+
 async function deleteUser(id, username) {
   if (!confirm(`確定要刪除員工「${username}」？\n該員工的筆記會保留，作者會顯示為「${username}（帳號已刪除）」。`)) return;
   let res = await fetch(`/admin/users/${id}`, { method: 'DELETE' });
-  let data = await res.json();
-  if (res.status === 409 && data.status === 'confirm_required') {
+  let data = await _safeJson(res);
+  if (!res.ok && res.status !== 409) {
+    alert((data && data.message) || `刪除失敗（HTTP ${res.status}）`);
+    return;
+  }
+  if (res.status === 409 && data && data.status === 'confirm_required') {
     const lines = (data.devices || []).map(d => `• ${d.device_name}${d.is_approved ? '' : '（未核准）'}`).join('\n');
     const ok = confirm(
       `「${username}」綁定 ${data.devices.length} 個裝置：\n${lines}\n\n刪除使用者會一併刪除這些裝置（換手機請改用單獨刪除裝置）。\n確定繼續？`
     );
     if (!ok) return;
     res = await fetch(`/admin/users/${id}?confirm=1`, { method: 'DELETE' });
-    data = await res.json();
+    data = await _safeJson(res);
   }
-  if (data.status === 'ok') {
+  if (res.ok && data && data.status === 'ok') {
     document.getElementById(`user-${id}`)?.remove();
     if (data.devices_deleted) loadDevices();
   } else {
-    alert(data.message || '刪除失敗');
+    alert((data && data.message) || `刪除失敗（HTTP ${res.status}）`);
   }
 }
 
