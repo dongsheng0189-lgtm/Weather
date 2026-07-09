@@ -157,6 +157,35 @@ def extract_judgment_text(html: str) -> str:
     return text.strip()
 
 
+def build_highlighted_judgment(text: str, name: str) -> tuple:
+    """把判決書純文字 escape 後，將命中的人名包成自家 vet-hl span，回 (safe_html, hit_count)。
+
+    兩段式比對（避免同姓遮罩名雜訊）：
+      - 完整名字（王小明）命中 >=1 → 只包完整名字。
+      - 完整名字 0 命中（當事人全遮罩）→ fallback 比對姓 王○{1,3}。
+    先 escape 全文、再對 escape 後字串做 regex，span 內容即 escape 後的命中字，零注入面。
+    """
+    name = (name or "").strip()
+    esc = _escape(text)
+    if not name:
+        return esc, 0
+    esc_name = _escape(name)                       # 中文不受影響；防禦性
+    if esc.count(esc_name) >= 1:
+        pattern = re.compile(re.escape(esc_name))
+    else:
+        surname = _escape(name[0])
+        pattern = re.compile(re.escape(surname) + "○{1,3}")
+    counter = {"k": 0}
+
+    def _wrap(m):
+        k = counter["k"]
+        counter["k"] += 1
+        return f'<span class="vet-hl" id="vhit-{k}">{m.group(0)}</span>'
+
+    out = pattern.sub(_wrap, esc)
+    return out, counter["k"]
+
+
 def scan_detail_html(html: str, user_id: str = "") -> dict:
     """掃描判決書 HTML，回關鍵字命中清單、遮蔽人名 / 遮蔽 ID 清單。
 

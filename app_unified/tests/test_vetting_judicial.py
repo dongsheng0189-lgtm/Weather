@@ -127,3 +127,40 @@ def test_extract_judgment_text_from_detail_fixture():
     assert re.search(r"</?[a-zA-Z]", text) is None  # 無 HTML 標籤洩漏（內文合法角括號如 <黑白賣客> 允許）
     assert "\n" in text                   # 保留換行
     assert len(text) > 300
+
+
+from vetting.judicial import build_highlighted_judgment
+
+def test_highlight_literal_when_full_name_present():
+    # 有完整名字命中 → 只包完整名字、不碰同姓遮罩名（避免雜訊）
+    text = "被告王小明與王○○共同犯詐欺，嗣後王小明坦承犯行。"
+    html, n = build_highlighted_judgment(text, "王小明")
+    assert n == 2
+    assert html.count('<span class="vet-hl"') == 2
+    assert 'id="vhit-0"' in html and 'id="vhit-1"' in html
+    assert "王○○" in html                              # 遮罩名保留為文字
+    assert '<span class="vet-hl" id="vhit-0">王小明</span>' in html
+    # 遮罩名沒有被包
+    assert '>王○○</span>' not in html
+
+def test_highlight_fallback_surname_when_fully_masked():
+    # 完整名字 0 命中（全遮罩）→ fallback 比對姓，王○ / 王○○ 都算命中
+    text = "被告王○○與王○於民國113年間共同犯詐欺。"
+    html, n = build_highlighted_judgment(text, "王小明")
+    assert n == 2
+    assert '<span class="vet-hl" id="vhit-0">王○○</span>' in html
+    assert '<span class="vet-hl" id="vhit-1">王○</span>' in html
+
+def test_highlight_is_xss_safe():
+    text = '<script>alert(1)</script>王小明<img src=x onerror=alert(1)>'
+    html, n = build_highlighted_judgment(text, "王小明")
+    assert "<script" not in html and "<img" not in html          # 原始標籤未洩漏（已 escape）
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html           # 惡意 img 整段 escape 成 inert 文字，onerror 只是純文字非屬性
+    assert "&lt;script&gt;" in html
+    assert '<span class="vet-hl" id="vhit-0">王小明</span>' in html
+    assert n == 1
+
+def test_highlight_empty_name_returns_escaped_no_hits():
+    html, n = build_highlighted_judgment("<b>王小明</b>", "")
+    assert n == 0
+    assert html == "&lt;b&gt;王小明&lt;/b&gt;"
