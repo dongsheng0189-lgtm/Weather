@@ -2,6 +2,7 @@
 所有測試只用本地 fixture HTML，不打外部站。
 """
 import os
+import re
 import pytest
 
 from vetting.judicial import (
@@ -115,3 +116,14 @@ def test_is_allowed_detail_url_rejects_bad():
     assert is_allowed_detail_url("https://judgment.judicial.gov.tw@evil.com/FJUD/data.aspx") is False # host 混淆
     assert is_allowed_detail_url("") is False
     assert is_allowed_detail_url(None) is False
+
+
+from vetting.judicial import extract_judgment_text
+
+def test_extract_judgment_text_from_detail_fixture():
+    html = _read_fixture("judicial_detail.html")
+    text = extract_judgment_text(html)
+    assert "主文" in text                 # 內文容器有抓到
+    assert re.search(r"</?[a-zA-Z]", text) is None  # 無 HTML 標籤洩漏（內文合法角括號如 <黑白賣客> 允許）
+    assert "\n" in text                   # 保留換行
+    assert len(text) > 300

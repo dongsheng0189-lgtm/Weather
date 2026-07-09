@@ -137,6 +137,26 @@ def _extract_court(case_full_text: str) -> str:
     return m.group(1) if m else ""
 
 
+def extract_judgment_text(html: str) -> str:
+    """抽司法院判決書內頁的內文純文字，保留段落換行（給站內檢視器 pre-wrap 顯示）。
+
+    內文容器 recon 確認：div.jud_content 首選、div#jud 次選、td.tab_content 備援。
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    container = (
+        soup.find("div", class_="jud_content")
+        or soup.find(id="jud")
+        or soup.find("td", class_="tab_content")
+        or soup
+    )
+    for br in container.find_all("br"):
+        br.replace_with("\n")
+    text = container.get_text("\n")
+    text = re.sub(r"[ \t]+\n", "\n", text)     # 去行尾空白
+    text = re.sub(r"\n{3,}", "\n\n", text)     # 收斂過多空行
+    return text.strip()
+
+
 def scan_detail_html(html: str, user_id: str = "") -> dict:
     """掃描判決書 HTML，回關鍵字命中清單、遮蔽人名 / 遮蔽 ID 清單。
 
