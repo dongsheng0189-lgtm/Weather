@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+{% if error %}
+  <p style="color:#c0392b;">{{ error }}</p>
+  <p>你可以改用「開原判決書」開啟司法院原頁。</p>
+{% else %}
+  <div id="judgment-body" style="white-space:pre-wrap;">{{ body_html|safe }}</div>
+{% endif %}
+{% endblock %}

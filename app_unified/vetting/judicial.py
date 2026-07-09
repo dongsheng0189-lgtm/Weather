@@ -255,6 +255,16 @@ def is_allowed_detail_url(url: str) -> bool:
     )
 
 
+def fetch_judgment_html(url: str, session=None) -> str:
+    """live：抓司法院判決書內頁 HTML（給站內檢視器）。呼叫端須先過 is_allowed_detail_url。"""
+    if session is None:
+        session = make_session()
+    r = session.get(url, headers={"Referer": HOME_URL}, timeout=15)  # make_session 已帶 UA
+    check_blocked(r)
+    r.raise_for_status()
+    return r.text
+
+
 def scan_detail(session, detail_url: str, user_id: str = "") -> dict:
     """live：抓詳情頁，回 scan_detail_html 結果。"""
     r = session.get(detail_url, timeout=15,

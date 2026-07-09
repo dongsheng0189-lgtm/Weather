@@ -314,6 +314,27 @@ def submit():
     })
 
 
+@vetting_bp.route("/judgment")
+@login_required
+def judgment():
+    """站內判決書檢視器：抓司法院內頁 → 命中人名黃底 → 純文字 pre-wrap 顯示。"""
+    u = request.args.get("u", "")
+    name = request.args.get("name", "")
+    if not judicial.is_allowed_detail_url(u):
+        abort(400)
+    try:
+        html = judicial.fetch_judgment_html(u)
+    except Exception as e:
+        logger.warning("vetting: judgment fetch failed: %s", e)
+        return render_template("vetting/judgment.html",
+                               error="無法載入判決書全文，請稍後再試，或改用「開原判決書」開啟司法院原頁。",
+                               body_html="", name=name, hit_count=0), 502
+    text = judicial.extract_judgment_text(html)
+    body_html, hit_count = judicial.build_highlighted_judgment(text, name)
+    return render_template("vetting/judgment.html",
+                           error=None, body_html=body_html, name=name, hit_count=hit_count)
+
+
 @vetting_bp.route("/whitelist/add", methods=["POST"])
 @login_required
 @limiter.limit("20/minute", key_func=lambda: f"vet-wl-add:{current_user.id}")
