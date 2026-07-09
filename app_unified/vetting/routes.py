@@ -132,6 +132,18 @@ def _take_state(qid: str):
     return _QUERY_STATE.get(qid)
 
 
+def _save_state(qid: str, state: dict) -> None:
+    """就地更新既有 qid 的 state（換驗證碼用：只改 NPA 欄位、保留其餘），並續 TTL。"""
+    if _redis is not None:
+        try:
+            _redis.set(_REDIS_PREFIX + qid, _serialize_state(state), ex=_QUERY_TTL)
+            return
+        except Exception as e:
+            logger.warning("vetting: redis save failed: %s", e)
+    state["expires_at"] = time.time() + _QUERY_TTL
+    _QUERY_STATE[qid] = state
+
+
 def _del_state(qid: str):
     """一次性使用：submit 後清掉。"""
     if _redis is not None:
@@ -261,6 +273,50 @@ def start():
         "mjib": mjib_results,
         "social": social_bundle,
     })
+
+    return jsonify({
+        "query_id": qid,
+        "captcha_b64": base64.b64encode(captcha_bytes).decode("ascii"),
+    })
+
+
+@vetting_bp.route("/refresh_captcha", methods=["POST"])
+@login_required
+@limiter.limit("6/minute", key_func=lambda: f"vet-refresh:{current_user.id}")
+def refresh_captcha():
+    """只重取 NPA 驗證碼（新 session/token/圖），保留已查好的司法院/MJIB/social，不重跑三家。
+
+    使用者點驗證碼圖重整、或輸錯要換一張時走這裡；比舊做法（重呼 /start 重跑三家）快很多。
+    """
+    data = request.get_json(silent=True) or {}
+    qid = data.get("query_id")
+    if not qid:
+        return jsonify({"error": "missing_params"}), 400
+
+    entry = _take_state(qid)
+    if not entry:
+        return jsonify({"error": "query_expired",
+                        "message": "查詢逾時（5 分鐘），請重新開始"}), 410
+
+    # 只重跑 NPA prep（與 /start 的 NPA 段相同），司法院/MJIB/social 保留 entry 內既有結果
+    try:
+        npa_session = make_session()
+        npa_tokens, _ = npa.fetch_home_state(npa_session)
+        npa_jwt = npa.fetch_auth_token(npa_session, npa_tokens)
+        captcha_bytes = npa.fetch_captcha_bytes(npa_session)
+    except (RateLimited, Forbidden) as e:
+        logger.warning("vetting: NPA refresh blocked: %s", e)
+        return jsonify({"error": "rate_limited",
+                        "message": "警政署系統暫時限流，請 5 分鐘後再試"}), 429
+    except Exception as e:
+        logger.warning("vetting: NPA refresh failed: %s", e)
+        return jsonify({"error": "npa_unavailable",
+                        "message": "警政署系統暫時無法連線"}), 502
+
+    entry["npa_session"] = npa_session
+    entry["npa_tokens"] = npa_tokens
+    entry["npa_jwt"] = npa_jwt
+    _save_state(qid, entry)
 
     return jsonify({
         "query_id": qid,
