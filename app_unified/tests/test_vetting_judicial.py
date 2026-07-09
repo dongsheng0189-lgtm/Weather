@@ -100,3 +100,18 @@ def test_scan_detail_finds_masked_names():
     result = scan_detail_html(html)
     assert "詐欺" in result["keyword_hits"]
     assert "丙○○" in result["masked_names"]
+
+
+from vetting.judicial import is_allowed_detail_url
+
+def test_is_allowed_detail_url_accepts_real_detail():
+    u = "https://judgment.judicial.gov.tw/FJUD/data.aspx?ty=JD&id=TCDM,114,%E9%87%91,3,20251229,1&ot=in"
+    assert is_allowed_detail_url(u) is True
+
+def test_is_allowed_detail_url_rejects_bad():
+    assert is_allowed_detail_url("http://judgment.judicial.gov.tw/FJUD/data.aspx?id=x") is False  # 非 https
+    assert is_allowed_detail_url("https://evil.com/FJUD/data.aspx?id=x") is False                 # 別的 host
+    assert is_allowed_detail_url("https://judgment.judicial.gov.tw/FJUD/qryresultlst.aspx") is False  # 別的 path
+    assert is_allowed_detail_url("https://judgment.judicial.gov.tw@evil.com/FJUD/data.aspx") is False # host 混淆
+    assert is_allowed_detail_url("") is False
+    assert is_allowed_detail_url(None) is False

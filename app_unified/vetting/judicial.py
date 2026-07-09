@@ -9,7 +9,7 @@
 """
 import re
 from html import escape as _escape
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -191,6 +191,19 @@ def submit_search(session, state: dict, name: str) -> list:
     check_blocked(r2)
     r2.raise_for_status()
     return parse_results(r2.text, base_url=result_url)
+
+
+def is_allowed_detail_url(url: str) -> bool:
+    """SSRF 白名單：只允許司法院判決書內頁。client 帶回的 URL 必經此驗證才可抓取。"""
+    try:
+        p = urlparse(url or "")
+    except Exception:
+        return False
+    return (
+        p.scheme == "https"
+        and p.netloc == "judgment.judicial.gov.tw"
+        and p.path.startswith("/FJUD/data.aspx")
+    )
 
 
 def scan_detail(session, detail_url: str, user_id: str = "") -> dict:
