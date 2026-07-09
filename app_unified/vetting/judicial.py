@@ -8,6 +8,7 @@
 - 全程無驗證碼
 """
 import re
+from html import escape as _escape
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -65,24 +66,59 @@ def parse_home_state(html: str, base_url: str = HOME_URL) -> dict:
     }
 
 
+def _safe_snippet(cell) -> str:
+    """把摘要 cell 轉成安全 HTML：只保留司法院的命中人名黃底，其餘一律 escape。
+
+    司法院原站把被搜尋的人名包成 <span class="highlight">王小明</span>（黃底）。
+    這是**外站回傳的 HTML**，直接塞 innerHTML 會有 XSS 風險，所以：
+      - 命中 span → 用我們自己的固定字面量 <span class="vet-hl">…</span> 重建，
+        **不沿用原站任何屬性**（避免 onclick/style 之類注入），內文再 escape。
+      - 其他標籤 → 標籤剝除、只遞迴取其文字（同樣 escape）。
+      - 純文字 → escape。
+    """
+    out = []
+
+    def walk(node):
+        for child in node.children:
+            name = getattr(child, "name", None)
+            if name is None:  # NavigableString
+                out.append(_escape(str(child)))
+            elif name == "span" and "highlight" in (child.get("class") or []):
+                out.append('<span class="vet-hl">')
+                out.append(_escape(child.get_text()))
+                out.append("</span>")
+            else:
+                walk(child)  # 其餘標籤只保留文字內容
+
+    walk(cell)
+    return "".join(out).strip()
+
+
 def parse_results(html: str, base_url: str = HOME_URL) -> list:
     """解析 qryresultlst.aspx 的結果列表頁。
 
     每兩列 <tr> 一筆：
       奇數列 cells: [序號, 「法院 + 案號 + 類型 + 大小」, 日期, 案由]
-      偶數列：摘要（colspan=4）
+      偶數列：摘要（colspan=4），含 <span class="highlight"> 命中人名黃底
     詳情連結是奇數列第二欄裡的 <a href="data.aspx?...">。
     """
     soup = BeautifulSoup(html, "html.parser")
+    all_tr = soup.find_all("tr")
     rows = []
-    for tr in soup.find_all("tr"):
+    for i, tr in enumerate(all_tr):
         cells = tr.find_all("td")
         if len(cells) < 4:
-            continue  # skip header / 摘要列
+            continue  # skip header / 摘要列（摘要在下一列另外抓）
         link = cells[1].find("a")
         if not link or "data.aspx" not in (link.get("href") or ""):
             continue
         full_text = link.get_text(strip=True)
+        # 摘要在緊接的下一列（colspan → 單格），含命中人名黃底
+        snippet = ""
+        if i + 1 < len(all_tr):
+            nxt_cells = all_tr[i + 1].find_all("td")
+            if len(nxt_cells) == 1:
+                snippet = _safe_snippet(nxt_cells[0])
         # full_text 例：「臺灣臺中地方法院 114 年度 金訴 字第 3392 號刑事判決」
         rows.append({
             "subject": cells[3].get_text(strip=True),
@@ -90,6 +126,7 @@ def parse_results(html: str, base_url: str = HOME_URL) -> list:
             "date": cells[2].get_text(strip=True),
             "court": _extract_court(full_text),
             "detail_url": urljoin(base_url, link.get("href", "").lstrip("./")),
+            "snippet": snippet,
         })
     return rows
 
