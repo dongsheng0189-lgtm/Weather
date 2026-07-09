@@ -114,6 +114,7 @@ def test_is_allowed_detail_url_rejects_bad():
     assert is_allowed_detail_url("https://evil.com/FJUD/data.aspx?id=x") is False                 # 別的 host
     assert is_allowed_detail_url("https://judgment.judicial.gov.tw/FJUD/qryresultlst.aspx") is False  # 別的 path
     assert is_allowed_detail_url("https://judgment.judicial.gov.tw@evil.com/FJUD/data.aspx") is False # host 混淆
+    assert is_allowed_detail_url("https://judgment.judicial.gov.tw/FJUD/data.aspxEVIL?id=x") is False  # path 精確比對
     assert is_allowed_detail_url("") is False
     assert is_allowed_detail_url(None) is False
 

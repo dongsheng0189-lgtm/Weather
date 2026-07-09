@@ -251,7 +251,7 @@ def is_allowed_detail_url(url: str) -> bool:
     return (
         p.scheme == "https"
         and p.netloc == "judgment.judicial.gov.tw"
-        and p.path.startswith("/FJUD/data.aspx")
+        and p.path == "/FJUD/data.aspx"
     )
 
 
@@ -259,7 +259,8 @@ def fetch_judgment_html(url: str, session=None) -> str:
     """live：抓司法院判決書內頁 HTML（給站內檢視器）。呼叫端須先過 is_allowed_detail_url。"""
     if session is None:
         session = make_session()
-    r = session.get(url, headers={"Referer": HOME_URL}, timeout=15)  # make_session 已帶 UA
+    r = session.get(url, headers={"Referer": HOME_URL}, timeout=15,
+                    allow_redirects=False)  # make_session 已帶 UA；不跟隨 redirect 避免 SSRF
     check_blocked(r)
     r.raise_for_status()
     return r.text
