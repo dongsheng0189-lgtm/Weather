@@ -186,8 +186,6 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
     .slice(0, 2);
   var _phone = document.getElementById('vet-phone').value.trim();
   var _feature = document.getElementById('vet-feature').value.trim();
-  // Stash for reloadCaptcha re-use (same fields on second /start call)
-  window._socialPayload = {phone: _phone, relatives: _relatives, feature: _feature};
 
   startTick('🔍 查詢中：警政署取驗證碼 → 司法院刑事判決 → 法務部通緝');
   fetch('/vetting/start', {
@@ -214,23 +212,23 @@ document.getElementById('vet-name-form').addEventListener('submit', function(e) 
 
 function reloadCaptcha(reason) {
   var isErr = (reason === 'captcha_error');
-  var sp = window._socialPayload || {phone: '', relatives: [], feature: ''};
+  if (!_qid) return;  // 沒有進行中的查詢就不重整
+  // 只跟警政署重取一張新驗證碼，司法院/法務部結果沿用既有 state（不重跑）
   startTick(isErr ? '❌ 驗證碼錯誤，正在換一張新的'
-                  : '🔄 重整驗證碼中（會重跑三家查詢）');
-  fetch('/vetting/start', {
+                  : '🔄 重整驗證碼中');
+  fetch('/vetting/refresh_captcha', {
     method: 'POST', headers: VET_JSON_HEADERS,
-    body: JSON.stringify({
-      name: _name, id: _id,
-      phone: sp.phone, relatives: sp.relatives, feature: sp.feature
-    })
+    body: JSON.stringify({query_id: _qid})
   }).then(vetParse).then(function(arr){
     stopTick();
     var st = arr[0], d = arr[1];
     if (st === 200 && d && d.query_id) {
       _qid = d.query_id;
       document.getElementById('vet-captcha-img').src = 'data:image/jpeg;base64,' + d.captcha_b64;
+      document.getElementById('vet-captcha-text').value = '';
+      document.getElementById('vet-captcha-text').focus();
       setStatus(isErr ? '❌ 驗證碼錯誤，已換一張新的，請重新輸入'
-                      : '✓ 驗證碼已更新');
+                      : '✓ 驗證碼已更新（司法院／法務部結果保留）');
     } else {
       setStatus('換驗證碼失敗：' + vetErrMsg(st, d));
     }
@@ -400,9 +398,10 @@ function renderResult(d) {
       var isEmployee = (person.role === 'employee');
       var openAttr = isEmployee ? ' open' : '';
       var icon = isEmployee ? '👤' : '👥';
-      var label = isEmployee ? '員工本人' : ('關係人 ' + idx);
+      // 主要被查人不加 label（原「員工本人」語意不符查詢情境）；關係人保留標記以區分
+      var label = isEmployee ? '' : ('（關係人 ' + idx + '）');
       html += '<details' + openAttr + ' class="vet-person-block" style="border:1px solid #e0e0e0; border-radius:6px; padding:.5rem .75rem; margin-bottom:.5rem;">';
-      html += '<summary style="cursor:pointer; font-weight:600;">' + icon + ' ' + escapeHtml(person.name) + '（' + label + '）</summary>';
+      html += '<summary style="cursor:pointer; font-weight:600;">' + icon + ' ' + escapeHtml(person.name) + label + '</summary>';
       html += '<div style="margin-top:.5rem;">';
 
       // Google 4 link 直接列出（不收進 sub-menu）
