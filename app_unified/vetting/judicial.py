@@ -9,7 +9,7 @@
 """
 import re
 from html import escape as _escape
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -137,6 +137,55 @@ def _extract_court(case_full_text: str) -> str:
     return m.group(1) if m else ""
 
 
+def extract_judgment_text(html: str) -> str:
+    """抽司法院判決書內頁的內文純文字，保留段落換行（給站內檢視器 pre-wrap 顯示）。
+
+    內文容器 recon 確認：div.jud_content 首選、div#jud 次選、td.tab_content 備援。
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    container = (
+        soup.find("div", class_="jud_content")
+        or soup.find(id="jud")
+        or soup.find("td", class_="tab_content")
+        or soup
+    )
+    for br in container.find_all("br"):
+        br.replace_with("\n")
+    text = container.get_text("\n")
+    text = re.sub(r"[ \t]+\n", "\n", text)     # 去行尾空白
+    text = re.sub(r"\n{3,}", "\n\n", text)     # 收斂過多空行
+    return text.strip()
+
+
+def build_highlighted_judgment(text: str, name: str) -> tuple:
+    """把判決書純文字 escape 後，將命中的人名包成自家 vet-hl span，回 (safe_html, hit_count)。
+
+    兩段式比對（避免同姓遮罩名雜訊）：
+      - 完整名字（王小明）命中 >=1 → 只包完整名字。
+      - 完整名字 0 命中（當事人全遮罩）→ fallback 比對姓 王○{1,3}。
+    先 escape 全文、再對 escape 後字串做 regex，span 內容即 escape 後的命中字，零注入面。
+    """
+    name = (name or "").strip()
+    esc = _escape(text)
+    if not name:
+        return esc, 0
+    esc_name = _escape(name)                       # 中文不受影響；防禦性
+    if esc.count(esc_name) >= 1:
+        pattern = re.compile(re.escape(esc_name))
+    else:
+        surname = _escape(name[0])
+        pattern = re.compile(re.escape(surname) + "○{1,3}")
+    counter = {"k": 0}
+
+    def _wrap(m):
+        k = counter["k"]
+        counter["k"] += 1
+        return f'<span class="vet-hl" id="vhit-{k}">{m.group(0)}</span>'
+
+    out = pattern.sub(_wrap, esc)
+    return out, counter["k"]
+
+
 def scan_detail_html(html: str, user_id: str = "") -> dict:
     """掃描判決書 HTML，回關鍵字命中清單、遮蔽人名 / 遮蔽 ID 清單。
 
@@ -191,6 +240,30 @@ def submit_search(session, state: dict, name: str) -> list:
     check_blocked(r2)
     r2.raise_for_status()
     return parse_results(r2.text, base_url=result_url)
+
+
+def is_allowed_detail_url(url: str) -> bool:
+    """SSRF 白名單：只允許司法院判決書內頁。client 帶回的 URL 必經此驗證才可抓取。"""
+    try:
+        p = urlparse(url or "")
+    except Exception:
+        return False
+    return (
+        p.scheme == "https"
+        and p.netloc == "judgment.judicial.gov.tw"
+        and p.path == "/FJUD/data.aspx"
+    )
+
+
+def fetch_judgment_html(url: str, session=None) -> str:
+    """live：抓司法院判決書內頁 HTML（給站內檢視器）。呼叫端須先過 is_allowed_detail_url。"""
+    if session is None:
+        session = make_session()
+    r = session.get(url, headers={"Referer": HOME_URL}, timeout=15,
+                    allow_redirects=False)  # make_session 已帶 UA；不跟隨 redirect 避免 SSRF
+    check_blocked(r)
+    r.raise_for_status()
+    return r.text
 
 
 def scan_detail(session, detail_url: str, user_id: str = "") -> dict:
