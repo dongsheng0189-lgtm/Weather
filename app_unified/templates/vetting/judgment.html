@@ -1,9 +1,62 @@
 {% extends "base.html" %}
+{% block extra_head %}
+<style>
+  #judgment-body { white-space:pre-wrap; word-break:break-word; line-height:1.7;
+    font-size:.95rem; color:#222; max-width:820px; margin:1rem auto; padding:0 1rem; }
+  #judgment-body .vet-hl { background:#ff3; color:#000; padding:0 .1em; border-radius:2px; font-weight:600; }
+  #judgment-body .vet-hl.current { outline:2px solid #e67e22; outline-offset:1px; }
+  #jv-widget { display:none; position:fixed; bottom:20px; right:20px; z-index:1000;
+    align-items:center; gap:.5rem; padding:.6rem .9rem; background:#fff8e1;
+    border:2px solid #ffb300; border-radius:24px; font-size:.95rem; color:#5d4037;
+    font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,.18); }
+  #jv-next { background:#ffb300; border:none; color:#fff; border-radius:50%; width:32px; height:32px;
+    font-size:1rem; cursor:pointer; line-height:1; display:flex; align-items:center; justify-content:center; }
+  #jv-back { background:#fff; border:1.5px solid #5d4037; color:#5d4037; border-radius:14px;
+    padding:.3rem .7rem; font-size:.82rem; cursor:pointer; font-weight:600; }
+</style>
+{% endblock %}
 {% block content %}
 {% if error %}
-  <p style="color:#c0392b;">{{ error }}</p>
-  <p>你可以改用「開原判決書」開啟司法院原頁。</p>
+  <div style="max-width:680px;margin:2rem auto;padding:0 1rem;">
+    <p style="color:#c0392b;font-weight:600;">{{ error }}</p>
+    <button onclick="window.close()" style="margin-top:.5rem;">關閉分頁</button>
+  </div>
 {% else %}
-  <div id="judgment-body" style="white-space:pre-wrap;">{{ body_html|safe }}</div>
+  <h2 style="max-width:820px;margin:1rem auto .3rem;padding:0 1rem;">判決書全文（命中「{{ name }}」已黃底標記）</h2>
+  <div id="judgment-body">{{ body_html|safe }}</div>
+
+  <div id="jv-widget">
+    <span>🔍 <span id="jv-counter">0/{{ hit_count }}</span> 命中</span>
+    <button type="button" id="jv-next" title="下一個">▶</button>
+    <button type="button" id="jv-back" title="關閉分頁">← 返回</button>
+  </div>
+
+  <script>
+  (function(){
+    var hits = Array.prototype.slice.call(document.querySelectorAll('#judgment-body .vet-hl'));
+    var widget = document.getElementById('jv-widget');
+    var counter = document.getElementById('jv-counter');
+    var idx = -1;
+    if (hits.length > 0) {
+      widget.style.display = 'flex';
+      counter.textContent = '0/' + hits.length;
+    }
+    function go(n){
+      if (!hits.length) return;
+      if (idx >= 0) hits[idx].classList.remove('current');
+      idx = (n + hits.length) % hits.length;
+      hits[idx].classList.add('current');
+      hits[idx].scrollIntoView({behavior:'smooth', block:'center'});
+      counter.textContent = (idx + 1) + '/' + hits.length;
+    }
+    document.getElementById('jv-next').addEventListener('click', function(){ go(idx + 1); });
+    document.getElementById('jv-back').addEventListener('click', function(){
+      window.close();
+      // 若瀏覽器擋 window.close（非 script 開啟的分頁），提示自行關閉
+      setTimeout(function(){ alert('請自行關閉此分頁返回查詢結果。'); }, 300);
+    });
+    if (hits.length > 0) go(0);   // 自動跳到第一個命中
+  })();
+  </script>
 {% endif %}
 {% endblock %}
