@@ -30,7 +30,10 @@
 ## 使用者流程
 
 1. 查詢完成 → 司法院結果卡片。每張卡片按鈕順序：**`📖 站內檢視`（前）** → **`→ 開原判決書`（後）**。
-2. 點「站內檢視」→ `window.open` 開**新分頁** `GET /vetting/judgment?qid=<qid>&i=<index>`（原查詢結果頁不受影響）。
+2. 點「站內檢視」→ `window.open` 開**新分頁** `GET /vetting/judgment?u=<detail_url>`（原查詢結果頁不受影響）。
+   - **註**：`/submit` 回傳結果後即 `_del_state(qid)`（state 存 NPA session/jwt，一次性、刪除是刻意的安全設計），
+     所以 viewer 無法用 qid 反查；改由 client 傳回 `detail_url`（本就在 `d.judicial[i].detail_url`、指向公開司法院頁），
+     server 端**嚴格白名單驗證** host/path 後才抓（見「安全 §SSRF」）。
 3. 新分頁載入判決書全文（純文字、保留間距換行），命中人名黃底。
 4. 右下角浮動 widget：`🔍 k/N 命中`、`▶ 下一個`（捲到該命中置中、目前命中加外框、循環）、`← 返回`（關閉分頁）。
 
@@ -50,13 +53,12 @@
 ### 後端 `app_unified/vetting/`
 
 **新路由** `GET /vetting/judgment`（`@vetting_bp.route`，登入 + vetting feature gate，與現有 `/vetting/` 一致）
-- 參數：`qid`（查詢 state id）、`i`（第幾筆，int）。
-- 從既有 state（`_take_state`/peek，Redis 或 process dict，TTL 5 分）取 `judicial[i]` 的 `detail_url` 與查詢名字。
-  - **URL 來自 server 端 state、不吃 client 傳的網址 → 無 SSRF。**
-- state 過期/查無/index 越界 → 回友善錯誤頁（HTTP 200 + 提示「查詢已逾時，請重新查詢」，或 410）。
-- Lazy 抓：`make_session()` → `GET detail_url`（帶 `User-Agent` + `Referer=HOME_URL`，已驗證冷 session 即可）。
-  - 抓取失敗（連線/被擋）→ 友善錯誤頁。
-- 交給 `judicial.extract_judgment_text()` 抽內文純文字（保留換行）。
+- 參數：`u`（判決書 `detail_url`）、`name`（查詢名字，用於黃底比對；由 client 帶回，僅作字面比對、不進網址）。
+- **SSRF 白名單驗證**（`judicial.is_allowed_detail_url(u)`）：`urlparse(u)` 需 `scheme=='https'`
+  且 `netloc=='judgment.judicial.gov.tw'` 且 `path` 以 `/FJUD/data.aspx` 開頭；否則 `abort(400)`。
+- Lazy 抓：`make_session()` → `GET u`（帶 `User-Agent` + `Referer=HOME_URL`，已驗證冷 session 即可）。
+  - 抓取失敗（連線/被擋/非 200）→ 友善錯誤頁。
+- 交給 `judicial.extract_judgment_text(html)` 抽內文純文字（保留換行）。
 - 交給 `judicial.build_highlighted_judgment(text, name)`：兩段式比對 → 回 `(safe_html, hit_count)`。
 - `render_template("vetting/judgment.html", body_html=safe_html, name=name, hit_count=…)`。
 
@@ -78,9 +80,9 @@
 
 **`index.html`（改）**
 - 司法院卡片：在「→ 開原判決書」**之前**插入
-  `<button ... onclick="openJudgment('{{qid}}', idx)">📖 站內檢視</button>`
-  （需要把 `query_id` 帶進 renderResult；目前 `d` 有 `query_id`，forEach 用 index）。
-- `openJudgment(qid, i)` = `window.open('/vetting/judgment?qid='+encodeURIComponent(qid)+'&i='+i, '_blank')`。
+  `<button ... onclick="openJudgment(this.dataset.u)" data-u="<detail_url>">📖 站內檢視</button>`
+  （`r.detail_url` 已在 forEach 的 `r`；名字用頁面上的查詢名 `_name`/`document` 既有變數，見實作）。
+- `openJudgment(u)` = `window.open('/vetting/judgment?u='+encodeURIComponent(u)+'&name='+encodeURIComponent(name), '_blank')`。
 
 **`judgment.html`（新，繼承 base.html）**
 - 內容區：`<div style="white-space:pre-wrap; ...">{{ body_html|safe }}</div>`
@@ -94,9 +96,9 @@
 ## 資料流
 
 ```
-卡片[📖 站內檢視] --window.open--> GET /vetting/judgment?qid&i
-  → state 反查 detail_url + name (no SSRF)
-  → make_session().get(detail_url)               # lazy, cold session OK
+卡片[📖 站內檢視] --window.open--> GET /vetting/judgment?u=detail_url&name=名字
+  → is_allowed_detail_url(u)  host/path 白名單，否則 abort(400)   # SSRF guard
+  → make_session().get(u)                        # lazy, cold session OK
   → extract_judgment_text(html)                  # 純文字保留換行
   → build_highlighted_judgment(text, name)       # escape → 兩段式 → vet-hl spans
   → render judgment.html
@@ -106,9 +108,10 @@
 ## 安全
 
 - **XSS**：內文**全部 escape**，只注入自家固定字面量 `<span class="vet-hl" id="vhit-k">`；不保留任何外站標籤/屬性 → 無注入面。
-- **SSRF**：抓取的 `detail_url` 來自 server 端既有 state（由我們搜尋產生），不接受 client 傳入的任意 URL。
-  - 加保險：抓取前驗證 `detail_url` host == `judgment.judicial.gov.tw` 且 path 以 `/FJUD/` 開頭。
-- **權限**：路由沿用 vetting feature gate + 登入（與 `/vetting/` 相同）。
+- **SSRF**：因 `/submit` 後 state 已刪，`detail_url` 由 client 帶回（該 URL 本就在 client、指向公開司法院頁）。
+  抓取前用 `is_allowed_detail_url(u)` **嚴格白名單**：`scheme=='https'` 且 `netloc=='judgment.judicial.gov.tw'`
+  且 `path.startswith('/FJUD/data.aspx')`，不符 `abort(400)`。→ 無法被導去打內網/任意主機。
+- **權限**：路由沿用 vetting feature gate（`before_request` `_gate`）+ `@login_required`（與 `/vetting/` 相同）。
 
 ## 容量（[[feedback_capacity_check]]）
 
@@ -129,6 +132,7 @@
 
 ## 未決/實作時 recon
 
-- 判決書內文容器的實際 selector（`extract_judgment_text` 用）— 實作時抓 live 頁確認。
-- `window.close()` 在部分瀏覽器對非 script 開啟的分頁可能無效 → 用 `window.open` 開啟即可 close；備援顯示提示。
-- state TTL 5 分：若使用者看結果超過 5 分才點檢視，state 可能過期 → 友善錯誤頁提示重查（v1 接受；必要時之後延長 TTL）。
+- 判決書內文容器 selector（`extract_judgment_text` 用）— **已 recon 確認**：`div.jud_content`（`col-td jud_content`）
+  首選、`div#jud` 次選、`td.tab_content` 備援；三者既有 fixture `tests/fixtures/vetting/judicial_detail.html` 都有。
+- `window.close()` 對 `window.open` 開的分頁可 close；若瀏覽器擋則備援顯示「請自行關閉分頁」提示。
+- 因改用 URL 白名單、不依賴 state，**無 5 分過期問題**（使用者何時點檢視都能用）。
