@@ -112,9 +112,12 @@ def test_extract_judgment_text_from_detail_fixture():
     html = _read_fixture("judicial_detail.html")
     text = extract_judgment_text(html)
     assert "主文" in text                 # 內文容器有抓到
-    assert "<" not in text and ">" not in text  # 純文字、無標籤
+    assert re.search(r"</?[a-zA-Z]", text) is None  # 無 HTML 標籤洩漏（內文合法角括號如 <黑白賣客> 允許）
     assert "\n" in text                   # 保留換行
     assert len(text) > 300
+
+# 註：需 `import re` 於測試檔頂部（既有或本任務補上）。原始草案用 `"<" not in text`
+# 過嚴 — fixture 內文合法含 FB 社團名 `<黑白賣客>`，改測「無標籤洩漏」。
 ```
 
 - [ ] **Step 2: 跑測試確認失敗**
@@ -197,7 +200,8 @@ def test_highlight_fallback_surname_when_fully_masked():
 def test_highlight_is_xss_safe():
     text = '<script>alert(1)</script>王小明<img src=x onerror=alert(1)>'
     html, n = build_highlighted_judgment(text, "王小明")
-    assert "<script" not in html and "onerror" not in html and "<img" not in html
+    assert "<script" not in html and "<img" not in html          # 原始標籤未洩漏（已 escape）
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html           # 惡意 img 整段 escape 成 inert 文字，onerror 只是純文字非屬性
     assert "&lt;script&gt;" in html
     assert '<span class="vet-hl" id="vhit-0">王小明</span>' in html
     assert n == 1
