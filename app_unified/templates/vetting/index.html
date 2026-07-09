@@ -135,6 +135,13 @@ function escapeHtml(s) {
   });
 }
 
+function openJudgment(u) {
+  if (!u) return;
+  var url = '/vetting/judgment?u=' + encodeURIComponent(u)
+          + '&name=' + encodeURIComponent(_name || '');
+  window.open(url, '_blank');
+}
+
 // 安全解析回應：非 JSON（HTML 錯誤頁 / 429 限流 / 逾時）回 [status, null]，
 // 不再讓 r.json() 噴「unexpected token <」。
 function vetParse(r) {
@@ -297,8 +304,13 @@ function renderResult(d) {
       } else if (r.id_match === null && _id) {
         html += '<div style="font-size:.8rem; color:#aaa; margin-top:.2rem;">（此判決未顯示身分證，無法 ID 比對）</div>';
       }
-      html += '<div style="margin-top:.3rem;"><a href="' + escapeHtml(r.detail_url)
-            + '" target="_blank" rel="noopener" style="font-size:.85rem;">→ 開原判決書</a></div>';
+      html += '<div style="margin-top:.3rem; display:flex; gap:.8rem; flex-wrap:wrap;">'
+            + '<a href="#" data-u="' + escapeHtml(r.detail_url) + '"'
+            + ' onclick="openJudgment(this.getAttribute(\'data-u\')); return false;"'
+            + ' style="font-size:.85rem;">📖 站內檢視</a>'
+            + '<a href="' + escapeHtml(r.detail_url) + '" target="_blank" rel="noopener"'
+            + ' style="font-size:.85rem;">→ 開原判決書</a>'
+            + '</div>';
       // snippet 已由後端 _safe_snippet 白名單消毒（只留 <span class="vet-hl">），不可再 escapeHtml 否則黃底變純文字
       if (r.snippet) {
         html += '<div class="vet-snippet">' + r.snippet + '</div>';
