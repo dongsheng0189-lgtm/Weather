@@ -1031,11 +1031,16 @@ function doSave() {
 }
 
 // 確保筆記已建立（checklist 新增項目前會呼叫）
+// 併發去重：新筆記時雙擊「完成」/快速連續新增多個項目會同時呼叫，沒 guard
+// 會併發打兩次 POST /notes/api 建出重複筆記。共用一個 in-flight promise，
+// 建立中的第二個呼叫直接接同一個 promise，不再 POST。
+var _ensureNotePromise = null;
 function ensureNoteExists() {
   if (NOTE_ID) return Promise.resolve(NOTE_ID);
+  if (_ensureNotePromise) return _ensureNotePromise;
   var title = document.getElementById('title-input').value.trim() || '未命名筆記';
   var store = currentStore || null;
-  return fetch('/notes/api', {
+  var p = fetch('/notes/api', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
@@ -1066,6 +1071,11 @@ function ensureNoteExists() {
     }
     throw new Error(d.message || '儲存失敗');
   });
+  // settle 後清掉 in-flight 參照：成功時之後呼叫走 NOTE_ID 短路、失敗時可重試。
+  p.then(function() { _ensureNotePromise = null; },
+         function() { _ensureNotePromise = null; });
+  _ensureNotePromise = p;
+  return p;
 }
 
 function uploadPendingFiles() {

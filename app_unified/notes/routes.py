@@ -1895,6 +1895,15 @@ def upload_attachment_api():
             return jsonify({"status": "error", "message": "上傳中斷，請重試"}), 400
         raise
     if not note_id:
+        # 診斷：flaky「缺少 note_id」偶發、prod-only、本機無法重現、逐一讀碼三條上傳
+        # 路徑都堵住 null 窗口 → 記下上傳當下的原始 note_id 值（"null"/"undefined"/
+        # ""/"0" 等）+ item_id + user，下次再發即有實證釘死前端時序。form 已成功 parse
+        # （能走到這行代表 try 沒 raise），故此處再讀 raw 安全。
+        _f = request.files.get("file")
+        print(f"=== [note_id-missing] raw note_id={request.form.get('note_id')!r} "
+              f"item_id={request.form.get('item_id')!r} "
+              f"user={getattr(current_user, 'id', None)} "
+              f"filename={(_f.filename if _f else None)!r}", flush=True)
         return jsonify({"status": "error", "message": "缺少 note_id"}), 400
 
     if current_user.is_super_admin():
