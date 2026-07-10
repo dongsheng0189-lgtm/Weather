@@ -38,6 +38,31 @@ from extensions import db, login_manager, limiter, socketio
 from models import User
 
 
+def _safe_ddl(sql, label=""):
+    """在獨立 SAVEPOINT 內跑一句 schema 修復語句，讓單句失敗不會污染整批。
+
+    PostgreSQL 特性：同一個 transaction 裡任一句 SQL 出錯，整個 tx 立刻進入
+    aborted 狀態，之後每句都回 'current transaction is aborted, commands ignored'。
+    單純 try/except 只吞掉 Python 例外、卻沒 rollback，PG 端 tx 仍是 poisoned，
+    導致後面幾十句 DDL 全被連坐，最後 commit 一個 aborted tx = 整批 ROLLBACK。
+
+    這裡用 begin_nested()（SAVEPOINT）把每句隔離：失敗只回滾該句的 savepoint、
+    外層 tx 照常存活，批次可以繼續；成功的句子仍留在外層 tx，等最後一次 commit
+    一起落地。回傳 True=成功、False=已被吞掉的失敗（同時印診斷 log）。
+
+    注意：本機 dev SQLite 不會跑到呼叫端（被 `'postgresql' in URI` gate 住），
+    但 SQLite 也支援 SAVEPOINT，故本函式邏輯可用 SQLite 單元測試驗證。
+    """
+    tag = label or " ".join(sql.split())[:70]
+    try:
+        with db.session.begin_nested():
+            db.session.execute(db.text(sql))
+        return True
+    except Exception as e:  # noqa: BLE001 — schema 修復本就 best-effort
+        print(f"[schema-repair] skip: {tag} -> {type(e).__name__}: {e}", flush=True)
+        return False
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -143,357 +168,182 @@ def create_app():
             # 修復 PostgreSQL sequence（避免 duplicate key error）
             if 'postgresql' in app.config['SQLALCHEMY_DATABASE_URI']:
                 for table in ['notes', 'users', 'stores', 'note_logs', 'trusted_devices', 'user_logs']:
-                    try:
-                        db.session.execute(db.text(
-                            f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
-                            f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)"
-                        ))
-                    except Exception:
-                        pass
+                    _safe_ddl(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)"
+                    )
                 # notes.user_id 允許 NULL + FK ON DELETE SET NULL（刪除使用者保留筆記）
-                try:
-                    db.session.execute(db.text("ALTER TABLE notes ALTER COLUMN user_id DROP NOT NULL"))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE notes ALTER COLUMN user_id DROP NOT NULL")
                 # notes.author_name：建立當下的作者帳號快照
-                try:
-                    db.session.execute(db.text("ALTER TABLE notes ADD COLUMN IF NOT EXISTS author_name TEXT"))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE notes ADD COLUMN IF NOT EXISTS author_name TEXT")
                 # 回填現有筆記的 author_name（只處理尚未填的）
-                try:
-                    db.session.execute(db.text("""
-                        UPDATE notes SET author_name = users.username
-                        FROM users
-                        WHERE notes.user_id = users.id AND notes.author_name IS NULL
-                    """))
-                except Exception:
-                    pass
+                _safe_ddl("""
+                    UPDATE notes SET author_name = users.username
+                    FROM users
+                    WHERE notes.user_id = users.id AND notes.author_name IS NULL
+                """)
                 # trusted_devices: 加 client_uid 欄位，拿掉 fingerprint unique，加 client_uid 的 partial unique index
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE trusted_devices ADD COLUMN IF NOT EXISTS client_uid TEXT"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text("""
-                        DO $$
-                        BEGIN
-                            IF EXISTS (
-                                SELECT 1 FROM pg_constraint
-                                WHERE conname = 'trusted_devices_fingerprint_key'
-                            ) THEN
-                                ALTER TABLE trusted_devices DROP CONSTRAINT trusted_devices_fingerprint_key;
-                            END IF;
-                        END $$;
-                    """))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_trusted_devices_client_uid "
-                        "ON trusted_devices(client_uid) WHERE client_uid IS NOT NULL"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE trusted_devices ADD COLUMN IF NOT EXISTS client_uid TEXT")
+                _safe_ddl("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM pg_constraint
+                            WHERE conname = 'trusted_devices_fingerprint_key'
+                        ) THEN
+                            ALTER TABLE trusted_devices DROP CONSTRAINT trusted_devices_fingerprint_key;
+                        END IF;
+                    END $$;
+                """)
+                _safe_ddl(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_trusted_devices_client_uid "
+                    "ON trusted_devices(client_uid) WHERE client_uid IS NOT NULL"
+                )
                 # notes.note_type：區分一般筆記和確認表單
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS note_type TEXT NOT NULL DEFAULT 'note'"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl(
+                    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS note_type TEXT NOT NULL DEFAULT 'note'"
+                )
                 # note_attachments.checklist_item_id：附件可以綁定到確認表單項目
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE note_attachments ADD COLUMN IF NOT EXISTS checklist_item_id INTEGER "
-                        "REFERENCES checklist_items(id) ON DELETE CASCADE"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl(
+                    "ALTER TABLE note_attachments ADD COLUMN IF NOT EXISTS checklist_item_id INTEGER "
+                    "REFERENCES checklist_items(id) ON DELETE CASCADE"
+                )
                 # notes.locked_by / locked_at：編輯鎖
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS locked_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text("""
-                        DO $$
-                        BEGIN
-                            IF EXISTS (
-                                SELECT 1 FROM information_schema.table_constraints
-                                WHERE table_name='notes' AND constraint_name='notes_user_id_fkey'
-                            ) THEN
-                                ALTER TABLE notes DROP CONSTRAINT notes_user_id_fkey;
-                                ALTER TABLE notes ADD CONSTRAINT notes_user_id_fkey
-                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
-                            END IF;
-                        END $$;
-                    """))
-                except Exception:
-                    pass
+                _safe_ddl(
+                    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS locked_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("ALTER TABLE notes ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
+                _safe_ddl("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.table_constraints
+                            WHERE table_name='notes' AND constraint_name='notes_user_id_fkey'
+                        ) THEN
+                            ALTER TABLE notes DROP CONSTRAINT notes_user_id_fkey;
+                            ALTER TABLE notes ADD CONSTRAINT notes_user_id_fkey
+                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+                        END IF;
+                    END $$;
+                """)
                 # note_logs.user_id → ON DELETE SET NULL
-                try:
-                    db.session.execute(db.text("""
-                        DO $$
-                        BEGIN
-                            IF EXISTS (
-                                SELECT 1 FROM information_schema.table_constraints
-                                WHERE table_name='note_logs' AND constraint_name='note_logs_user_id_fkey'
-                            ) THEN
-                                ALTER TABLE note_logs DROP CONSTRAINT note_logs_user_id_fkey;
-                                ALTER TABLE note_logs ADD CONSTRAINT note_logs_user_id_fkey
-                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
-                            END IF;
-                        END $$;
-                    """))
-                except Exception:
-                    pass
+                _safe_ddl("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.table_constraints
+                            WHERE table_name='note_logs' AND constraint_name='note_logs_user_id_fkey'
+                        ) THEN
+                            ALTER TABLE note_logs DROP CONSTRAINT note_logs_user_id_fkey;
+                            ALTER TABLE note_logs ADD CONSTRAINT note_logs_user_id_fkey
+                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+                        END IF;
+                    END $$;
+                """)
                 # note_attachments.user_id：允許 NULL + ON DELETE SET NULL
-                try:
-                    db.session.execute(db.text("ALTER TABLE note_attachments ALTER COLUMN user_id DROP NOT NULL"))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text("""
-                        DO $$
-                        BEGIN
-                            IF EXISTS (
-                                SELECT 1 FROM information_schema.table_constraints
-                                WHERE table_name='note_attachments' AND constraint_name='note_attachments_user_id_fkey'
-                            ) THEN
-                                ALTER TABLE note_attachments DROP CONSTRAINT note_attachments_user_id_fkey;
-                                ALTER TABLE note_attachments ADD CONSTRAINT note_attachments_user_id_fkey
-                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
-                            END IF;
-                        END $$;
-                    """))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE note_attachments ALTER COLUMN user_id DROP NOT NULL")
+                _safe_ddl("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.table_constraints
+                            WHERE table_name='note_attachments' AND constraint_name='note_attachments_user_id_fkey'
+                        ) THEN
+                            ALTER TABLE note_attachments DROP CONSTRAINT note_attachments_user_id_fkey;
+                            ALTER TABLE note_attachments ADD CONSTRAINT note_attachments_user_id_fkey
+                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+                        END IF;
+                    END $$;
+                """)
                 # users.features：模組開關 JSON 陣列
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE users ADD COLUMN IF NOT EXISTS features TEXT NOT NULL DEFAULT '[\"notes\"]'"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS features TEXT NOT NULL DEFAULT '[\"notes\"]'"
+                )
                 # users.hidden_stores：每個 super_admin 個人隱藏店家 JSON（NULL=全可視）
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE users ADD COLUMN IF NOT EXISTS hidden_stores TEXT"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE users ADD COLUMN IF NOT EXISTS hidden_stores TEXT")
                 # 私人筆記三張表由 db.create_all() 自動建立（純新增，無需 ALTER）
                 # 但後續新增欄位需 ALTER：
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE private_checklist_items ADD COLUMN IF NOT EXISTS reminder_date DATE"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl(
+                    "ALTER TABLE private_checklist_items ADD COLUMN IF NOT EXISTS reminder_date DATE"
+                )
                 # 店務筆記 checklist_items.updated_at：依時間排序（新→舊）
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP")
                 # 既有資料 backfill：updated_at = created_at
-                try:
-                    db.session.execute(db.text(
-                        "UPDATE checklist_items SET updated_at = created_at WHERE updated_at IS NULL"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl("UPDATE checklist_items SET updated_at = created_at WHERE updated_at IS NULL")
                 # 之後設 NOT NULL（若可行；舊資料已補完）
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ALTER COLUMN updated_at SET NOT NULL"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE checklist_items ALTER COLUMN updated_at SET NOT NULL")
                 # 私人筆記 private_checklist_items.updated_at：依時間排序（新→舊）
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE private_checklist_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "UPDATE private_checklist_items SET updated_at = created_at WHERE updated_at IS NULL"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE private_checklist_items ALTER COLUMN updated_at SET NOT NULL"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE private_checklist_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP")
+                _safe_ddl("UPDATE private_checklist_items SET updated_at = created_at WHERE updated_at IS NULL")
+                _safe_ddl("ALTER TABLE private_checklist_items ALTER COLUMN updated_at SET NOT NULL")
                 # login_tokens.user_id → ON DELETE CASCADE（刪使用者連帶清 tokens）
-                try:
-                    db.session.execute(db.text("""
-                        DO $$
-                        BEGIN
-                            IF EXISTS (
-                                SELECT 1 FROM information_schema.table_constraints
-                                WHERE table_name='login_tokens' AND constraint_name='login_tokens_user_id_fkey'
-                            ) THEN
-                                ALTER TABLE login_tokens DROP CONSTRAINT login_tokens_user_id_fkey;
-                                ALTER TABLE login_tokens ADD CONSTRAINT login_tokens_user_id_fkey
-                                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-                            END IF;
-                        END $$;
-                    """))
-                except Exception:
-                    pass
+                _safe_ddl("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.table_constraints
+                            WHERE table_name='login_tokens' AND constraint_name='login_tokens_user_id_fkey'
+                        ) THEN
+                            ALTER TABLE login_tokens DROP CONSTRAINT login_tokens_user_id_fkey;
+                            ALTER TABLE login_tokens ADD CONSTRAINT login_tokens_user_id_fkey
+                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+                        END IF;
+                    END $$;
+                """)
 
                 # F2 (2026-05-25): checklist_items 加 item-level lock (locked_by + locked_at)
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS locked_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl(
+                    "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS locked_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP")
 
                 # F1 (2026-05-25): notes + checklist_items 加 soft delete (deleted_at + deleted_by)
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "CREATE INDEX IF NOT EXISTS ix_notes_deleted_at ON notes(deleted_at)"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "CREATE INDEX IF NOT EXISTS ix_checklist_items_deleted_at ON checklist_items(deleted_at)"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE notes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP")
+                _safe_ddl(
+                    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("CREATE INDEX IF NOT EXISTS ix_notes_deleted_at ON notes(deleted_at)")
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP")
+                _safe_ddl(
+                    "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("CREATE INDEX IF NOT EXISTS ix_checklist_items_deleted_at ON checklist_items(deleted_at)")
                 # F11: ChecklistItem authorship — creator + last-modifier snapshot
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS created_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS created_by_name TEXT"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"
-                    ))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_by_name TEXT"
-                    ))
-                except Exception:
-                    pass
+                _safe_ddl(
+                    "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS created_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS created_by_name TEXT")
+                _safe_ddl(
+                    "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS updated_by_name TEXT")
                 # 店務筆記到期提醒 reminder_date + 稽核快照（2026-06-15）— notes
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_date DATE"))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_by_name TEXT"))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_at TIMESTAMP"))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_date DATE")
+                _safe_ddl(
+                    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_by_name TEXT")
+                _safe_ddl("ALTER TABLE notes ADD COLUMN IF NOT EXISTS reminder_set_at TIMESTAMP")
                 # 同上 — checklist_items
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_date DATE"))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_by INTEGER "
-                        "REFERENCES users(id) ON DELETE SET NULL"))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_by_name TEXT"))
-                except Exception:
-                    pass
-                try:
-                    db.session.execute(db.text(
-                        "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_at TIMESTAMP"))
-                except Exception:
-                    pass
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_date DATE")
+                _safe_ddl(
+                    "ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_by INTEGER "
+                    "REFERENCES users(id) ON DELETE SET NULL"
+                )
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_by_name TEXT")
+                _safe_ddl("ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS reminder_set_at TIMESTAMP")
 
                 # 附件縮圖 thumb_key(2026-07-03）— 3 張 attachment 表
                 for _tbl in ("note_attachments", "private_attachments",
                              "announcement_attachments"):
-                    try:
-                        db.session.execute(db.text(
-                            f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS thumb_key TEXT"))
-                    except Exception:
-                        pass
+                    _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS thumb_key TEXT")
 
                 db.session.commit()
             print("=== db.create_all() OK ===", flush=True)
