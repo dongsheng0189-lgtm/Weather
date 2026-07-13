@@ -5,7 +5,7 @@
  *   - API calls (/notes/api/*, /weather/api/*): network-first
  *   - Navigation: network-first, fallback to cache
  */
-const CACHE_NAME = 'note-weather-v45';
+const CACHE_NAME = 'note-weather-v46';
 const STATIC_CACHE_URLS = [
   '/static/js/camera.js',
   '/static/js/voice_input.js',
@@ -42,6 +42,15 @@ async function networkFirst(request) {
 }
 
 self.addEventListener('fetch', event => {
+  // 只接管 GET。Cache API 本來就只存得了 GET，攔 POST/PUT/DELETE 一點好處都沒有，
+  // 卻讓每個帶 body 的請求都得經過 SW 再 fetch() 一次 —— request body 是 one-shot
+  // stream，SW 冷啟動 / 網路抖動時可能整個掉光，server 就收到一個 headers 和 cookie
+  // 都在、body 卻是空的請求。附件上傳撞到這個就變成「缺少 note_id」400。
+  // （2026-07-13 prod log 實錄：[note_id-missing] note_id/item_id/filename 全部 None，
+  //   user=250 還在 —— 只有「body 掉了、header 沒掉」能同時解釋這三件事。）
+  // 不呼叫 respondWith 直接 return = 完全交回瀏覽器原生處理，SW 不碰。
+  if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
 
   // API requests: network-first

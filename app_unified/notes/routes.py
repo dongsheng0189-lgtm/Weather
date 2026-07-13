@@ -1895,15 +1895,22 @@ def upload_attachment_api():
             return jsonify({"status": "error", "message": "上傳中斷，請重試"}), 400
         raise
     if not note_id:
-        # 診斷：flaky「缺少 note_id」偶發、prod-only、本機無法重現、逐一讀碼三條上傳
-        # 路徑都堵住 null 窗口 → 記下上傳當下的原始 note_id 值（"null"/"undefined"/
-        # ""/"0" 等）+ item_id + user，下次再發即有實證釘死前端時序。form 已成功 parse
-        # （能走到這行代表 try 沒 raise），故此處再讀 raw 安全。
+        # 診斷（2026-07-13 更新）：2026-07-10 埋的 log 撈到實證 —— note_id / item_id /
+        # filename **全是 None**（不是字串 "null"），代表整個 multipart body 是空的、
+        # 但 cookie 還在（user=250）。不是前端 NOTE_ID 沒填好，是 body 在送達前就掉了。
+        # 嫌犯：static/sw.js 的 fetch handler 沒過濾 method，連 POST 上傳都攔下來自己
+        # 重 fetch() 一次；request body 是 one-shot stream，SW 冷啟動/網路抖動時會掉光。
+        # 已修（SW 只接管 GET）。
+        # 這裡續記 content_type / content_length 當回歸哨兵：若修完還再發，且
+        # content_type 是 multipart（有 boundary）但 content_length=0 → body 是在更外層
+        # （Zeabur ingress / 瀏覽器重送）被抽掉的，不是 SW，換方向查。
         _f = request.files.get("file")
         print(f"=== [note_id-missing] raw note_id={request.form.get('note_id')!r} "
               f"item_id={request.form.get('item_id')!r} "
               f"user={getattr(current_user, 'id', None)} "
-              f"filename={(_f.filename if _f else None)!r}", flush=True)
+              f"filename={(_f.filename if _f else None)!r} "
+              f"content_type={request.content_type!r} "
+              f"content_length={request.content_length!r}", flush=True)
         return jsonify({"status": "error", "message": "缺少 note_id"}), 400
 
     if current_user.is_super_admin():
