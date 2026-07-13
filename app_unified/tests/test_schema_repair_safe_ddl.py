@@ -52,8 +52,11 @@ def test_schema_repair_block_has_no_bare_execute_wrapper():
     text = src.read_text(encoding="utf-8")
     assert "def _safe_ddl(" in text
     assert "begin_nested()" in text
-    # 全檔僅剩 _safe_ddl 內部那一句 db.session.execute
-    assert text.count("db.session.execute(") == 1, (
+    # 全檔只剩 helper 內部的 db.session.execute：_safe_ddl 1 句 +
+    # _acquire_schema_repair_lock 1 句（pg_try_advisory_xact_lock）。
+    # 數字變大 = 有人在修復區塊寫了裸 execute（繞過 SAVEPOINT 隔離）。
+    # 區塊內的精確檢查見 test_schema_repair_advisory_lock.py。
+    assert text.count("db.session.execute(") == 2, (
         "schema 修復區塊疑似有裸 db.session.execute（未走 _safe_ddl）"
     )
     # 修復區塊語句數量沒被意外砍掉（46 個 call site，drift 時提醒對齊 models.py）

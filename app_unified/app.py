@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import logging
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -36,6 +37,59 @@ from flask_login import current_user, logout_user
 from config import Config
 from extensions import db, login_manager, limiter, socketio
 from models import User
+
+
+# 開機 schema 修復的跨 worker 互斥鍵（任意常數，只要全 app 唯一即可）。
+_SCHEMA_REPAIR_LOCK_KEY = 823641001
+# 拿不到鎖時的重試次數/間隔：持鎖 worker 正常幾秒內跑完，這裡給它約 30 秒。
+# 超過就放棄修復（不是無限等）——等鎖的 worker 絕不能擋在開機把自己拖到 gunicorn
+# boot timeout 被砍。
+_SCHEMA_REPAIR_LOCK_TRIES = 30
+_SCHEMA_REPAIR_LOCK_SLEEP_S = 1
+
+
+def _acquire_schema_repair_lock():
+    """取得開機 schema 修復的互斥鎖。回傳 True=該我跑、False=跳過修復。
+
+    gunicorn 開 2 個 worker（gunicorn.conf.py），每個 worker 各跑一次 create_app()
+    → 各跑一次下面那批修復 DDL。兩邊同時 ALTER 同一張表時，各自要 AccessExclusiveLock
+    又互握前面拿到的鎖 → deadlock（2026-07-10 prod db log 07:05:45 實錄），PG 砍掉
+    其中一個 worker 的 tx。用 advisory lock 把這段序列化：同時只有一個 worker 進得去，
+    另一個等它做完再跑（那時 DDL 全是 IF NOT EXISTS，等於 no-op，秒過）。
+
+    用 **try** 版（pg_try_advisory_xact_lock）而不是會阻塞的 pg_advisory_xact_lock：
+    try 版立刻回 true/false、從不等待，所以「等待有上限」由這個 Python 迴圈保證，
+    不依賴 lock_timeout 對 advisory lock 生不生效（那條路 prod-only、本機驗不到，
+    賭它=拿開機路徑冒險）。
+
+    用 xact（transaction 級）版而不是 session 級版：鎖跟著外層 transaction 走，收尾
+    commit 或任何 rollback 都自動釋放。session 級的一旦漏解鎖，connection 回到 pool
+    後鎖還在，會把之後每次部署的 schema 修復永久卡死。
+
+    任何例外一律回 False（呼叫端跳過修復）而不是炸掉開機：修復本就 best-effort，
+    而且真正該跑的那個 worker 已經在跑了。
+    """
+    for attempt in range(_SCHEMA_REPAIR_LOCK_TRIES):
+        try:
+            got = db.session.execute(
+                db.text("SELECT pg_try_advisory_xact_lock(:key)"),
+                {"key": _SCHEMA_REPAIR_LOCK_KEY},
+            ).scalar()
+        except Exception as e:  # noqa: BLE001 — 拿不到鎖不該擋開機
+            print(f"[schema-repair] 跳過修復（advisory lock 查詢失敗）: "
+                  f"{type(e).__name__}: {e}", flush=True)
+            db.session.rollback()  # 清掉 aborted tx，後續 ORM query 才能用
+            return False
+        if got:
+            return True
+        # 另一個 worker 正在修：等它 commit（那一刻鎖自動釋放）再重試。
+        if attempt == 0:
+            print("[schema-repair] 另一個 worker 正在修復，等它做完…", flush=True)
+        time.sleep(_SCHEMA_REPAIR_LOCK_SLEEP_S)
+    print(f"[schema-repair] 跳過修復：等了 "
+          f"{_SCHEMA_REPAIR_LOCK_TRIES * _SCHEMA_REPAIR_LOCK_SLEEP_S}s 仍拿不到 advisory "
+          f"lock（持鎖 worker 疑似卡住）", flush=True)
+    return False
 
 
 def _safe_ddl(sql, label=""):
@@ -166,7 +220,9 @@ def create_app():
             print(f"=== DB URI: {app.config['SQLALCHEMY_DATABASE_URI'][:30]}... ===", flush=True)
             db.create_all()
             # 修復 PostgreSQL sequence（避免 duplicate key error）
-            if 'postgresql' in app.config['SQLALCHEMY_DATABASE_URI']:
+            # 這批修復 DDL 要跨 worker 序列化（見 _acquire_schema_repair_lock）：拿不到鎖
+            # 就整批跳過，交給持鎖那個 worker 落地（DDL 全 idempotent，誰跑都一樣）。
+            if 'postgresql' in app.config['SQLALCHEMY_DATABASE_URI'] and _acquire_schema_repair_lock():
                 for table in ['notes', 'users', 'stores', 'note_logs', 'trusted_devices', 'user_logs']:
                     _safe_ddl(
                         f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
