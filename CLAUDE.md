@@ -1,120 +1,178 @@
-# 專案紀錄
+# 專案紀錄（webapp）
+
+> 一個以 Flask 為核心的內部工具站台。**目前的主力是 `app_unified/`**（單體整合版，部署在
+> Zeabur）。`app1_notes/`、`app2_weather/` 是早期拆分版本，已被 `app_unified` 取代，僅保留參考。
 
 ## 專案結構
 
 ```
-/home/hirain0126/projects/webapp/
-├── app1_notes/        # App1：人臉辨識 + 隨身筆記
-├── app2_weather/      # App2：天氣查詢 + 人臉驗證
-├── shared/            # 共用資源
-├── venv/              # Python 虛擬環境
-├── start_app1.sh      # 啟動 app1
-├── start_app2.sh      # 啟動 app2
-└── CLAUDE.md          # 本紀錄
+webapp/
+├── app_unified/        # ★ 主力：整合版 Flask 單體（所有現行功能都在這）
+├── app1_notes/         # (legacy) 早期 App1：人臉辨識 + 隨身筆記
+├── app2_weather/       # (legacy) 早期 App2：天氣查詢 + 人臉驗證
+├── docs/superpowers/   # 設計文件：plans/（實作計畫）＋ specs/（設計規格），每個功能一份
+├── Dockerfile          # 部署用（build context = repo root，路徑帶 app_unified/ 前綴）
+├── zbpack.json         # Zeabur：use_dockerfile
+├── start_app1.sh       # (legacy) 啟動 app1
+├── start_app2.sh       # (legacy) 啟動 app2
+└── CLAUDE.md           # 本紀錄
 ```
 
-## App1 — 隨身筆記（port 5000）
+`docs/superpowers/` 之外，`app_unified/docs/superpowers/` 也有一份較新的 plans/specs（同一套工作流的產物）。
+新功能開發前先寫 spec（設計）→ plan（實作步驟），再動手。
 
-- Flask + SQLAlchemy + Flask-Login
-- 功能：帳號註冊/登入、4位數 PIN、人臉辨識登入、筆記 CRUD、AI 摘要（Anthropic）
-- 人臉辨識：`face_recognition` 套件
-- 管理員頁面：`/admin/dashboard`
-- 啟動：`bash start_app1.sh`
+---
 
-### 模組
-| 路徑 | 說明 |
+## app_unified — 整合版（本地 port 5000，prod 8080）
+
+- 技術棧：Flask 3 + Flask-Login + Flask-SQLAlchemy + Flask-Migrate + Flask-Limiter
+  + Flask-SocketIO（gevent async）+ SQLAlchemy
+- 資料庫：**prod = PostgreSQL（Zeabur）**，**本地開發 = SQLite**
+- 檔案儲存：Cloudflare R2（S3 相容，走 boto3）— 存人臉照與附件
+- AI 摘要：依序嘗試 **Gemini → Ollama → Anthropic**（任一有 key 就用）
+- 人臉辨識：`face_recognition`（dlib）— 用 `wheels/` 內預編 whl 安裝，不現場編譯
+- 語意搜尋 / 嵌入：`sentence-transformers` + `torch`（CPU-only build，無 CUDA）
+- 即時通訊：Redis + SocketIO（redis 釘 `<6`，6/7/8.x 在 gevent 下會壞 pubsub）
+- 欄位級加密：`crypto.py`，AES-256-GCM，`EncryptedText` SQLAlchemy type（DB 存密文、Python 端拿明文）
+
+### 應用入口與組態
+
+| 檔案 | 說明 |
 |------|------|
-| `app.py` | Flask 應用程式入口 |
-| `models.py` | User、Note、LoginToken |
-| `auth/routes.py` | 登入、註冊 |
-| `face/routes.py` | 人臉登錄（enroll）、驗證 |
-| `notes/routes.py` | 筆記 CRUD + AI 摘要 |
-| `admin/routes.py` | 管理員後台 |
-| `static/js/camera.js` | 鏡頭工具類別（Camera class） |
+| `app.py` | `create_app()` 工廠、藍圖註冊、開機 schema 修復（跨 worker advisory lock 序列化）|
+| `wsgi.py` / `wsgi_lazy.py` | gunicorn 進入點（`wsgi:app`）；含 `pkg_resources` shim 供 face_recognition |
+| `config.py` | `Config`；`FLASK_DEV_MODE=1` 時硬性要求 sqlite（防手滑連到 prod PG）|
+| `extensions.py` | `db` / `login_manager` / `limiter` / `socketio` 單例 |
+| `models.py` | 全部資料表（見下）|
+| `features.py` | 模組權限系統（`AVAILABLE_FEATURES` + 權限檢查 helper）|
+| `crypto.py` | 欄位級 AES-256-GCM 加解密 |
+| `gunicorn.conf.py` | prod：gevent worker、2 workers |
 
-## App2 — 天氣查詢（port 5001）
+### 模組（藍圖）
 
-- Flask + 天氣 API + 人臉驗證
-- 啟動：`bash start_app2.sh`
+| 藍圖 | URL | 功能 |
+|------|-----|------|
+| `auth` | `/` | 帳號註冊/登入、4 位數 PIN、trusted device |
+| `face` | | 人臉登錄（enroll）與驗證 |
+| `notes` | `/notes/` | 店務筆記 CRUD、checklist、附件、標籤、AI 摘要、公告 |
+| `mynotes` | `/mynotes/` | 私人筆記（只有建立者本人看得到）|
+| `vetting` | `/vetting/` | 人員背景查詢（多來源比對、判決書站內檢視、白名單電話）|
+| `icinfo` | | 證件資訊 chip / 居留證卡 |
+| `weather` | | 天氣查詢（OpenWeatherMap）|
+| `device` | | 信任裝置管理 |
+| `admin` | `/admin/` | 管理後台（使用者/角色/白名單/刪除）|
+| `dev` | `/dev` | **僅開發模式註冊**：免密登入選擇器，一鍵切換身分 |
 
-### 模組
-| 路徑 | 說明 |
-|------|------|
-| `app.py` | Flask 應用程式入口 |
-| `weather/routes.py` | 天氣查詢 |
-| `auth/routes.py` | 人臉驗證 |
-| `static/js/face_capture.js` | 鏡頭擷取（modal 用） |
+### 權限模型（`features.py`）
 
-## 鏡頭問題紀錄（HP Wide Vision 5MP / USB 2.0）
+- 種子 admin（`username == 'admin'`）永遠擁有全部模組（bypass）。
+- 其他所有人（含 super_admin/admin/user）**嚴格依 `user.features[]` 判斷**；角色本身不再自動授權。
+- 沒權限的路由直接 `abort(404)`（看不見即不存在）。
 
-### 裝置資訊
-- 裝置：HP Wide Vision 5MP Camera
-- 驅動：uvcvideo
-- 節點：`/dev/video1`（主要）, video2~video4（metadata）
-- 支援格式：
-  - MJPG：640x480、1280x720 等 @ 30fps
-  - YUYV：640x480、640x360 @ 30fps
+### 資料表（`models.py`）
 
-### 已知問題
-- **綠色畫面**：影像頂部約 10-20% 正常，下方 80% 呈純綠色
-- 原因：USB 2.0 頻寬不足，造成 MJPEG 幀在系統層面就已損壞（ffmpeg 直接抓也一樣）
-- 嘗試過但無效的方法：
-  - `frameRate: { exact: 15 }` → 直接黑/綠
-  - `resizeMode: 'none'` → 綠色畫面
-  - `sudo modprobe -r uvcvideo && sudo modprobe uvcvideo quirks=0x80` → 無效
-  - 降低 fps（min:10, ideal:20） → 部分改善但仍有問題
+`Store` · `User` · `Note` · `NoteLog` · `UserLog` · `ChecklistItem` · `NoteAttachment` ·
+`LoginToken` · `WeatherCache` · `TrustedDevice` · `PrivateNote` · `PrivateChecklistItem` ·
+`PrivateAttachment` · `IcinfoQueryLog`（表名 `v_aux_logs`）· `VettingQueryLog` ·
+`VettingWhitelistPhone` · `Announcement` · `AnnouncementAttachment` · `AiTask` ·
+`Tag` · `NoteTag` · `ChecklistItemTag`
 
-### 目前 camera.js 狀態
-```js
-// app1_notes/static/js/camera.js
-getUserMedia({ video: true, audio: false })
-// 之後加上 video.play() 明確呼叫
-```
+---
 
-### 解決方案 ✅
-**根本原因**：在 VMware 虛擬機器中，虛擬 EHCI (USB 2.0) 控制器無法正確處理 webcam 的 isochronous 傳輸，導致 MJPEG 幀被截斷（頂部正常，底部綠色）。
+## 本地開發（SQLite，port 5000）
 
-**修復步驟**：
-1. VMware → VM Settings → Hardware → USB Controller → 改為 **USB 3.1 (xHCI)**
-2. 重新連接鏡頭到 VM：VM → Removable Devices → HP Wide Vision → Connect
-3. 安裝 v4l2loopback：`sudo apt install v4l2loopback-dkms`
-4. 載入虛擬鏡頭：`sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="VirtualCam" exclusive_caps=1`
-5. 啟動 GStreamer 橋接（見下方啟動指令）
-6. 使用 **Google Chrome**（非 snap）開啟網頁
-
-**為何需要 VirtualCam 橋接**：snap Firefox/Chromium 的 XDG Portal 無法正確處理 PipeWire 鏡頭串流，所以改用 Google Chrome + v4l2loopback 繞過此問題。
-
-## 啟動指令
+> 前提：已建好 repo 根目錄的 `venv`（見下方「環境重建」）。
 
 ```bash
-# 1. 載入虛擬鏡頭（每次開機需執行）
-sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="VirtualCam" exclusive_caps=1
+cd app_unified
+bash scripts/run_local.sh        # 會 source .env.local → 首次自動 seed → 啟動
+```
 
-# 2. 啟動 GStreamer 橋接（每次開機需執行）
+- 設定檔：`app_unified/.env.local`（gitignore，不 commit）。`FLASK_DEV_MODE=1` + `DATABASE_URL=sqlite:///./instance/dev.db`。
+- 首次啟動會跑 `scripts/seed_local.py` 建假資料（idempotent；刪掉 `instance/dev.db` 可重 seed）。
+- 開發登入選擇器：<http://localhost:5000/dev>（免密切換身分）。
+- `run_local.sh` 會自動殺掉佔用 5000 的舊 process。
+
+需要的 env（`.env.local` 已備好）：`FLASK_DEV_MODE`、`DATABASE_URL`（sqlite）、`SECRET_KEY`、
+`DB_ENCRYPTION_KEY`（AES-256 urlsafe base64 的 32 bytes；產生方式：
+`python -c "from crypto import generate_key; print(generate_key())"`）。AI/R2/天氣的 key 本機可留空、功能自動降級。
+
+### 測試
+
+```bash
+cd app_unified
+../venv/bin/python -m pytest        # tests/ 下數十個測試（見 .github/workflows/test.yml）
+```
+
+---
+
+## 環境重建（換新機 / 系統重灌後）
+
+**重點：專案綁 Python 3.12**（prod base = `python:3.12-slim`；`wheels/` 內 dlib 是 `cp312`
+專用；torch 釘 `2.12.0+cpu`）。系統預設的 Python 3.14 **不相容**，務必另裝 3.12。
+
+1. **裝 Python 3.12**（Ubuntu 無 sudo 免密時，二選一）
+   - 有 sudo：`sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.12 python3.12-venv python3.12-dev`
+   - 免 sudo：裝 `uv`（`curl -LsSf https://astral.sh/uv/install.sh | sh`）→ `uv python install 3.12`
+2. **native 執行庫**（dlib/face_recognition/torch import 需要）：
+   `sudo apt install -y libgomp1 libopenblas0 liblapack3`（對照 `Dockerfile`）
+3. **建 venv（放 repo 根目錄 `webapp/venv`，`run_local.sh` 寫死找這裡）**
+   ```bash
+   python3.12 -m venv venv          # 或：uv venv --python 3.12 venv
+   ./venv/bin/pip install --upgrade pip setuptools wheel
+   ```
+4. **裝預編 wheels（人臉，不現場編譯）＋ 主依賴**
+   ```bash
+   ./venv/bin/pip install --no-deps app_unified/wheels/*.whl   # dlib + face_recognition_models
+   ./venv/bin/pip install face_recognition                      # 純 python，故意不入 requirements
+   ./venv/bin/pip install -r app_unified/requirements.txt       # 已釘版+hash（含 torch CPU、sentence-transformers…約數 GB）
+   ```
+5. **設定＋啟動**：`.env.local` 已備好 →
+   `cd app_unified && bash scripts/run_local.sh`
+
+> 依賴鎖：改依賴只動 `requirements.in`，再跑 `bash app_unified/scripts/lock-deps.sh` 重新產生
+> `requirements.txt`（CI `deps-lock.yml` 會擋 drift，兩個檔都要 commit）。
+
+---
+
+## 部署（Zeabur）
+
+- `zbpack.json` → `use_dockerfile: true`，用根目錄 `Dockerfile`（build context = repo root，路徑帶 `app_unified/` 前綴）。
+- `Dockerfile.base`（`app_unified/`）預裝重依賴＋wheels，產出 base image（CI `docker-base.yml` 在 requirements/wheels 變動時重建）；`Dockerfile` 疊上程式碼。
+- 啟動：`gunicorn -c gunicorn.conf.py wsgi:app`，`EXPOSE 8080`。
+- 開機時每個 worker 各跑一次 schema 修復 DDL；用 PG advisory lock（key `823641001`）序列化避免跨 worker deadlock（2026-07-10 prod 實錄過）。
+- prod 環境變數在 Zeabur dashboard 設定：`DATABASE_URL`（PG）、`SECRET_KEY`、`DB_ENCRYPTION_KEY`、
+  R2 憑證、AI keys、`RATELIMIT_STORAGE_URL`（Redis）、`ALLOWED_ORIGINS`、`SESSION_COOKIE_SECURE=true`。
+- 日誌：容器內另寫一份 `/tmp/app.log`（10MB rotate ×2），因 Zeabur log viewer 對此 service 曾卡 stale。
+- 遷移工具：`migrate_sqlite_to_postgres.py`、`migrate_encrypt_fields.py`、`migrations/`（Flask-Migrate）。
+
+## CI（`.github/workflows/`）
+
+| workflow | 觸發 | 作用 |
+|----------|------|------|
+| `test.yml` | push/PR | 跑 `pytest` |
+| `deps-lock.yml` | `requirements.*` 變動 | 檢查 `requirements.txt` 是否與 `.in` 同步（drift 就 fail）|
+| `docker-base.yml` | requirements/wheels/Dockerfile.base 變動 | 重建 base image 推到 ghcr |
+| `docker.yml` | push | 建/推應用 image |
+
+---
+
+## Legacy：app1_notes / app2_weather（已被 app_unified 取代）
+
+早期把功能拆成兩個獨立 Flask app（App1 筆記 port 5000、App2 天氣 port 5001），用
+`start_app1.sh` / `start_app2.sh` 啟動。功能與模組已整併進 `app_unified`。除非要對照舊行為，
+一般開發都在 `app_unified`。
+
+### 鏡頭問題紀錄（HP Wide Vision 5MP / VMware，仍具參考價值）
+
+- 症狀：影像上方正常、下方 80% 純綠 → USB 2.0 頻寬不足致 MJPEG 幀損壞。
+- 解法：VMware USB 控制器改 **USB 3.1 (xHCI)** → 裝 `v4l2loopback` → GStreamer 橋接出 `/dev/video10`
+  → 用 **Google Chrome（非 snap）** 開啟（snap 瀏覽器的 XDG Portal 無法正確處理 PipeWire 鏡頭串流）。
+
+```bash
+sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="VirtualCam" exclusive_caps=1
 nohup gst-launch-1.0 v4l2src device=/dev/video1 io-mode=2 \
   ! image/jpeg,width=640,height=480,framerate=30/1 \
   ! avdec_mjpeg ! videoconvert ! video/x-raw,format=YUY2 \
   ! v4l2sink device=/dev/video10 sync=false > /tmp/gst_bridge.log 2>&1 &
-
-# 3. 啟動兩個 app
-cd /home/hirain0126/projects/webapp
-bash start_app1.sh &   # http://localhost:5000
-bash start_app2.sh &   # http://localhost:5001
-
-# 4. 用 Google Chrome 開啟（非 snap Firefox/Chromium）
-
-# 強制關閉 port
-fuser -k 5000/tcp 5001/tcp
 ```
-
-## Dependencies
-
-| 套件 | 用途 |
-|------|------|
-| flask | Web 框架 |
-| flask-login | 登入管理 |
-| flask-sqlalchemy | ORM |
-| face_recognition | 人臉辨識 |
-| anthropic | AI 摘要（Claude API） |
-| requests | 天氣 API 呼叫 |
-| python-dotenv | 環境變數 |

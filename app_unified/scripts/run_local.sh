@@ -25,9 +25,10 @@ case "${DATABASE_URL:-}" in
     exit 1 ;;
 esac
 
-VENV_PY="/home/hirain0126/projects/webapp/venv/bin/python"
+# venv 位於 repo 根目錄（app_unified 的上一層）。避免寫死絕對路徑，換機器才不會壞。
+VENV_PY="$(cd "$HERE/.." && pwd)/venv/bin/python"
 if [ ! -x "$VENV_PY" ]; then
-  echo "✗ venv missing at $VENV_PY" >&2
+  echo "✗ venv missing at $VENV_PY — 先建立 venv（見 CLAUDE.md 環境重建）" >&2
   exit 1
 fi
 
