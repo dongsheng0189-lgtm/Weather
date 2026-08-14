@@ -198,6 +198,19 @@ monitor service：`DATABASE_URL`（同 app-unified 的 PG）、`MONITOR_PASSWORD
 app-unified 端：`MONITOR_INGEST_URL`（monitor 內網 hostname）、`MONITOR_INGEST_TOKEN`（同值）、
 `HUB_BLOCK_THRESHOLD`（預設 5 秒）。
 
+> **內網 hostname 是 Zeabur 的服務 ID，不是介面上的顯示名稱。**
+> 形如 `service-<24位十六進位>`，例如 `http://service-xxxxxxxx:8080/ingest`。
+> `monitor`、`wnote` 這類自訂名稱**解析不出來**。查法：進 app-unified 的指令 shell 跑
+> `cat /etc/resolv.conf` 看 search 網域，再從對方 pod 名稱取 `service-` 開頭那段
+> （pod 名是 `service-<id>-<replicaset>-<隨機碼>`）。
+>
+> ⚠ **monitor service 若被刪除重建，ID 會變，ingest 會「靜默」失效** ——
+> `ship_event` 設計成絕不拋例外，失敗只回 `False`，不會有任何告警。
+> 重建後務必重測：
+> ```
+> python3 -c "import sys;sys.path.insert(0,'/app');import monitor_ship;print(monitor_ship.ship_event('hub_block','驗證','(test)'))"
+> ```
+
 > 本機臨時探測用 `app_unified/scripts/probe_outage.py`（同樣的分層判定，跑在自己電腦上，
 > 適合 monitor 還沒上線、或要一個 Zeabur 之外的視角時）。
 
