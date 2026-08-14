@@ -39,6 +39,10 @@ from extensions import db, login_manager, limiter, socketio
 from models import User
 
 
+# 本 worker process 的啟動時刻（模組 import 時間 ≈ worker 開始跑的時間）。
+# /healthz 用它算 uptime，讓外部探針分辨「卡住」與「被重啟」。
+_PROC_START = time.time()
+
 # 開機 schema 修復的跨 worker 互斥鍵（任意常數，只要全 app 唯一即可）。
 _SCHEMA_REPAIR_LOCK_KEY = 823641001
 # 拿不到鎖時的重試次數/間隔：持鎖 worker 正常幾秒內跑完，這裡給它約 30 秒。
@@ -592,7 +596,10 @@ def create_app():
 
     @app.route("/healthz")
     def healthz():
-        return "ok", 200
+        # 回 pid + 開機秒數：外部探針每次取樣都看得到,worker 一旦被 SIGKILL 重啟
+        # pid 就會變。少了這個,「worker 卡住」和「worker 重開」從外面看完全一樣。
+        return jsonify(status="ok", pid=os.getpid(),
+                       uptime_s=round(time.time() - _PROC_START, 1)), 200
 
     @app.route("/")
     def index():
