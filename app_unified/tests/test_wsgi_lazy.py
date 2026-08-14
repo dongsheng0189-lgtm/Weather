@@ -1,3 +1,4 @@
+import re
 """LazyAppProxy /healthz fast-path: ensures readiness probe survives slow create_app.
 
 Background: cold start runs db.create_all + ~30 PG migrations + heavy blueprint
@@ -180,3 +181,55 @@ def test_concurrent_healthz_during_slow_init():
         assert r["body"] == b"ok"
 
     factory_release.set()
+
+
+def test_real_thread_returns_immediately_when_hub_has_greenlets():
+    """冷啟動路徑：_real_thread 必須**立刻**返回，init 才能在背景跑。
+
+    `get_original("threading","Thread")` 拿回原始 class 仍不安全：它的 start()
+    會等新執行緒 set `self._started`，而那個 Event 在 monkey.patch_all() 後已是
+    gevent 版本。真 OS thread 去 set 主 hub 的 gevent 物件，喚醒不會即時發生 ——
+    實測 start() 會一路等到目標執行緒跑完才返回（2026-08-14）。
+
+    後果不是崩潰而是更難察覺的：LazyAppProxy 的背景 init 變成同步，
+    「cold start 期間 /healthz 仍可回應」這個設計整個失效 → readiness probe
+    逾時 → pod restart loop（正是 wsgi_lazy 當初要解決的問題）。
+
+    目前 prod 沒中，只因 LazyAppProxy 建立在 wsgi.py import 時、那時 hub 上還
+    沒有其他 greenlet —— 那是運氣，不是安全。
+
+    在子行程執行：monkey.patch_all() 會汙染整個測試 session。
+    """
+    import os
+    import subprocess
+    import sys
+
+    script = """
+from gevent import monkey; monkey.patch_all()
+import sys, time; sys.path.insert(0, %r)
+import gevent
+from gevent.monkey import get_original
+import wsgi_lazy
+
+running = {"go": True}
+def busy():
+    while running["go"]:
+        gevent.sleep(0.01)
+gevent.spawn(busy)          # hub 上有活的 greenlet —— 觸發條件
+gevent.sleep(0.05)
+
+t0 = time.monotonic()
+wsgi_lazy._real_thread(lambda: get_original("time", "sleep")(10))
+elapsed = time.monotonic() - t0
+running["go"] = False
+print("ELAPSED=%%.2f" %% elapsed)
+""" % os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    r = subprocess.run([sys.executable, "-c", script],
+                       capture_output=True, text=True, timeout=60)
+    m = re.search(r"ELAPSED=([\d.]+)", r.stdout)
+    assert m, f"子行程沒跑完。stdout={r.stdout!r} stderr={r.stderr[-1500:]!r}"
+    elapsed = float(m.group(1))
+    assert elapsed < 2.0, (
+        f"_real_thread 花了 {elapsed:.2f}s 才返回（目標執行緒 sleep 10s）—— "
+        f"它在等執行緒跑完，背景 init 變成同步了")

@@ -16,6 +16,7 @@ runtime hangs and led to the 2026-05-09 20:00 incident (10+ min outage waiting
 for gunicorn timeout=600 to SIGKILL the worker).
 """
 import threading
+import traceback
 
 # How long non-/healthz requests / attribute access wait for init to finish
 # before failing. Init shouldn't take this long — but if it does, fail fast
@@ -28,17 +29,35 @@ def _real_thread(target):
 
     Under monkey.patch_all(), threading.Thread is replaced with a greenlet wrapper
     that runs on the hub — heavy CPU work in the wrapped target would block the
-    hub and starve /healthz. gevent.monkey.get_original() retrieves the original
-    pre-patched Thread class so we get a real OS thread regardless of patch state.
+    hub and starve /healthz. So we need a genuine OS thread.
+
+    But `get_original("threading", "Thread")` is NOT enough: that class's `start()`
+    waits on `self._started`, a `threading.Event` — and Event IS monkey-patched to
+    gevent's. The real OS thread setting it never wakes the main greenlet promptly,
+    so `start()` blocks until the target *finishes* (measured: 10.01s for a 10s
+    target, 2026-08-14). That turns this "background" init into a synchronous call
+    and defeats the whole point of the lazy proxy — /healthz would go unanswered
+    during cold start, exactly the readiness-probe restart loop this module exists
+    to prevent.
+
+    `_thread.start_new_thread` has no Event handshake: it creates the OS thread and
+    returns immediately.
     """
+    def _guarded():
+        try:
+            target()
+        except BaseException:
+            # A bare thread has no default excepthook — dying silently here would
+            # leave the proxy waiting on an event that never gets set.
+            traceback.print_exc()
+
     try:
         from gevent.monkey import get_original
-        Thread = get_original("threading", "Thread")
-    except ImportError:
-        Thread = threading.Thread
-    t = Thread(target=target, daemon=True)
-    t.start()
-    return t
+        start_new_thread = get_original("_thread", "start_new_thread")
+    except (ImportError, AttributeError):
+        import _thread
+        start_new_thread = _thread.start_new_thread
+    return start_new_thread(_guarded, ())
 
 
 class LazyAppProxy:
