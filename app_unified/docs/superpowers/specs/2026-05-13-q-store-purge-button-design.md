@@ -263,7 +263,7 @@ DB 已 commit、不 rollback。R2 失敗只在 response 回報、UserLog 也會�
 **無新增**。R2 credentials 既有 env var 已涵蓋（`R2_ENDPOINT_URL` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET_NAME`）。
 
 ### 9.4 部署後驗證
-1. Prod 進 `https://app-unified-new.zeabur.app/notes/?store=Q`（用 root_admin 帳號）
+1. Prod 進 `https://<prod 網域>/notes/?store=Q`（用 root_admin 帳號）
 2. 確認頂部出現紅色「🗑️ 清除 Q 店全部筆記」按鈕
 3. 按下 → 預覽彈窗顯示「271 筆 + 43 附件」(或當下實際數字)
 4. 輸入 `Q` → 按「永久刪除」

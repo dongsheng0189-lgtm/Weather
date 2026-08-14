@@ -561,7 +561,7 @@ Zeabur app 服務 → Redeploy（image tag `:latest`）。
 
 - [ ] **Step 5: Prod 實機驗證**
 
-開 prod URL `https://app-unified-new.zeabur.app/weather` → 重複情境 1, 2, 3, 6（情境 4 模擬 offline 不好做、可以略；情境 5 跨城市可選做）。
+開 prod URL `https://<prod 網域>/weather` → 重複情境 1, 2, 3, 6（情境 4 模擬 offline 不好做、可以略；情境 5 跨城市可選做）。
 
 Expected: 跟本機行為一致、無 console error。
 
