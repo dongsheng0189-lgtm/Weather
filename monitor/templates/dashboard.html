@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8"><title>monitor</title>
+<style>
+body{font-family:system-ui;margin:1.5rem;max-width:76rem}
+table{border-collapse:collapse;width:100%;font-size:.85rem;margin-bottom:2rem}
+th,td{border:1px solid #ddd;padding:.3rem .5rem;text-align:left}
+th{background:#f4f4f4}
+.bad{background:#ffecec}.warn{background:#fff8e1}
+pre{white-space:pre-wrap;font-size:.75rem;background:#f8f8f8;padding:.5rem;
+    max-height:22rem;overflow:auto}
+.sum{font-size:1.05rem;margin-bottom:1rem}
+h2{margin-top:2rem}
+</style>
+<h1>monitor — 最近 {{ hours }} 小時</h1>
+<p class="sum">
+取樣 {{ total }} 筆，異常 <strong>{{ bad_total }}</strong> 筆
+{% if counts %}（{% for k, v in counts.items() %}{{ k }}×{{ v }} {% endfor %}）{% endif %}
+· <a href="?hours=6">6h</a>
+· <a href="?hours=24">24h</a>
+· <a href="?hours=72">72h</a>
+· <a href="/logout">登出</a>
+</p>
+
+{% if restarts %}
+<h2>worker 重啟 {{ restarts|length }} 次</h2>
+<p>pid 變動代表上一個 worker 沒了。緊接在 ttfb_hang 之後出現，即為「卡死 → 被 SIGKILL → 恢復」。</p>
+<table>
+<tr><th>時間</th><th>target</th><th>pid</th></tr>
+{% for r in restarts %}
+<tr class="warn"><td>{{ r.ts.astimezone(tw).strftime('%m-%d %H:%M:%S') }}</td>
+<td>{{ r.target }}</td><td>{{ r.old_pid }} → {{ r.new_pid }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<h2>診斷事件（{{ events|length }}）</h2>
+{% if not events %}<p>無。</p>{% endif %}
+{% for e in events %}
+<div>
+<strong>{{ e.ts.astimezone(tw).strftime('%m-%d %H:%M:%S') }}</strong>
+[{{ e.kind }}] {{ e.summary }}
+{% if e.detail %}<pre>{{ e.detail }}</pre>{% endif %}
+</div>
+{% endfor %}
+
+<h2>探測取樣（最近 {{ samples|length }} 筆）</h2>
+<table>
+<tr><th>時間</th><th>target</th><th>判定</th><th>code</th>
+<th>conn</th><th>tls</th><th>ttfb</th><th>total</th><th>pid</th><th>err</th></tr>
+{% for s in samples %}
+<tr class="{% if s.verdict not in ('ok','slow') %}bad{% elif s.verdict=='slow' %}warn{% endif %}">
+<td>{{ s.ts.astimezone(tw).strftime('%m-%d %H:%M:%S') }}</td>
+<td>{{ s.target }}</td><td>{{ s.verdict }}</td><td>{{ s.code or '' }}</td>
+<td>{{ s.t_conn or '' }}</td><td>{{ s.t_tls or '' }}</td>
+<td>{{ s.t_ttfb or '' }}</td><td>{{ s.t_total or '' }}</td>
+<td>{{ s.app_pid or '' }}</td><td>{{ s.err or '' }}</td></tr>
+{% endfor %}
+</table>

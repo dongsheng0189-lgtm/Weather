@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8"><title>monitor</title>
+<style>body{font-family:system-ui;max-width:24rem;margin:6rem auto}
+input,button{font-size:1rem;padding:.5rem;width:100%;box-sizing:border-box}
+button{margin-top:.5rem}
+.err{color:#c00}</style>
+<h1>monitor</h1>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+<form method="post">
+  <input type="password" name="password" placeholder="密碼" autofocus>
+  <button type="submit">登入</button>
+</form>
