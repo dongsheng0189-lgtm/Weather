@@ -187,7 +187,9 @@ def verify():
         async_result = _face_executor.spawn(_do_face_encode, img_data)
         submitted_encoding = async_result.get(timeout=15)
     except Exception as e:
-        logger.warning("verify: encode exception: %s", e)
+        # 記型別與完整堆疊：只印 str(e) 時,無訊息的例外會留下「encode exception: 」
+        # 這種空白行,完全查不出原因(2026-08-14 prod 實際踩到)。
+        logger.exception("verify: encode exception: %s: %s", type(e).__name__, e)
         submitted_encoding = None
 
     if submitted_encoding is None:
@@ -350,5 +352,6 @@ def _verify_face(user: User, image_b64: str):
         logger.warning("_verify_face: user=%s match=%s confidence=%.3f", user.username, match, confidence)
         return match, confidence
     except Exception as e:
-        logger.warning("_verify_face exception: user=%s error=%s", user.username, e)
+        logger.exception("_verify_face exception: user=%s %s: %s",
+                         user.username, type(e).__name__, e)
         return False, 0.0
