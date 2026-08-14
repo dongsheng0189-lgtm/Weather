@@ -38,6 +38,15 @@ def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     if not url:
         raise RuntimeError("DATABASE_URL 未設定")
+    # Zeabur 的 ${VAR} 引用只在「該 service 作用域內有那個變數」時才會展開。
+    # 把 app-unified 的連線字串整串複製過來時，裡面的引用不會被解析，會原封
+    # 不動變成字面值 —— SQLAlchemy 只會丟出 "invalid literal for int()" 這種
+    # 看不出原因的錯（2026-08-14 建 monitor 時實際踩到）。這裡先擋下來講清楚。
+    if "${" in url:
+        raise RuntimeError(
+            f"DATABASE_URL 含有未展開的變數引用：{url!r}\n"
+            "請到 Postgres service 複製「已展開」的完整連線字串"
+            "（host/port 是實際值、沒有 ${...}），而不是從別的 service 複製。")
     # Zeabur 給的是 postgres://，SQLAlchemy 2.x 只認 postgresql://
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
