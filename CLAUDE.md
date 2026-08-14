@@ -8,6 +8,7 @@
 ```
 webapp/
 ├── app_unified/        # ★ 主力：整合版 Flask 單體（所有現行功能都在這）
+├── monitor/            # 取證用獨立 service：外部探測 + 收 app-unified 的 hub 阻塞事件
 ├── app1_notes/         # (legacy) 早期 App1：人臉辨識 + 隨身筆記
 ├── app2_weather/       # (legacy) 早期 App2：天氣查詢 + 人臉驗證
 ├── docs/superpowers/   # 設計文件：plans/（實作計畫）＋ specs/（設計規格），每個功能一份
@@ -146,6 +147,62 @@ cd app_unified
 - 日誌：容器內另寫一份 `/tmp/app.log`（10MB rotate ×2），因 Zeabur log viewer 對此 service 曾卡 stale。
 - 遷移工具：`migrate_sqlite_to_postgres.py`、`migrate_encrypt_fields.py`、`migrations/`（Flask-Migrate）。
 
+---
+
+## monitor — 取證用獨立 service
+
+尖峰時段連不上卻查不到證據（`/tmp/app.log` 隨容器重啟清空、Zeabur log viewer 卡 stale），
+所以另開一個**獨立 container** 收證據。完整設計見
+`docs/superpowers/specs/2026-05-08-monitor-service-design.md`（本版是其縮減實作，
+計畫在 `docs/superpowers/plans/2026-08-14-minimal-monitor-service.md`）。
+
+- 技術棧：Flask + Flask-SQLAlchemy + gunicorn **sync worker、`workers=1`**
+  （多 worker 會各跑一份探測迴圈 → 取樣重複）。**不用 gevent、不 monkey patch。**
+- 儲存：寫 app-unified 既有的 PG，兩張 `mon_` 前綴表（`mon_probe_samples`、`mon_events`）
+- 與 `app_unified/` **0 cross-import**；Docker build context = `monitor/`，必須自給自足
+
+| 路由 | 用途 |
+|------|------|
+| `/` | 密碼保護的檢視頁：異常摘要、worker 重啟、事件、取樣 |
+| `/ingest` | 收 app-unified 推來的診斷事件（Bearer token）|
+| `/healthz` | 健康檢查 |
+
+**兩條證據線**：探測取樣回答「壞在哪一層」（DNS / TCP / TLS / app 不回應 / 5xx）；
+診斷事件回答「是什麼卡住它」（阻塞秒數 + 當下堆疊）。
+
+**`PROBE_PUBLIC_URL` 不可省略**：只探內網 origin 時，DNS / Cloudflare 邊緣故障會被回報成
+「一切正常」，而使用者正連不上。
+
+**`/ingest` 只收 `kind="hub_block"` 白名單事件**，資料結構上不含個資，因此不做欄位加密。
+日後要擴大收一般 app log，**必須先補 `EncryptedText`**。
+
+### app-unified 端的配套（`hub_watchdog.py` + `monitor_ship.py`）
+
+`hub_watchdog` 用真 OS thread 監看 greenlet 心跳，hub 被同步工作卡住超過門檻就抓堆疊並
+當場推給 monitor。**hub 卡住時任何 greenlet 都跑不動，等恢復再上報就太遲**（gunicorn
+`timeout=60` 會先 SIGKILL worker）。因此這條路徑上有三個不可違反的規則，都有測試守著：
+
+1. 檢查迴圈用 `get_original("time","sleep")` — 被 patch 的 `time.sleep` 會讓真 OS thread
+   等一個它沒有的 hub，迴圈永遠不前進、監控靜靜失效。
+2. 建執行緒用 `_thread.start_new_thread` — 連 `get_original` 的 `threading.Thread` 都不行，
+   它的 `start()` 會等一個已被 patch 成 gevent 版本的 Event，跨執行緒 set 會隨機掛死。
+3. 上報用 `get_original` 的 socket/getaddrinfo，且**只走內網明文 HTTP**（避開同樣被 patch
+   的 `ssl`）。
+
+### 環境變數
+
+monitor service：`DATABASE_URL`（同 app-unified 的 PG）、`MONITOR_PASSWORD`、
+`MONITOR_INGEST_TOKEN`、`SECRET_KEY`、`PROBE_PUBLIC_URL`、`PROBE_ORIGIN_URL`、
+`PROBE_INTERVAL_SECONDS`、`RETENTION_DAYS`。
+
+app-unified 端：`MONITOR_INGEST_URL`（monitor 內網 hostname）、`MONITOR_INGEST_TOKEN`（同值）、
+`HUB_BLOCK_THRESHOLD`（預設 5 秒）。
+
+> 本機臨時探測用 `app_unified/scripts/probe_outage.py`（同樣的分層判定，跑在自己電腦上，
+> 適合 monitor 還沒上線、或要一個 Zeabur 之外的視角時）。
+
+---
+
 ## CI（`.github/workflows/`）
 
 | workflow | 觸發 | 作用 |
@@ -154,6 +211,9 @@ cd app_unified
 | `deps-lock.yml` | `requirements.*` 變動 | 檢查 `requirements.txt` 是否與 `.in` 同步（drift 就 fail）|
 | `docker-base.yml` | requirements/wheels/Dockerfile.base 變動 | 重建 base image 推到 ghcr |
 | `docker.yml` | push | 建/推應用 image |
+
+`test.yml` 內有兩個 job：`test`（app_unified，需 dlib/torch 重依賴）與 `monitor-test`
+（monitor，只有幾個輕依賴、數秒跑完）。
 
 ---
 
