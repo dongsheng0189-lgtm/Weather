@@ -1,0 +1,7 @@
+# 版本對齊 app_unified/requirements.txt —— 那些組合已在 prod 驗證過，
+# monitor 沒有理由自己去踩新的相容性問題。
+flask==3.1.3
+flask-sqlalchemy==3.1.1
+sqlalchemy==2.0.50
+psycopg2-binary==2.9.12
+gunicorn==26.0.0
