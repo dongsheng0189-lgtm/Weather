@@ -140,6 +140,13 @@ monitor 給結論（有沒有爆、爆多兇），本地 log 給細節（單筆�
   本功能繼承同一個弱點：**monitor 上看不到事件，可能是「沒爆」，也可能是「沒送到」。**
   判讀前先用 CLAUDE.md 記的那行 `monitor_ship.ship_event(...)` 指令確認鏈路還通。
 - 未設 `MONITOR_INGEST_URL` / `MONITOR_INGEST_TOKEN`（本地開發）→ 直接不送，不報錯。
+- ⚠ **這條管線抓不到「hub 被卡住」那種故障。** 寄送走 `gevent.spawn`，出去的 greenlet
+  要等 hub 才跑得動；hub 被同步工作卡住時 gunicorn `timeout=60` 會先 SIGKILL worker，
+  那批事件就整批蒸發。`hub_watchdog` 的 `hub_block` 走**真 OS thread** 所以沒這問題，
+  `rate_limit` 有。這是刻意的取捨：請求路徑上不能用 unpatched socket（見設計第 2 節），
+  而真 OS thread 那條路只保留給 hub 已經卡死的情境。
+  → 因此「monitor 上什麼都沒有」有三種可能：沒爆 / hub 卡死 / ingest 失效。
+  區分方法見下方「驗證（prod）」的金絲雀。
 
 ## 測試
 

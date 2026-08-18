@@ -1,5 +1,30 @@
 # 限流取證上報 monitor Implementation Plan
 
+## ✅ 狀態：2026-08-18 全部實作完成，通過全分支審查。**尚未 push、尚未部署。**
+
+commits `4c0bac5..1bdcb3c`（9 個），測試 825 passed / 1 skipped / 1 xfailed。
+下方 checkbox 未逐一勾選，以本節為準。
+
+**實作過程中偏離本計畫、以實際程式碼為準的三處**：
+
+1. **Task 4 的 bucket key 改用 `request.url_rule.rule`**（計畫原本寫 `request.path`，
+   那是個 bug）。`vetting` 有 `/vetting/whitelist/<int:eid>` 這種帶變數段的限流路由，
+   用 raw path 會讓每個不同 eid 變成一個新 bucket → 「每個 path 第一次命中立刻送」
+   退化成「每個 429 都送一則」，打穿彙總的核心保護，且 `_buckets` 無上限成長。
+   上方 Task 4 Step 4 的程式碼已就地更正。
+2. **Task 3 多了一個真正驗證非同步送達的測試**，並把原本假通過的
+   `test_async_variant_never_raises_without_gevent_hub` 改名為
+   `test_async_variant_is_noop_when_not_configured`（它先刪 env，根本沒碰到 spawn）。
+3. **新增 `tests/conftest.py` 的 autouse fixture** `_reset_ratelimit_forensics`：
+   重置全域彙總器並 stub 掉寄送函式。原因：429 log 測試沒 patch 寄送，
+   在有 `.env.local` 的 shell 跑 pytest 會**對線上 monitor 真的送出事件**。
+   `tests/test_monitor_ship_from_request.py` 用 marker 退出（它就是要測真寄送）。
+
+**部署後的第一件事**見文末「部署後的驗證」；判讀方式見 spec 的「驗證（prod）」——
+**要看 `path=/auth/verify` 的事件，不是「有沒有任何事件」**。
+
+---
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 429 命中時，把「不含個資」的彙總事件推到 monitor，用來確認 `/auth/verify` 的 20/min 是否真的被打爆。
@@ -705,9 +730,12 @@ from ratelimit_forensics import default_aggregator
 ```python
         # 彙總後推給 monitor：/tmp/app.log 隨容器重啟清空，尖峰那批證據留不住。
         # 送的是來源雜湊與 XFF 層數，不含 IP —— monitor 沒有欄位加密。
+        # bucket key 用路由樣板而非 request.path：像 /vetting/whitelist/<int:eid>
+        # 這種帶變數段的限流路由，每個不同 eid 會變成一個新 bucket，
+        # 「每個 path 第一次命中立刻送」就會變成每個 429 都送一則。
         try:
             payload = default_aggregator().record(
-                request.path,
+                request.url_rule.rule if request.url_rule else request.path,
                 request.remote_addr,
                 request.headers.get("X-Forwarded-For"),
                 time.monotonic(),
