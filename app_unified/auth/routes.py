@@ -154,9 +154,14 @@ def verify():
     data = request.get_json(silent=True) or {}
     pin = str(data.get("pin") or "").strip()
     face_image = data.get("face_image")
-    logger.warning("verify: called, face_image=%s, pin_len=%d",
+    # remote_addr / xff 是取證用（2026-08-18）：本路由的 20/min 用 get_remote_address
+    # 計算，而 app 在 Zeabur ingress 後面且沒裝 ProxyFix。若 remote_addr 每次都同一個
+    # IP，就證實額度是全體共用；xff 的原始層數決定 ProxyFix 的 x_for 要設幾。
+    logger.warning("verify: called, face_image=%s, pin_len=%d, remote_addr=%s, xff=%s",
                    "yes" if face_image else "NO",
-                   len(pin))
+                   len(pin),
+                   request.remote_addr,
+                   request.headers.get("X-Forwarded-For") or "(none)")
 
     # Step 1: PIN 篩選候選帳號
     all_users = User.query.filter_by(is_active=True).all()

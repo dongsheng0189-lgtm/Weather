@@ -135,6 +135,14 @@ def create_app():
 
     @app.errorhandler(429)
     def _handle_rate_limited(e):
+        # 取證用（2026-08-18）：限流沒裝 ProxyFix，remote_addr 恆為 ingress IP →
+        # 額度全體共用。先在 prod 觀察這行有沒有出現、xff 長什麼樣，再決定 x_for。
+        logging.getLogger("ratelimit").warning(
+            "rate limited: path=%s remote_addr=%s xff=%s",
+            request.path,
+            request.remote_addr,
+            request.headers.get("X-Forwarded-For") or "(none)",
+        )
         # flask-limiter 預設回 HTML → fetch/XHR 端 r.json() 解析 HTML 會噴
         # "unexpected token <"。對 fetch/XHR（Accept: json 或 Sec-Fetch-Dest 非 document）
         # 改回 JSON，讓前端能顯示「操作太頻繁」而非「連線失敗」。
