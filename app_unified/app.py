@@ -37,6 +37,8 @@ from flask_login import current_user, logout_user
 from config import Config
 from extensions import db, login_manager, limiter, socketio
 from models import User
+from monitor_ship import ship_event_from_request_async
+from ratelimit_forensics import default_aggregator
 
 
 # 本 worker process 的啟動時刻（模組 import 時間 ≈ worker 開始跑的時間）。
@@ -143,6 +145,20 @@ def create_app():
             request.remote_addr,
             request.headers.get("X-Forwarded-For") or "(none)",
         )
+        # 彙總後推給 monitor：/tmp/app.log 隨容器重啟清空，尖峰那批證據留不住。
+        # 送的是來源雜湊與 XFF 層數，不含 IP —— monitor 沒有欄位加密。
+        try:
+            payload = default_aggregator().record(
+                request.path,
+                request.remote_addr,
+                request.headers.get("X-Forwarded-For"),
+                time.monotonic(),
+            )
+            if payload:
+                ship_event_from_request_async(
+                    payload["kind"], payload["summary"], payload["detail"])
+        except Exception:
+            logging.getLogger("ratelimit").exception("ship rate_limit event failed")
         # flask-limiter 預設回 HTML → fetch/XHR 端 r.json() 解析 HTML 會噴
         # "unexpected token <"。對 fetch/XHR（Accept: json 或 Sec-Fetch-Dest 非 document）
         # 改回 JSON，讓前端能顯示「操作太頻繁」而非「連線失敗」。

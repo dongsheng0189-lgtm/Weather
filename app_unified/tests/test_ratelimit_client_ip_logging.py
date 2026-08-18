@@ -56,3 +56,75 @@ def test_rate_limit_429_is_logged_with_client_evidence(app, caplog):
     assert '/auth/verify' in caplog.text, '沒記下是哪條路徑被限流'
     assert '10.0.0.5' in caplog.text, '429 log 沒記 remote_addr'
     assert '203.0.113.7' in caplog.text, '429 log 沒記 X-Forwarded-For'
+
+
+def test_429_ships_aggregated_event_to_monitor(app, monkeypatch):
+    """第一次命中就要送出，且送出的東西不含 IP。"""
+    import app as app_module
+
+    sent = []
+    monkeypatch.setattr(app_module, "ship_event_from_request_async",
+                        lambda kind, summary, detail="": sent.append(
+                            (kind, summary, detail)))
+    # 用全新的彙總器，避免被同一個 process 內其他測試的計數污染
+    import ratelimit_forensics
+    monkeypatch.setattr(ratelimit_forensics, "_default",
+                        ratelimit_forensics.HitAggregator(salt="t"))
+
+    with app.test_request_context(
+        '/auth/verify', method='POST',
+        headers={'X-Forwarded-For': '203.0.113.7'},
+        environ_base={'REMOTE_ADDR': '10.0.0.5'},
+    ):
+        app.handle_http_exception(TooManyRequests())
+
+    assert len(sent) == 1, '429 沒有推給 monitor'
+    kind, summary, detail = sent[0]
+    assert kind == 'rate_limit'
+    assert '/auth/verify' in summary
+    assert '203.0.113.7' not in summary + detail, '真實 IP 不可送進 monitor'
+    assert '10.0.0.5' not in summary + detail, '真實 IP 不可送進 monitor'
+
+
+def test_429_within_window_ships_only_once(app, monkeypatch):
+    import app as app_module
+
+    sent = []
+    monkeypatch.setattr(app_module, "ship_event_from_request_async",
+                        lambda kind, summary, detail="": sent.append(summary))
+    import ratelimit_forensics
+    monkeypatch.setattr(ratelimit_forensics, "_default",
+                        ratelimit_forensics.HitAggregator(salt="t"))
+
+    for _ in range(5):
+        with app.test_request_context(
+            '/auth/verify', method='POST',
+            environ_base={'REMOTE_ADDR': '10.0.0.5'},
+        ):
+            app.handle_http_exception(TooManyRequests())
+
+    assert len(sent) == 1, '同一視窗內應只送一則，避免尖峰時火上加油'
+
+
+def test_429_shipping_failure_does_not_break_the_response(app, monkeypatch):
+    """監控壞掉不能變成使用者的 500。"""
+    import app as app_module
+
+    def boom(*a, **kw):
+        raise RuntimeError("monitor down")
+
+    monkeypatch.setattr(app_module, "ship_event_from_request_async", boom)
+    import ratelimit_forensics
+    monkeypatch.setattr(ratelimit_forensics, "_default",
+                        ratelimit_forensics.HitAggregator(salt="t"))
+
+    with app.test_request_context(
+        '/auth/verify', method='POST',
+        headers={'Accept': 'application/json'},
+        environ_base={'REMOTE_ADDR': '10.0.0.5'},
+    ):
+        resp = app.handle_http_exception(TooManyRequests())
+
+    body, status = resp
+    assert status == 429
+    assert body.get_json()['error'] == 'rate_limited'
