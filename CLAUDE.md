@@ -190,6 +190,12 @@ cd app_unified
 3. 上報用 `get_original` 的 socket/getaddrinfo，且**只走內網明文 HTTP**（避開同樣被 patch
    的 `ssl`）。
 
+> ⚠ **`monitor_ship` 有兩個寄送函式，限制正好相反，不可合併：**
+> `ship_event()` 由 hub_watchdog 的真 OS thread 呼叫，**必須 unpatched socket**；
+> `ship_event_from_request()` 由請求路徑上的 greenlet 呼叫，**必須 patched socket**
+> ——未被 patch 的 connect/recv 從 greenlet 呼叫會阻塞整個 hub 最多 3 秒。
+> 兩者的 docstring 互相指名對方，有測試守著。
+
 ### 環境變數
 
 monitor service：`DATABASE_URL`（同 app-unified 的 PG）、`MONITOR_PASSWORD`、

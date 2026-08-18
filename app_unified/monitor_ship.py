@@ -88,3 +88,61 @@ def ship_event(kind: str, summary: str, detail: str = "") -> bool:
                 sock.close()
             except OSError:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# 以下是請求路徑專用的寄送，限制與上面的 ship_event 正好相反 —— 別把兩者合併。
+# ---------------------------------------------------------------------------
+
+def ship_event_from_request(kind: str, summary: str, detail: str = "") -> bool:
+    """從**請求路徑上的 greenlet** 送出事件。成功 True，任何失敗 False。
+
+    與 ship_event() 的差別，改動前務必讀懂：
+
+      ship_event()               本函式
+      ─────────────────────      ─────────────────────
+      呼叫者：真 OS thread        呼叫者：greenlet
+      必須 unpatched socket      必須 **patched** socket
+      （跨執行緒用 gevent 物件    （未 patch 的 connect/recv 會阻塞整個
+        會直接爆掉）               hub 最多 3 秒，等於自己製造故障）
+
+    所以這裡刻意用 urllib（已被 monkey patch → 會正常讓出 hub），
+    而**不是**重用上面那套 _socket_factory / _getaddrinfo。
+    """
+    import urllib.error
+    import urllib.request
+
+    url = os.environ.get("MONITOR_INGEST_URL", "").strip()
+    token = os.environ.get("MONITOR_INGEST_TOKEN", "").strip()
+    if not url or not token:
+        return False
+
+    try:
+        body = json.dumps({"kind": kind, "severity": "warning",
+                           "source": "app-unified",
+                           "summary": summary, "detail": detail},
+                          ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Authorization": "Bearer " + token,
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            return resp.status in (200, 201)
+    except Exception:
+        return False        # 監控失敗絕不影響服務
+
+
+def ship_event_from_request_async(kind: str, summary: str, detail: str = "") -> None:
+    """背景送出，不讓使用者的請求等待網路往返。
+
+    沒有 gevent（單元測試環境）時退回同步呼叫；該情境下未設定 env 會立刻回
+    False，不會真的碰網路。
+    """
+    try:
+        import gevent
+        gevent.spawn(ship_event_from_request, kind, summary, detail)
+    except Exception:
+        try:
+            ship_event_from_request(kind, summary, detail)
+        except Exception:
+            pass
