@@ -6,46 +6,9 @@
      "crossing thread boundaries is not allowed"（prod 2026-05-09 實錄）。
   2. 絕不能拋例外或卡住。監控失敗不該影響服務。
 """
-import socket
-import threading
 import time
 
-
-def _capture_server():
-    """起一個假 monitor，回傳 (port, received list)。"""
-    s = socket.socket()
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("127.0.0.1", 0))
-    s.listen(5)
-    port = s.getsockname()[1]
-    received = []
-
-    def loop():
-        conn, _ = s.accept()
-        data = b""
-        conn.settimeout(3)
-        try:
-            while b"\r\n\r\n" not in data:
-                chunk = conn.recv(4096)
-                if not chunk:
-                    break
-                data += chunk
-            head, _, body = data.partition(b"\r\n\r\n")
-            length = 0
-            for line in head.decode("latin-1").splitlines():
-                if line.lower().startswith("content-length:"):
-                    length = int(line.split(":", 1)[1])
-            while len(body) < length:
-                body += conn.recv(4096)
-            received.append((head.decode("latin-1"), body.decode("utf-8")))
-            conn.sendall(b"HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n")
-        except OSError:
-            pass
-        finally:
-            conn.close()
-
-    threading.Thread(target=loop, daemon=True).start()
-    return port, received
+from tests._monitor_capture import _capture_server
 
 
 def test_ships_event_with_bearer_token(monkeypatch):
