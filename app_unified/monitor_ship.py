@@ -109,7 +109,6 @@ def ship_event_from_request(kind: str, summary: str, detail: str = "") -> bool:
     所以這裡刻意用 urllib（已被 monkey patch → 會正常讓出 hub），
     而**不是**重用上面那套 _socket_factory / _getaddrinfo。
     """
-    import urllib.error
     import urllib.request
 
     url = os.environ.get("MONITOR_INGEST_URL", "").strip()
@@ -135,8 +134,15 @@ def ship_event_from_request(kind: str, summary: str, detail: str = "") -> bool:
 def ship_event_from_request_async(kind: str, summary: str, detail: str = "") -> None:
     """背景送出，不讓使用者的請求等待網路往返。
 
-    沒有 gevent（單元測試環境）時退回同步呼叫；該情境下未設定 env 會立刻回
-    False，不會真的碰網路。
+    用 gevent.spawn() 把送出動作丟到新 greenlet，呼叫端立刻返回。
+    gevent.spawn() 不需要 monkey patch、也不需要已在運行的 hub 就能成功。
+
+    下面的 except 分支是防禦性的兜底，實務上到不了：gevent 是本專案的硬依
+    賴（SocketIO、gunicorn gevent worker、hub_watchdog 都用它），只要這段
+    程式碼跑得到，`import gevent` 就不會失敗。萬一真的走到同步分支，直接
+    在目前這個 greenlet 裡跑 ship_event_from_request 也是安全的 ——
+    它用的是 patched socket，會正常讓出 hub、不會卡住其他 greenlet，代價
+    只是這一個請求要多等最多 _TIMEOUT 秒。
     """
     try:
         import gevent

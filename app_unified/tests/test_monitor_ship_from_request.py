@@ -43,10 +43,53 @@ def test_never_raises_when_nothing_is_listening(monkeypatch):
     assert monitor_ship.ship_event_from_request("rate_limit", "x") is False
 
 
-def test_async_variant_never_raises_without_gevent_hub(monkeypatch):
+def test_async_variant_is_noop_when_not_configured(monkeypatch):
+    """未設定 env 時 guard clause 直接回 False，不會碰 spawn 或網路，也不拋例外。
+
+    ship_event_from_request_async 本身不檢查 env，一律呼叫 gevent.spawn；
+    guard clause 在被 spawn 出去的 ship_event_from_request 裡，要等 hub
+    真的排到這個 greenlet 才會執行。這裡特意在 monkeypatch 復原前用
+    gevent.sleep(0) 把它排空，否則這個未執行的 greenlet 會遺留到下一個
+    測試，等 hub 排到它時讀到的是「當時」的 env（可能已被換成別的測試的
+    設定），造成跨測試污染。
+    """
+    import gevent
+
     monkeypatch.delenv("MONITOR_INGEST_URL", raising=False)
     monkeypatch.delenv("MONITOR_INGEST_TOKEN", raising=False)
     monitor_ship.ship_event_from_request_async("rate_limit", "x")   # 不應拋例外
+    gevent.sleep(0)   # 讓 spawn 出去的 greenlet 在這個測試的 env 下跑完，不留到下一個測試
+
+
+def test_async_variant_actually_delivers_event(monkeypatch):
+    """驗證 ship_event_from_request_async 真的透過 gevent.spawn 把事件送達。
+
+    上面那個「未設定時是 noop」的測試沒有走到 spawn 或網路那一段，容易被
+    誤讀成「已驗證非同步送達」。這裡才是真正驗證：起一個假 monitor、設好
+    env、呼叫 async 變體，讓 spawn 出去的 greenlet 真的跑完，斷言 payload
+    確實送到了。
+    """
+    import gevent
+
+    port, received = _capture_server()
+    monkeypatch.setenv("MONITOR_INGEST_URL", f"http://127.0.0.1:{port}/ingest")
+    monkeypatch.setenv("MONITOR_INGEST_TOKEN", "tok-async")
+
+    monitor_ship.ship_event_from_request_async(
+        "rate_limit", "async delivery check", "detail-x")
+
+    for _ in range(50):
+        if received:
+            break
+        gevent.sleep(0.05)
+
+    assert received, "spawn 出去的 greenlet 應該要送達事件，卻沒有任何請求進來"
+    head, body = received[0]
+    assert "Bearer tok-async" in head
+    payload = json.loads(body)
+    assert payload["kind"] == "rate_limit"
+    assert payload["summary"] == "async delivery check"
+    assert payload["detail"] == "detail-x"
 
 
 def test_ship_event_still_uses_unpatched_socket():
