@@ -155,14 +155,24 @@ monitor 給結論（有沒有爆、爆多兇），本地 log 給細節（單筆�
 
 ## 驗證（prod）
 
-部署後於 20:00 前後觀察 monitor 檢視頁：
+部署後於 20:00 前後觀察 monitor 檢視頁。**判讀要看特定 path，不能看「有沒有任何
+`rate_limit` 事件」**：429 handler 是全站通用的，`vetting` 藍圖有 6 條真的
+`@limiter.limit`，其限流門檻比 `/auth/verify` 低很多、平時就容易觸發，所以只要
+上報鏈路還活著，monitor 幾乎一定會收到 `path=/vetting/*` 的事件——但那不代表
+`/auth/verify` 的共用額度問題也被打爆了。
 
-| 看到什麼 | 結論 |
+| 看到什麼（限定 `path=/auth/verify`） | 結論 |
 |---|---|
-| 完全沒有 `rate_limit` 事件 | 限流從未被打爆 → 這條線索死亡，尖峰連不上另有原因 |
-| 有事件，`distinct clients` 恆為 1 | 證實額度全體共用 → 進行第二趟修法 |
-| 有事件，`distinct clients` > 1 | ingress 有傳真實 IP，共用推論有誤，需重新評估 |
-| 有事件，看 `xff_hops` | 決定第二趟 `ProxyFix(x_for=?)` |
+| 完全沒有 `path=/auth/verify` 的事件，但**有** `/vetting/*` 事件 | 上報鏈路是活的（vetting 事件證實），`/auth/verify` 確實沒被打爆 → 這條線索死亡，尖峰連不上另有原因 |
+| 完全沒有任何 `rate_limit` 事件（連 `/vetting/*` 都沒有） | 無法判斷是「沒爆」還是「沒送到」——先照上面「已知限制」那行指令確認鏈路是否還通 |
+| 有 `/auth/verify` 事件，`distinct clients` 恆為 1 | 證實額度全體共用 → 進行第二趟修法 |
+| 有 `/auth/verify` 事件，`distinct clients` > 1 | ingress 有傳真實 IP，共用推論有誤，需重新評估 |
+| 有 `/auth/verify` 事件，看 `xff_hops` | 決定第二趟 `ProxyFix(x_for=?)` |
+
+`/vetting/*` 的事件因此是**上報鏈路還活著的金絲雀**——它補上了上面「已知限制」
+段落自己承認的弱點（monitor 沒事件時分不清是「沒爆」還是「沒送到」）：只要看到
+vetting 事件，就排除了「沒送到」；此時若 `/auth/verify` 仍然沒有事件，才能真的
+斷定是「沒爆」。
 
 ## 第二趟（本次不做，拿到數據後再議）
 

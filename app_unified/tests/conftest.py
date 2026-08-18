@@ -54,6 +54,62 @@ sys.modules['sklearn'] = mock_sklearn
 sys.modules['sklearn.cluster'] = mock_sklearn_cluster
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "no_ratelimit_forensics_reset: 退出 _reset_ratelimit_forensics autouse "
+        "fixture，供真的要測試 monitor_ship 寄送行為的測試檔使用。",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _reset_ratelimit_forensics(request, monkeypatch):
+    """限流取證彙總器（ratelimit_forensics._default）是 process 全域單例，且
+    429 handler 命中時會 spawn 一個沒被 drain 的 greenlet 去送真實網路請求。
+
+    沒有這個 fixture，`tests/test_ratelimit_client_ip_logging.py` 裡沒有手動
+    patch 掉寄送函式的測試（例如單純測 log 內容那個）就會動到這個全域單例，
+    而那個 greenlet 是在**執行當下**才讀 MONITOR_INGEST_URL / TOKEN —— 今天
+    CI 沒設那兩個 env 才剛好是 no-op；開發者在有 `.env.local` 或 prod-ish env
+    的 shell 裡跑測試，會真的把事件送到線上 monitor。
+
+    這裡把 `_default` 重設為 None（下次呼叫 default_aggregator() 會拿到全新
+    實例），並把 monitor_ship 的兩個寄送函式 stub 掉。個別測試仍可用自己的
+    monkeypatch 覆寫（monkeypatch 後蓋前，同一個 fixture 實例疊加沒問題）。
+
+    tests/test_monitor_ship_from_request.py 就是要測「真正的寄送行為」（用假
+    的本機 capture server），必須不套用這層 stub —— 該檔案標了
+    `pytestmark = pytest.mark.no_ratelimit_forensics_reset` 退出這個 fixture。
+    """
+    if "no_ratelimit_forensics_reset" in request.keywords:
+        yield
+        return
+
+    import ratelimit_forensics
+    monkeypatch.setattr(ratelimit_forensics, "_default", None)
+
+    import monitor_ship
+
+    def _noop_bool(*a, **kw):
+        return False
+
+    def _noop_none(*a, **kw):
+        return None
+
+    monkeypatch.setattr(monitor_ship, "ship_event_from_request", _noop_bool)
+    monkeypatch.setattr(monitor_ship, "ship_event_from_request_async", _noop_none)
+
+    # app.py 用 `from monitor_ship import ship_event_from_request_async` 拷貝了
+    # 一份獨立綁定，patch monitor_ship 模組本身不會影響它，得另外 patch。只在
+    # `app` 模組已經被 import 過才動它 —— 不強迫在這裡觸發 import app（那要求
+    # DB_ENCRYPTION_KEY 等 env 已就緒，屬於 `app` fixture 的職責，不該由這個
+    # 與其無關的 autouse fixture 提前觸發）。
+    if "app" in sys.modules:
+        monkeypatch.setattr(sys.modules["app"], "ship_event_from_request_async", _noop_none)
+
+    yield
+
+
 @pytest.fixture(scope='session')
 def app():
     """Create test Flask app with in-memory SQLite.

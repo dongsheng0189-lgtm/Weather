@@ -12,6 +12,7 @@ Zeabur ingress 後面且沒裝 ProxyFix → `remote_addr` 恆為 ingress IP,額�
 """
 import logging
 
+from flask import request
 from werkzeug.exceptions import TooManyRequests
 
 
@@ -104,6 +105,45 @@ def test_429_within_window_ships_only_once(app, monkeypatch):
             app.handle_http_exception(TooManyRequests())
 
     assert len(sent) == 1, '同一視窗內應只送一則，避免尖峰時火上加油'
+
+
+def test_429_bucket_key_uses_route_template_not_raw_path(app, monkeypatch):
+    """帶變數段的路由（如 /vetting/whitelist/<int:eid>）不同 eid 要落進同一個 bucket。
+
+    若彙總器誤用 request.path 當 key，每個不同 eid 都是全新 bucket，會讓「同一
+    視窗只送一次」的節流形同虛設、_buckets 也會無上限成長。這裡用既有的
+    /vetting/whitelist/<int:eid> 路由（POST，見 vetting/routes.py 的
+    whitelist_update）驗證：先送 eid=1 觸發一次上報，再送 eid=2 —— 應該被
+    視為同一視窗內的第二次命中而不再上報。
+    """
+    import app as app_module
+
+    sent = []
+    monkeypatch.setattr(app_module, "ship_event_from_request_async",
+                        lambda kind, summary, detail="": sent.append(summary))
+    import ratelimit_forensics
+    monkeypatch.setattr(ratelimit_forensics, "_default",
+                        ratelimit_forensics.HitAggregator(salt="t"))
+
+    with app.test_request_context(
+        '/vetting/whitelist/1', method='POST',
+        environ_base={'REMOTE_ADDR': '10.0.0.5'},
+    ):
+        assert request.url_rule is not None, \
+            'fixture 假設失敗：/vetting/whitelist/<int:eid> 應該要 match 到 url_rule'
+        app.handle_http_exception(TooManyRequests())
+
+    with app.test_request_context(
+        '/vetting/whitelist/2', method='POST',
+        environ_base={'REMOTE_ADDR': '10.0.0.5'},
+    ):
+        app.handle_http_exception(TooManyRequests())
+
+    assert len(sent) == 1, (
+        '不同 eid 的請求被當成不同 bucket —— bucket key 疑似仍在用 '
+        'request.path 而非路由樣板'
+    )
+    assert '/vetting/whitelist/<int:eid>' in sent[0]
 
 
 def test_429_shipping_failure_does_not_break_the_response(app, monkeypatch):

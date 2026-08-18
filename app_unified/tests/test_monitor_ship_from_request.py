@@ -9,8 +9,16 @@ connect/recv 會阻塞整個 gevent hub 最多 3 秒，正是我們在追的那�
 """
 import json
 
+import pytest
+
 import monitor_ship
 from tests._monitor_capture import _capture_server
+
+# 這個檔案就是要測 monitor_ship 的「真正寄送行為」（起假的本機 capture
+# server 收包），所以整檔退出 conftest.py 的 _reset_ratelimit_forensics
+# autouse fixture（該 fixture 會把 ship_event_from_request /
+# ship_event_from_request_async 都 stub 成不做事，會讓這裡的斷言全部失敗）。
+pytestmark = pytest.mark.no_ratelimit_forensics_reset
 
 
 def test_posts_event_to_ingest(monkeypatch):

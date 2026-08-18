@@ -147,9 +147,16 @@ def create_app():
         )
         # 彙總後推給 monitor：/tmp/app.log 隨容器重啟清空，尖峰那批證據留不住。
         # 送的是來源雜湊與 XFF 層數，不含 IP —— monitor 沒有欄位加密。
+        # bucket key 用路由樣板（url_rule.rule）而非 request.path：像
+        # /vetting/whitelist/<int:eid> 這種帶變數段的路由，不同 eid 的
+        # request.path 各不相同，若拿 path 當 key 會讓每個 eid 都開一個新
+        # bucket，等於繞過「同一視窗只送一次」的節流、_buckets 也會無上限
+        # 成長。用 url_rule.rule 額外的好處：raw path 可能帶個資（如 id），
+        # 路由樣板結構上就不可能帶進去。沒有 matched rule（例如 404）時退回
+        # request.path。
         try:
             payload = default_aggregator().record(
-                request.path,
+                request.url_rule.rule if request.url_rule else request.path,
                 request.remote_addr,
                 request.headers.get("X-Forwarded-For"),
                 time.monotonic(),

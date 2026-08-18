@@ -44,7 +44,12 @@ def _getaddrinfo():
 
 
 def ship_event(kind: str, summary: str, detail: str = "") -> bool:
-    """送出一則事件。成功 True，任何失敗 False —— 絕不拋例外。"""
+    """送出一則事件。成功 True，任何失敗 False —— 絕不拋例外。
+
+    請求路徑（greenlet 內）要送事件，改用下面的 ship_event_from_request()——
+    它的限制正好相反（必須用 patched socket），兩者不可合併，也不要在這裡
+    重用它的 urllib 邏輯。
+    """
     url = os.environ.get("MONITOR_INGEST_URL", "").strip()
     token = os.environ.get("MONITOR_INGEST_TOKEN", "").strip()
     if not url or not token:
