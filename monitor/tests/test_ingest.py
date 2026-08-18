@@ -48,3 +48,18 @@ def test_unknown_kind_rejected(client):
     """白名單制：只收診斷事件。收一般 app log 需先補欄位加密。"""
     r = _post(client, {"kind": "user_note", "summary": "leaked pii"})
     assert r.status_code == 400
+
+
+def test_accepts_rate_limit_and_persists(client, app):
+    """限流取證事件（2026-08-18）。只帶雜湊與層數，不含 IP。"""
+    r = _post(client, {"kind": "rate_limit", "severity": "warning",
+                       "summary": "rate limited: /auth/verify ×17, 3 clients, pid=42",
+                       "detail": "window: 63.2s since last report\n"
+                                 "clients: a3f1c2=14, 7b09de=2, 1e4405=1\n"
+                                 "xff_hops: 2"})
+    assert r.status_code == 201
+    with app.app_context():
+        from models import Event
+        e = Event.query.one()
+        assert e.kind == "rate_limit"
+        assert "a3f1c2=14" in e.detail

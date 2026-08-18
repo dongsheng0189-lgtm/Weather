@@ -173,8 +173,9 @@ cd app_unified
 **`PROBE_PUBLIC_URL` 不可省略**：只探內網 origin 時，DNS / Cloudflare 邊緣故障會被回報成
 「一切正常」，而使用者正連不上。
 
-**`/ingest` 只收 `kind="hub_block"` 白名單事件**，資料結構上不含個資，因此不做欄位加密。
-日後要擴大收一般 app log，**必須先補 `EncryptedText`**。
+**`/ingest` 只收白名單 kind**（`hub_block`、`rate_limit`），送的資料結構上不含個資
+（後者只帶來源雜湊與 XFF 層數，不帶 IP），因此不做欄位加密。日後要擴大收一般 app log，
+**必須先補 `EncryptedText`**。
 
 ### app-unified 端的配套（`hub_watchdog.py` + `monitor_ship.py`）
 

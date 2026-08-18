@@ -12,7 +12,8 @@ from flask import Flask, jsonify, request
 from models import db, Event
 
 # 白名單：只收診斷事件。擴大範圍前必須先補欄位加密（見 models.py 說明）。
-ALLOWED_KINDS = {"hub_block"}
+# rate_limit（2026-08-18）：429 命中的彙總。送的是來源雜湊與 XFF 層數，不含 IP。
+ALLOWED_KINDS = {"hub_block", "rate_limit"}
 
 
 def create_app() -> Flask:

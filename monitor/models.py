@@ -4,8 +4,9 @@
 app-unified 從不讀寫它們。這是「最小可用版」的取捨：省掉另建一套 DB 的
 運維成本；完整隔離版見 2026-05-08 monitor spec。
 
-不做欄位加密：本服務只收 hub_block 這類診斷事件（阻塞秒數 + 程式碼堆疊），
-結構上不含個資。日後若要擴大收一般 app log，**必須先補加密**。
+不做欄位加密：本服務只收白名單內的診斷事件（hub_block 的阻塞秒數 + 程式碼堆疊、
+rate_limit 的命中次數 + 來源雜湊），結構上不含個資。日後若要擴大收一般 app log，
+**必須先補加密**。新增 kind 前先確認它送的東西同樣不含個資。
 """
 from flask_sqlalchemy import SQLAlchemy
 
