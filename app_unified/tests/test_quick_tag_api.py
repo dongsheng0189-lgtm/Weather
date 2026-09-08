@@ -125,3 +125,18 @@ def test_cross_store_tag_rejected(ctx, db_session):
     db_session.delete(foreign)
     db_session.delete(other_store)
     db_session.commit()
+
+
+def test_cross_store_tag_rejected_on_delete(ctx, db_session):
+    """DELETE 要與 POST 對稱 —— 否則 200/404 的差別會洩漏別店存在哪些 tag_id。"""
+    c, _, _, item, _, _ = ctx
+    other_store = Store(name=f'Y{uuid.uuid4().hex[:5]}'.upper())
+    db_session.add(other_store)
+    db_session.commit()
+    foreign = Tag(store=other_store.name, name='別店標籤', color='#111111')
+    db_session.add(foreign)
+    db_session.commit()
+    assert c.delete(f'/notes/api/items/{item.id}/tags/{foreign.id}').status_code == 400
+    db_session.delete(foreign)
+    db_session.delete(other_store)
+    db_session.commit()

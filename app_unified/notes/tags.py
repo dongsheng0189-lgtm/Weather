@@ -276,7 +276,11 @@ def quick_add_item_tag(item_id, tag_id):
 @notes_bp.route('/api/items/<int:item_id>/tags/<int:tag_id>', methods=['DELETE'])
 @login_required
 def quick_remove_item_tag(item_id, tag_id):
-    item, _, tag = _resolve_item_and_tag(item_id, tag_id)
+    item, note, tag = _resolve_item_and_tag(item_id, tag_id)
+    # 與 POST 對稱：跨店標籤一律拒絕。目前寫入路徑都擋了跨店、不可能存在這種
+    # 關聯列，但少了這道檢查，呼叫者能用 200/404 的差別探出別店有哪些 tag_id。
+    if tag.store != note.store:
+        return jsonify({'error': '跨店標籤'}), 400
     ChecklistItemTag.query.filter_by(item_id=item.id, tag_id=tag.id).delete()
     db.session.commit()
     return jsonify({'ok': True})
@@ -315,6 +319,8 @@ def quick_add_note_tag(note_id, tag_id):
 @login_required
 def quick_remove_note_tag(note_id, tag_id):
     note, tag = _resolve_note_and_tag(note_id, tag_id)
+    if tag.store != note.store:
+        return jsonify({'error': '跨店標籤'}), 400
     NoteTag.query.filter_by(note_id=note.id, tag_id=tag.id).delete()
     db.session.commit()
     return jsonify({'ok': True})
