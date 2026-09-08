@@ -182,3 +182,34 @@ def test_tagged_at_uses_taiwan_time():
     assert 'tw_iso' in tags_src, 'notes/tags.py 沒有用 tw_iso'
     assert 'tagged_at.isoformat()' not in tags_src, 'tags.py 仍有裸 isoformat()'
     assert 'r.tagged_at.isoformat()' not in routes_src, 'routes.py 仍有裸 isoformat()'
+
+
+def test_note_picker_reads_live_target_id():
+    """標籤選擇器的 target id 要在點擊當下重讀，不可用頁面載入時抓的那份。
+
+    新建筆記首次存檔後 dataset.targetId 才會被填上。沿用舊的 null 會讓選擇器
+    一直以為自己還在「新建未存檔」模式 → 不發 PUT、只寫進 __PRESAVE_TAG_IDS，
+    而下一次 doSave 因 NOTE_ID 已存在不會帶 tag_ids → 選的標籤完全沒存進去，
+    但 badge 會更新、看起來像成功了。
+    """
+    from pathlib import Path
+    src = (Path(__file__).parent.parent / 'static' / 'js' / 'tag_system.js').read_text(
+        encoding='utf-8')
+    i = src.index('function bindNoteEditorPicker')
+    block = src[i:i + 2000]
+    assert 'btn.dataset.targetId' in block, 'picker 沒有在點擊當下重讀 target id'
+    assert 'var liveId' in block
+
+
+def test_note_creation_updates_picker_target_id():
+    """兩條會建立筆記的路徑都要把 target id 補給選擇器。"""
+    src = EDITOR.read_text(encoding='utf-8')
+    for fn in ('function doSave()', 'function ensureNoteExists()'):
+        start = src.index(fn)
+        rest = src[start + len(fn):]
+        nxt = rest.find('\nfunction ')
+        block = rest if nxt == -1 else rest[:nxt]
+        assert 'dataset.targetId = NOTE_ID' in block, \
+            f'{fn} 建立筆記後沒有更新標籤選擇器的 target id'
+        assert 'window.NOTE_TAG_IDS =' in block, \
+            f'{fn} 沒有同步 NOTE_TAG_IDS —— 快速鍵會把已掛的標籤畫成未掛'

@@ -1076,6 +1076,13 @@ function doSave() {
           // 重整不掉內容、之後存檔走 PUT。不 redirect。
           history.replaceState(null, '', '/notes/' + NOTE_ID + window.location.search);
           if (_publishCreated) { _publishCreated.resolve(NOTE_ID); _publishCreated = null; }
+          // 首存後把標籤選擇器的 target id 補上 —— 它是在點擊當下從 dataset 讀的，
+          // 不更新的話會一直走「新建未存檔」分支，選的標籤靜默存不進去。
+          var _picker = document.getElementById('open-tag-picker');
+          if (_picker) _picker.dataset.targetId = NOTE_ID;
+          // doSave 的 POST 有帶 tag_ids，後端已 inline 建好關聯 → 同步進
+          // NOTE_TAG_IDS，否則剛渲染出來的快速鍵會把已掛的標籤畫成「未掛」。
+          window.NOTE_TAG_IDS = (window.__PRESAVE_TAG_IDS || []).slice();
           // 首次存檔後 NOTE_ID 才有值，補渲染筆記層快速鍵 ——
           // renderNoteQuickTags 只掛在一次性的 DOMContentLoaded 上，
           // 不補這一行的話按鈕要重整頁面才會出現。
@@ -1129,6 +1136,13 @@ function ensureNoteExists() {
     if (d.id) {
       NOTE_ID = d.id;
       history.replaceState(null, '', '/notes/' + NOTE_ID);
+          // 首存後把標籤選擇器的 target id 補上 —— 它是在點擊當下從 dataset 讀的，
+          // 不更新的話會一直走「新建未存檔」分支，選的標籤靜默存不進去。
+          var _picker = document.getElementById('open-tag-picker');
+          if (_picker) _picker.dataset.targetId = NOTE_ID;
+          // ⚠️ 與 doSave 不同：ensureNoteExists 的 POST **沒有**帶 tag_ids，
+          // 所以這條路建出來的筆記身上沒有任何標籤，NOTE_TAG_IDS 要是空的。
+          window.NOTE_TAG_IDS = [];
       // 顯示刪除按鈕
       var tb = document.querySelector('.editor-toolbar');
       if (tb && !document.getElementById('btn-delete')) {

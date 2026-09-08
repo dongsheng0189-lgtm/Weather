@@ -426,7 +426,6 @@
     if (!btn) return;
     var targetType = btn.dataset.targetType;
     var rawId = btn.dataset.targetId;
-    var targetId = rawId ? parseInt(rawId, 10) : null;  // null = new note pre-save mode
     var currentIds = [];
     try { currentIds = JSON.parse(btn.dataset.currentTagIds || '[]'); } catch (e) {}
     var badge = document.getElementById('note-tag-count');
@@ -437,13 +436,20 @@
     // expose pre-save buffer 給 doSave 用
     window.__PRESAVE_TAG_IDS = currentIds.slice();
     btn.addEventListener('click', function() {
+      // ⚠️ targetId 必須在**點擊當下**從 dataset 重讀，不可用 init 時抓的那份：
+      // 新建筆記首次存檔後 dataset.targetId 才會被填上，沿用舊的 null 會讓選擇器
+      // 一直以為自己還在「新建未存檔」模式 → 不發 PUT、只寫進 __PRESAVE_TAG_IDS，
+      // 而下一次 doSave 因 NOTE_ID 已存在不會帶 tag_ids → **選的標籤完全沒存進去，
+      // 但 badge 會更新、看起來像成功了**。
+      var liveRaw = btn.dataset.targetId;
+      var liveId = liveRaw ? parseInt(liveRaw, 10) : null;
       // 已存檔的筆記：每次點開都從 window.NOTE_TAG_IDS 重讀 —— 快速標籤鍵會
       // 直接改它，沿用 closure 裡載入時抓的那份會讓 PUT 把剛掛上的標籤靜默刪掉。
       // 尚未存檔的新筆記沒有 id，仍用 closure 的 pre-save 緩衝。
-      var ids = targetId ? ((window.NOTE_TAG_IDS || []).slice()) : currentIds;
-      openPicker(targetType, targetId, ids, function(newIds) {
+      var ids = liveId ? ((window.NOTE_TAG_IDS || []).slice()) : currentIds;
+      openPicker(targetType, liveId, ids, function(newIds) {
         currentIds = newIds;
-        if (targetId) window.NOTE_TAG_IDS = newIds.slice();
+        if (liveId) window.NOTE_TAG_IDS = newIds.slice();
         refreshCountBadge(newIds);
         window.__PRESAVE_TAG_IDS = newIds.slice();
       });
