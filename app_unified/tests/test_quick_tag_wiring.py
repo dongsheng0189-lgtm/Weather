@@ -71,3 +71,33 @@ def test_empty_tag_container_is_hidden():
     from pathlib import Path
     css = (Path(__file__).parent.parent / 'static' / 'css' / 'tag_system.css').read_text(encoding='utf-8')
     assert '.item-tags:empty' in css, '空的標籤容器沒有隱藏，會佔掉 margin-top 的空間'
+
+
+def test_note_level_quick_tag_container_exists():
+    src = EDITOR.read_text(encoding='utf-8')
+    assert 'id="note-quick-tags"' in src, '工具列缺少筆記層快速鍵的容器'
+
+
+def test_note_level_quick_tags_are_rendered():
+    src = EDITOR.read_text(encoding='utf-8')
+    assert "makeQuickTagBtn('note'" in src, '筆記層沒有重用 makeQuickTagBtn'
+
+
+def test_note_quick_tags_only_when_note_exists():
+    """新建但還沒存的筆記沒有 id，不能渲染（會打到 /notes/api/undefined/tags/...）。"""
+    src = EDITOR.read_text(encoding='utf-8')
+    assert 'if (!NOTE_ID) return;' in src or 'if (NOTE_ID)' in src, \
+        '沒有擋住「筆記尚未建立」的情形'
+
+
+def test_note_quick_tags_wait_for_dom_ready():
+    """筆記層的渲染必須等 DOMContentLoaded。
+
+    ALL_STORE_TAGS / NOTE_TAG_IDS / NOTE_TAG_META 是在後面另一個 <script>
+    區塊才賦值的。若在前一個區塊直接裸呼叫 renderNoteQuickTags()，執行時那些
+    全域變數還是 undefined，函式開頭的 guard 會 return、按鈕永遠不出現 ——
+    而且測試會全綠，只有在瀏覽器上才看得出來。
+    """
+    src = EDITOR.read_text(encoding='utf-8')
+    assert "addEventListener('DOMContentLoaded', renderNoteQuickTags)" in src, \
+        'renderNoteQuickTags 沒有等 DOMContentLoaded，按鈕會因為腳本執行順序而永遠不渲染'

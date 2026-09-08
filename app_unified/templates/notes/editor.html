@@ -269,6 +269,8 @@ body.review-mode #review-mode-banner { display: flex; }
                    border:1px solid #ddd;background:#fff;cursor:pointer;">
       🏷️ 標籤 <span id="note-tag-count">(0/5)</span>
     </button>
+    {# 筆記層的快速標籤鍵；內容由 renderNoteQuickTags() 填 #}
+    <span id="note-quick-tags" style="display:inline-flex;flex-wrap:wrap;align-items:center;"></span>
     {% if note %}
     <button class="btn btn-danger" id="btn-delete" onclick="doDelete()" style="margin-left:auto;">刪除</button>
     {% endif %}
@@ -1657,6 +1659,19 @@ function makeQuickTagBtn(targetType, targetId, tag) {
   return btn;
 }
 
+function renderNoteQuickTags() {
+  var host = document.getElementById('note-quick-tags');
+  if (!host) return;
+  host.innerHTML = '';
+  // 新建但尚未存檔的筆記沒有 id，這時渲染會打到 /notes/api/undefined/...
+  if (!NOTE_ID) return;
+  if (IS_READONLY || !window.ALL_STORE_TAGS) return;
+  window.ALL_STORE_TAGS.filter(function(t) { return t.pinned; })
+    .forEach(function(t) {
+      host.appendChild(makeQuickTagBtn('note', NOTE_ID, t));
+    });
+}
+
 // 重繪某個項目的 tag chip 列。快速標籤鍵 toggle 後要呼叫，否則按鈕變了、
 // 上方的 chip 卻停在舊狀態（那排是 render 當下建好的靜態 DOM）。
 function paintItemTagChips(itemId) {
@@ -2256,6 +2271,13 @@ function saveItemFromDialog() {
 }
 
 if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();
+
+// ⚠️ 必須等 DOMContentLoaded，不可在此處直接呼叫。
+// window.ALL_STORE_TAGS / NOTE_TAG_IDS / NOTE_TAG_META 是在**後面另一個**
+// <script> 區塊才賦值的（inline script 依文件順序同步執行），此刻它們還是
+// undefined，函式開頭的 guard 會直接 return、按鈕永遠不會出現 —— 而且
+// 所有測試都會照樣全綠，只有在瀏覽器上才看得出來。
+document.addEventListener('DOMContentLoaded', renderNoteQuickTags);
 
 /* ═══ keepalive（只保活 session，不存 draft）═══ */
 if (!IS_READONLY) EditKeepalive.init();
