@@ -801,7 +801,6 @@ def update_note(note_id):
     else:
         note = Note.active().filter_by(id=note_id, store=current_user.store).first_or_404()
     data = request.get_json(silent=True) or {}
-    stores = _get_stores()
 
     diff_parts = []
     if "title" in data and data["title"] != note.title:
@@ -815,8 +814,12 @@ def update_note(note_id):
         else:
             diff_parts.append(f"內容變更（全文）")
         note.content = data["content"]
-    if "store" in data and current_user.is_super_admin():
-        note.store = data["store"] if data["store"] in stores else None
+    # ⚠️ 這裡刻意**不處理** data["store"]。編輯既有筆記時不得變更 store。
+    # 2026-07-25 事故：super_admin 在編輯畫面手滑點到別的店別，筆記被靜默搬到
+    # 別店，而 store 變更不寫 NoteLog → 事後完全查不到痕跡。
+    # 新建（create_note）仍可指定店別；要搬移既有筆記請走 SQL 或另做會寫 log 的
+    # 「搬移」功能。前端也已把編輯時的店別選單改成唯讀徽章。
+    # 有測試守著（tests/test_notes_store_immutable.py）；WS 那條路徑同樣封了。
     if "status" in data and data["status"] in STATUS_CHOICES:
         new_status = data["status"]
         if new_status != note.status:
@@ -1794,6 +1797,13 @@ def update_checklist_item(item_id):
     if "text" in data:
         new_text = (data.get("text") or "").strip()
         if new_text != item.text:
+            # 2026-09-08 補：項目文字編輯過去不寫 NoteLog，改了查不到。
+            # （勾選/取消勾選刻意不記 —— 高頻例行操作，已有
+            #   checked_by / checked_at / checked_by_name 快照可查。）
+            db.session.add(NoteLog(
+                note_id=note.id, note_title=note.title,
+                user_id=current_user.id, action="edit",
+                diff=f"項目文字: {item.text} → {new_text}"))
             item.text = new_text
             changed = True
     if "is_checked" in data:
@@ -1859,6 +1869,12 @@ def delete_checklist_item(item_id):
     # F1: soft delete、R2 attachment 不在這刪（24h cleanup 才刪）
     item_id_for_broadcast = item.id
     note_id_for_broadcast = item.note_id
+    # 2026-09-08 補：軟刪除過去只進「24h 已刪除清單」、不寫 NoteLog，
+    # 清單過期後就查不到「這個項目曾經存在、被誰刪的」。
+    db.session.add(NoteLog(
+        note_id=note.id, note_title=note.title,
+        user_id=current_user.id, action="delete",
+        diff=f"刪除項目: {item.text}"))
     soft_delete_item(item, current_user.id)
     note.updated_at = datetime.utcnow()
     note.updated_by = current_user.id

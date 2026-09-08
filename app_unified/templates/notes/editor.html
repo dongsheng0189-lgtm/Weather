@@ -206,12 +206,25 @@ body.review-mode #review-mode-banner { display: flex; }
   {% if note and note.updated_by %}
   <div class="updated-by-info" id="updated-by-display">由 <strong id="updated-by-name">載入中…</strong> 修改</div>
   {% endif %}
-  {% if current_user.is_super_admin() %}
+  {# super_admin 新建時可以選店別；編輯既有筆記時只能看、不能改。
+     2026-07-25 事故：編輯畫面手滑點到別的店別 → 筆記被靜默搬走且不寫 log。
+     後端 update_note 與 ws._update_note 也一併封了（前端擋不住直接打 API）。 #}
+  {% if current_user.is_super_admin() and not note %}
   <div class="store-selector">
     <label>店別：</label>
     {% for s in ['B','C','D','E','F','G','J','JJ','K','Q','S'] %}
     <button class="store-btn {% if (note and note.store == s) or (not note and current_user.store == s) %}selected{% endif %}" data-store="{{ s }}" type="button" onclick="selectStore(this)">{{ s }}</button>
     {% endfor %}
+  </div>
+  {% elif current_user.is_super_admin() and note %}
+  <div class="store-display">
+    店別：
+    {% if note.store %}
+    <span class="store-badge-inline store-badge-readonly" style="background:var(--store-color-{{ note.store }}, #999);">{{ note.store }} 店</span>
+    {% else %}
+    <span class="store-badge-readonly" style="color:#999;">（未指定）</span>
+    {% endif %}
+    <span style="color:#999; font-size:.78rem; margin-left:.4rem;">編輯時不可變更店別</span>
   </div>
   {% elif current_user.is_admin() %}
   <div class="store-display">
@@ -840,9 +853,17 @@ document.addEventListener('DOMContentLoaded', function() {
     _fbSaving = true;
     fb.textContent = '💾 儲存中…';
     doSave().then(function(ok) {
-      _fbSaving = false;
-      if (ok) { _leavingIntentionally = true; window.location.href = dest; }
-      else if (window._refreshFloatBack) window._refreshFloatBack();   // 還原「💾 儲存並返回」
+      if (!ok) {
+        _fbSaving = false;
+        if (window._refreshFloatBack) window._refreshFloatBack();      // 還原「💾 儲存並返回」
+        return;
+      }
+      // 跳頁會 abort 進行中的 fetch —— 等項目/附件那些獨立請求鏈落地再走。
+      return waitForInflightWrites().then(function() {
+        _fbSaving = false;
+        _leavingIntentionally = true;
+        window.location.href = dest;
+      });
     });
   });
   function searchHitVisible() {
@@ -952,6 +973,28 @@ var EDITOR_TYPE = (document.getElementById('editor-type') || {}).value || 'note'
 var _dirty = false;
 var _leavingIntentionally = false;   // 點返回鈕「確定離開」時設 → 抑制 beforeunload 雙重彈窗
 var _fbSaving = false;               // 浮動鈕「儲存並返回」進行中 → 擋重複點擊、勿被 refresh 覆蓋標籤
+
+// ── 導航前必須等的 in-flight 寫入 ────────────────────────────────
+// 「儲存並返回」會 window.location.href 跳頁，而**跳頁會 abort 所有進行中的
+// fetch**。項目 modal 的儲存是獨立的請求鏈，doSave() 等不到它 —— 使用者按下
+// 項目「完成」後立刻按「儲存並返回」，那個項目就可能從未寫入資料庫，而畫面
+// 已經跳走、沒有任何錯誤訊息（靜默漏存）。這裡把這類寫入登記起來，導航前一併等完。
+var _inflightWrites = [];
+function trackWrite(p) {
+  _inflightWrites.push(p);
+  function drop() {
+    var i = _inflightWrites.indexOf(p);
+    if (i >= 0) _inflightWrites.splice(i, 1);
+  }
+  p.then(drop, drop);
+  return p;
+}
+function waitForInflightWrites() {
+  // 失敗的寫入不擋導航（使用者已在 modal 上看到錯誤訊息），各自吞掉
+  return Promise.all(_inflightWrites.map(function(p) {
+    return p.catch(function() {});
+  }));
+}
 function markDirty() {
   if (IS_READONLY) return;           // 被鎖/唯讀不標 dirty
   _dirty = true;
@@ -968,6 +1011,30 @@ function setSaved() {
 window.markEditorDirty = markDirty;   // 給 tag_system.js 等外部呼叫
 
 function doSave() {
+  // 新筆記時與 ensureNoteExists() 共用同一把 in-flight 鎖。兩條路徑都會
+  // POST /notes/api 建立筆記；各建各的就會建出**兩篇** —— 項目掛在其中一篇、
+  // 畫面停在空的那篇（使用者會以為項目消失了）。
+  if (!NOTE_ID && _ensureNotePromise) {
+    return _ensureNotePromise.then(function() { return doSave(); },
+                                   function() { return false; });
+  }
+  // 反向：自己在建的時候，也要讓項目 modal 等我，別另建一篇。
+  var _publishCreated = null;
+  if (!NOTE_ID) {
+    _ensureNotePromise = new Promise(function(res, rej) {
+      _publishCreated = { resolve: res, reject: rej };
+    });
+    // settle 後清掉 in-flight 參照（與 ensureNoteExists 同行為）。
+    // 這個 .then 同時也是 rejection 的 handler，避免 unhandled rejection。
+    _ensureNotePromise.then(function() { _ensureNotePromise = null; },
+                            function() { _ensureNotePromise = null; });
+  }
+  function _failCreate(err) {
+    if (_publishCreated) {
+      _publishCreated.reject(err || new Error('筆記建立失敗'));
+      _publishCreated = null;
+    }
+  }
   var title = document.getElementById('title-input').value.trim() || '未命名筆記';
   var contentEl = document.getElementById('content-area');
   var content = contentEl ? contentEl.value : '';
@@ -999,13 +1066,14 @@ function doSave() {
       return res.json().catch(function() { return {}; }).then(function(j) { return [res, j]; });
     }).then(function(pair) {
       var res = pair[0], data = pair[1];
-      if (!handleMutationResponse(res, data)) { saveBtn.disabled = false; resolve(false); return; }
+      if (!handleMutationResponse(res, data)) { _failCreate(); saveBtn.disabled = false; resolve(false); return; }
       if (data.status === 'ok' || data.id) {
         if (!NOTE_ID && data.id) {
           NOTE_ID = data.id;
           // 新筆記首存：就地把網址換成編輯 URL（保留 filter query string），
           // 重整不掉內容、之後存檔走 PUT。不 redirect。
           history.replaceState(null, '', '/notes/' + NOTE_ID + window.location.search);
+          if (_publishCreated) { _publishCreated.resolve(NOTE_ID); _publishCreated = null; }
         }
         // 如果有暫存的檔案，先全部上傳完才標記已儲存
         if (pendingFiles.length > 0) {
@@ -1025,8 +1093,8 @@ function doSave() {
           resolve(true);
         }
       }
-      else { statusEl.textContent = '儲存失敗：' + (data.message || '未知錯誤'); saveBtn.disabled = false; resolve(false); }
-    }).catch(function(err) { statusEl.textContent = '儲存失敗：' + err.message; saveBtn.disabled = false; resolve(false); });
+      else { _failCreate(); statusEl.textContent = '儲存失敗：' + (data.message || '未知錯誤'); saveBtn.disabled = false; resolve(false); }
+    }).catch(function(err) { _failCreate(err); statusEl.textContent = '儲存失敗：' + err.message; saveBtn.disabled = false; resolve(false); });
   });
 }
 
@@ -1994,7 +2062,9 @@ function saveItemFromDialog() {
   msgEl.textContent = '儲存中...';
   msgEl.style.color = '#666';
 
-  ensureNoteExists().then(function() {
+  // 登記為 in-flight 寫入：「儲存並返回」跳頁前會等這條鏈落地，
+  // 否則跳頁會 abort 它、項目靜默漏存。
+  trackWrite(ensureNoteExists().then(function() {
     // 新增 or 更新項目
     var url, method, payload;
     if (itemId) {
@@ -2063,7 +2133,7 @@ function saveItemFromDialog() {
   }).catch(function(err) {
     msgEl.textContent = err.message;
     msgEl.style.color = '#e74c3c';
-  });
+  }));
 }
 
 if (EDITOR_TYPE === 'checklist' && NOTE_ID) loadChecklistItems();

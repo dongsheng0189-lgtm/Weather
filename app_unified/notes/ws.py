@@ -139,7 +139,6 @@ def register_ws_events(socketio):
         if not note:
             emit('r', {'op': 'er', 'message': 'not found'})
             return
-        stores = _get_stores()
         diff_parts = []
         if 'title' in data and data['title'] != note.title:
             diff_parts.append(f"標題: {note.title} → {data['title']}")
@@ -152,8 +151,9 @@ def register_ws_events(socketio):
             else:
                 diff_parts.append(f"內容變更（全文）")
             note.content = data['content']
-        if 'store' in data and current_user.is_super_admin():
-            note.store = data['store'] if data['store'] in stores else None
+        # ⚠️ 刻意不處理 data['store'] —— 與 HTTP PUT 同樣禁止編輯時搬店。
+        # 只封 HTTP 不封這條等於沒封（前端有兩條儲存路徑）。理由見
+        # notes/routes.py 的 update_note 與 tests/test_notes_store_immutable.py。
         if 'status' in data and data['status'] in STATUS_CHOICES:
             if data['status'] != note.status:
                 diff_parts.append(f"狀態: {note.status} → {data['status']}")
