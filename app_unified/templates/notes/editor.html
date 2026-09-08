@@ -1609,6 +1609,45 @@ function _quickTagUrl(targetType, targetId, tag) {
   return '/notes/api/' + targetId + '/tags/' + tag.id;
 }
 
+function firstGrapheme(s) {
+  // 取「第一個字」時不能用 charAt(0) —— 它拿的是一個 UTF-16 code unit。
+  // 以 emoji 開頭的標籤（🔥、🇹🇼、👨‍👩‍👦…都在 BMP 之外）會被切成半個代理對，
+  // 瀏覽器畫不出來，使用者看到的就是一個「?」。
+  s = String(s == null ? '' : s);
+  if (!s) return '';
+  try {
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      var first = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+                    .segment(s)[Symbol.iterator]().next();
+      if (!first.done) return first.value.segment;
+    }
+  } catch (e) { /* 舊瀏覽器沒有 Segmenter，往下走 fallback */ }
+
+  // fallback：至少按 code point 切（不會斷代理對），再把黏在後面的修飾字元收進來
+  var cps = Array.from(s);
+  var out = cps[0];
+  var i = 1;
+  var cp0 = out.codePointAt(0);
+  var isRI = function(c) { return c >= 0x1F1E6 && c <= 0x1F1FF; };
+  if (isRI(cp0) && cps[1] && isRI(cps[1].codePointAt(0))) {   // 國旗 = 兩個 regional indicator
+    out += cps[1];
+    i = 2;
+  }
+  for (; i < cps.length; i++) {
+    var cp = cps[i].codePointAt(0);
+    var prev = cps[i - 1].codePointAt(0);
+    var glued =
+      cp === 0x200D || prev === 0x200D ||                 // ZWJ 與它接起來的下一個
+      cp === 0xFE0F || cp === 0xFE0E ||                   // 變體選擇子（⚠️ 的 ️）
+      cp === 0x20E3 ||                                    // keycap（1️⃣ 的 ⃣）
+      (cp >= 0x1F3FB && cp <= 0x1F3FF) ||                 // 膚色修飾
+      (cp >= 0x0300 && cp <= 0x036F);                     // 結合附加符號
+    if (!glued) break;
+    out += cps[i];
+  }
+  return out;
+}
+
 function makeQuickTagBtn(targetType, targetId, tag, compact) {
   var btn = document.createElement('button');
   btn.type = 'button';
@@ -1620,7 +1659,7 @@ function makeQuickTagBtn(targetType, targetId, tag, compact) {
     if (compact) {
       // 右側動作欄用：只顯示標籤名第一個字，省橫向空間。
       // 掛上與否用填色區分（實心=已掛），全名與掛標籤的人在 hover 的 title 裡。
-      btn.textContent = tag.name.charAt(0);
+      btn.textContent = firstGrapheme(tag.name);
       btn.style.cssText =
         'font-size:.75rem;min-height:30px;width:30px;padding:0;border-radius:4px;' +
         'cursor:pointer;border:1px solid ' + tag.color + ';' +

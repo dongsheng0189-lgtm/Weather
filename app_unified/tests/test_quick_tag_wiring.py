@@ -56,13 +56,15 @@ def test_compact_button_shows_first_char_with_full_name_in_title():
     """compact 模式只顯示第一個字省空間，全名必須在 hover 的 title 裡 ——
     否則兩個標籤首字相同時（釘選上限 3，很有可能）根本分不出是哪一個。"""
     src = EDITOR.read_text(encoding='utf-8')
-    assert 'tag.name.charAt(0)' in src, 'compact 模式沒有只顯示第一個字'
+    assert 'firstGrapheme(tag.name)' in src, 'compact 模式沒有只顯示第一個字'
     start = src.index('function makeQuickTagBtn(')
     rest = src[start + len('function makeQuickTagBtn('):]
     nxt = rest.find('\nfunction ')
     block = rest if nxt == -1 else rest[:nxt]
     assert 'btn.title = (meta && meta.by)' in block and 'tag.name + ' in block, \
         'title 沒有帶標籤全名 —— compact 模式下會認不出是哪個標籤'
+    assert 'charAt(' not in block, \
+        'charAt() 會把 emoji 的代理對切一半、顯示成「?」—— 首字要用 firstGrapheme()'
 
 
 def test_quick_tag_shows_authorship_on_hover():
