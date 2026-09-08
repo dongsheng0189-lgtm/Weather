@@ -37,6 +37,34 @@ def test_quick_tag_rendered_for_pinned_only():
     assert 'return t.pinned;' in src, '沒有依 pinned 過濾 —— 會把所有標籤都變成按鈕'
 
 
+def test_item_quick_tags_live_in_actions_column():
+    """項目的快速鍵放右側動作欄（× 之下），不放內容區下方。
+
+    理由：(1) 不佔內容的橫向空間；(2) 避免與上方的標籤 chip 混淆 —— chip 是
+    「已經掛上」的顯示，按鈕是「可以掛上」的動作，兩者並排時使用者會誤以為
+    項目已經被貼了標籤。
+    """
+    src = EDITOR.read_text(encoding='utf-8')
+    assert "actions.appendChild(makeQuickTagBtn('item'" in src, \
+        '項目的快速鍵沒有放進右側動作欄'
+    assert 'className = \'quick-tag-row\'' not in src and \
+           "className = 'quick-tag-row'" not in src, \
+        '內容區下方的舊快速鍵區塊沒有移除'
+
+
+def test_compact_button_shows_first_char_with_full_name_in_title():
+    """compact 模式只顯示第一個字省空間，全名必須在 hover 的 title 裡 ——
+    否則兩個標籤首字相同時（釘選上限 3，很有可能）根本分不出是哪一個。"""
+    src = EDITOR.read_text(encoding='utf-8')
+    assert 'tag.name.charAt(0)' in src, 'compact 模式沒有只顯示第一個字'
+    start = src.index('function makeQuickTagBtn(')
+    rest = src[start + len('function makeQuickTagBtn('):]
+    nxt = rest.find('\nfunction ')
+    block = rest if nxt == -1 else rest[:nxt]
+    assert 'btn.title = (meta && meta.by)' in block and 'tag.name + ' in block, \
+        'title 沒有帶標籤全名 —— compact 模式下會認不出是哪個標籤'
+
+
 def test_quick_tag_shows_authorship_on_hover():
     """hover 顯示「誰在什麼時候掛的」。
 

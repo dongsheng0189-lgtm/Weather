@@ -1595,7 +1595,7 @@ function _quickTagUrl(targetType, targetId, tag) {
   return '/notes/api/' + targetId + '/tags/' + tag.id;
 }
 
-function makeQuickTagBtn(targetType, targetId, tag) {
+function makeQuickTagBtn(targetType, targetId, tag, compact) {
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'quick-tag-btn';
@@ -1603,16 +1603,28 @@ function makeQuickTagBtn(targetType, targetId, tag) {
 
   function paint() {
     var on = _quickTagState(targetType, targetId).indexOf(tag.id) >= 0;
-    btn.textContent = (on ? '✓ ' : '+ ') + tag.name;
-    btn.style.cssText =
-      'font-size:.75rem;padding:.2rem .5rem;border-radius:12px;cursor:pointer;' +
-      'margin-right:.3rem;margin-top:.3rem;border:1px solid ' + tag.color + ';' +
-      (on ? ('background:' + tag.color + ';color:#fff;')
-          : 'background:#fff;color:' + tag.color + ';');
+    if (compact) {
+      // 右側動作欄用：只顯示標籤名第一個字，省橫向空間。
+      // 掛上與否用填色區分（實心=已掛），全名與掛標籤的人在 hover 的 title 裡。
+      btn.textContent = tag.name.charAt(0);
+      btn.style.cssText =
+        'font-size:.75rem;min-height:30px;width:30px;padding:0;border-radius:4px;' +
+        'cursor:pointer;border:1px solid ' + tag.color + ';' +
+        (on ? ('background:' + tag.color + ';color:#fff;font-weight:700;')
+            : 'background:#fff;color:' + tag.color + ';');
+    } else {
+      btn.textContent = (on ? '✓ ' : '+ ') + tag.name;
+      btn.style.cssText =
+        'font-size:.75rem;padding:.2rem .5rem;border-radius:12px;cursor:pointer;' +
+        'margin-right:.3rem;margin-top:.3rem;border:1px solid ' + tag.color + ';' +
+        (on ? ('background:' + tag.color + ';color:#fff;')
+            : 'background:#fff;color:' + tag.color + ';');
+    }
+    // title 一律帶全名 —— compact 模式只看得到一個字，不帶全名就認不出是哪個標籤
     var meta = on ? _quickTagMeta(targetType, targetId, tag.id) : null;
     btn.title = (meta && meta.by)
-      ? (meta.by + (meta.at ? ' · ' + fmtDateTime(meta.at) : ''))
-      : (on ? '已掛上' : '點一下掛上「' + tag.name + '」');
+      ? (tag.name + ' · ' + meta.by + (meta.at ? ' · ' + fmtDateTime(meta.at) : ''))
+      : (on ? (tag.name + '（已掛上）') : ('點一下掛上「' + tag.name + '」'));
   }
 
   btn.onclick = function() {
@@ -1763,19 +1775,6 @@ function renderChecklistItem(item) {
     paintItemTagChips(item.id, tagWrap);
   }
 
-  // 快速標籤鍵：釘選的標籤各一顆。唯讀時不顯示。
-  if (window.ALL_STORE_TAGS && !IS_READONLY) {
-    var pinnedTags = window.ALL_STORE_TAGS.filter(function(t) { return t.pinned; });
-    if (pinnedTags.length > 0) {
-      var qWrap = document.createElement('div');
-      qWrap.className = 'quick-tag-row';
-      pinnedTags.forEach(function(t) {
-        qWrap.appendChild(makeQuickTagBtn('item', item.id, t));
-      });
-      content.appendChild(qWrap);
-    }
-  }
-
   // meta — 2 rows max, conditional. (F11) check is treated as modification,
   // shown as '修改(完成)' suffix when last action was the check.
   var meta = document.createElement('div');
@@ -1832,6 +1831,19 @@ function renderChecklistItem(item) {
   delBtn.textContent = '×';
   delBtn.onclick = function() { deleteChecklistItem(item.id); };
   actions.appendChild(delBtn);
+
+  // 快速標籤鍵放在右側動作欄最下面（× 之下），只顯示標籤名第一個字。
+  // 放這裡而不是內容區下方的理由：(1) 不佔內容的橫向空間；(2) 避免與上方的
+  // 標籤 chip 混淆 —— chip 是「已經掛上」的顯示，按鈕是「可以掛上」的動作，
+  // 兩者並排時使用者會誤以為項目已經被貼了標籤。
+  // 釘選上限是 3（PIN_LIMIT），所以這裡最多三顆。唯讀時不顯示。
+  if (window.ALL_STORE_TAGS && !IS_READONLY) {
+    window.ALL_STORE_TAGS.filter(function(t) { return t.pinned; })
+      .forEach(function(t) {
+        actions.appendChild(makeQuickTagBtn('item', item.id, t, true));
+      });
+  }
+
   row.appendChild(actions);
 
   return row;
