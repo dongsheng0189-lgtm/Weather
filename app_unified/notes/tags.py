@@ -13,6 +13,17 @@ PIN_LIMIT = 3
 MAX_TAGS_PER_ITEM = 5
 
 
+def _stamp(row):
+    """把「誰在什麼時候掛的」蓋到標籤關聯列上。
+
+    快速標籤鍵與標籤選擇器兩條路都會呼叫，確保兩邊記錄的內容一致。
+    """
+    row.tagged_by = current_user.id
+    row.tagged_by_name = current_user.username
+    row.tagged_at = datetime.utcnow()
+    return row
+
+
 def _tag_to_dict(tag, include_usage=False):
     d = {
         'id': tag.id,
@@ -163,9 +174,14 @@ def set_note_tags(note_id):
     for t in tags:
         if t.store != n.store:
             return jsonify({'error': '跨店標籤'}), 400
-    NoteTag.query.filter_by(note_id=n.id).delete()
-    for tid in tag_ids:
-        db.session.add(NoteTag(note_id=n.id, tag_id=tid))
+    # 差集改寫，理由同 set_item_tags。
+    existing = {r.tag_id: r for r in NoteTag.query.filter_by(note_id=n.id).all()}
+    wanted = set(tag_ids)
+    for tid, row in existing.items():
+        if tid not in wanted:
+            db.session.delete(row)
+    for tid in wanted - set(existing):
+        db.session.add(_stamp(NoteTag(note_id=n.id, tag_id=tid)))
     db.session.commit()
     return jsonify({'tag_ids': tag_ids})
 
@@ -192,8 +208,14 @@ def set_item_tags(item_id):
     for t in tags:
         if t.store != note.store:
             return jsonify({'error': '跨店標籤'}), 400
-    ChecklistItemTag.query.filter_by(item_id=item.id).delete()
-    for tid in tag_ids:
-        db.session.add(ChecklistItemTag(item_id=item.id, tag_id=tid))
+    # 差集改寫，不可退回「全刪重插」—— 那會把 tagged_by / tagged_at 靜默洗掉。
+    existing = {r.tag_id: r for r in
+                ChecklistItemTag.query.filter_by(item_id=item.id).all()}
+    wanted = set(tag_ids)
+    for tid, row in existing.items():
+        if tid not in wanted:
+            db.session.delete(row)
+    for tid in wanted - set(existing):
+        db.session.add(_stamp(ChecklistItemTag(item_id=item.id, tag_id=tid)))
     db.session.commit()
     return jsonify({'tag_ids': tag_ids})
