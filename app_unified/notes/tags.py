@@ -219,3 +219,102 @@ def set_item_tags(item_id):
         db.session.add(_stamp(ChecklistItemTag(item_id=item.id, tag_id=tid)))
     db.session.commit()
     return jsonify({'tag_ids': tag_ids})
+
+
+# ─────────────────────────────────────────────────────────────
+# 快速標籤鍵（2026-09-08）
+#
+# 專用的單標籤 toggle 端點。刻意**不**重用 `PUT .../tags` —— 那個吃的是整份
+# 清單，前端得先知道目前有哪些標籤才能送，兩個人同時操作會互相覆蓋。
+#
+# ⚠️ 這些端點刻意**不觸碰** item.updated_at / note.updated_at。項目與筆記列表
+# 都按 updated_at DESC 排序，碰了就會讓使用者交接時逐項按下去、把整張清單的
+# 順序打亂。有測試守著（test_quick_tag_api.py）。
+# ─────────────────────────────────────────────────────────────
+
+def _assignment_to_dict(row):
+    return {
+        'tag_id': row.tag_id,
+        'tagged_by_name': row.tagged_by_name,
+        'tagged_at': row.tagged_at.isoformat() if row.tagged_at else None,
+    }
+
+
+def _resolve_item_and_tag(item_id, tag_id):
+    """回傳 (item, note, tag)。權限或資料不符時直接 abort / 回傳錯誤 response。"""
+    item = ChecklistItem.active().filter_by(id=item_id).first()
+    if not item:
+        abort(404)
+    note = db.session.get(Note, item.note_id)
+    if not note or note.deleted_at is not None:
+        abort(404)
+    if current_user.role != 'super_admin' and note.store != current_user.store:
+        abort(403)
+    tag = db.session.get(Tag, tag_id)
+    if not tag:
+        abort(404)
+    return item, note, tag
+
+
+@notes_bp.route('/api/items/<int:item_id>/tags/<int:tag_id>', methods=['POST'])
+@login_required
+def quick_add_item_tag(item_id, tag_id):
+    item, note, tag = _resolve_item_and_tag(item_id, tag_id)
+    if tag.store != note.store:
+        return jsonify({'error': '跨店標籤'}), 400
+    existing = ChecklistItemTag.query.filter_by(item_id=item.id, tag_id=tag.id).first()
+    if existing:
+        return jsonify(_assignment_to_dict(existing))   # 連按兩次不視為錯誤
+    if ChecklistItemTag.query.filter_by(item_id=item.id).count() >= MAX_TAGS_PER_ITEM:
+        return jsonify({'error': f'此項目已有 {MAX_TAGS_PER_ITEM} 個標籤，請先移除其他標籤'}), 400
+    row = _stamp(ChecklistItemTag(item_id=item.id, tag_id=tag.id))
+    db.session.add(row)
+    db.session.commit()
+    return jsonify(_assignment_to_dict(row))
+
+
+@notes_bp.route('/api/items/<int:item_id>/tags/<int:tag_id>', methods=['DELETE'])
+@login_required
+def quick_remove_item_tag(item_id, tag_id):
+    item, _, tag = _resolve_item_and_tag(item_id, tag_id)
+    ChecklistItemTag.query.filter_by(item_id=item.id, tag_id=tag.id).delete()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+def _resolve_note_and_tag(note_id, tag_id):
+    note = db.session.get(Note, note_id)
+    if not note or note.deleted_at is not None:
+        abort(404)
+    if current_user.role != 'super_admin' and note.store != current_user.store:
+        abort(403)
+    tag = db.session.get(Tag, tag_id)
+    if not tag:
+        abort(404)
+    return note, tag
+
+
+@notes_bp.route('/api/<int:note_id>/tags/<int:tag_id>', methods=['POST'])
+@login_required
+def quick_add_note_tag(note_id, tag_id):
+    note, tag = _resolve_note_and_tag(note_id, tag_id)
+    if tag.store != note.store:
+        return jsonify({'error': '跨店標籤'}), 400
+    existing = NoteTag.query.filter_by(note_id=note.id, tag_id=tag.id).first()
+    if existing:
+        return jsonify(_assignment_to_dict(existing))
+    if NoteTag.query.filter_by(note_id=note.id).count() >= MAX_TAGS_PER_ITEM:
+        return jsonify({'error': f'此筆記已有 {MAX_TAGS_PER_ITEM} 個標籤，請先移除其他標籤'}), 400
+    row = _stamp(NoteTag(note_id=note.id, tag_id=tag.id))
+    db.session.add(row)
+    db.session.commit()
+    return jsonify(_assignment_to_dict(row))
+
+
+@notes_bp.route('/api/<int:note_id>/tags/<int:tag_id>', methods=['DELETE'])
+@login_required
+def quick_remove_note_tag(note_id, tag_id):
+    note, tag = _resolve_note_and_tag(note_id, tag_id)
+    NoteTag.query.filter_by(note_id=note.id, tag_id=tag.id).delete()
+    db.session.commit()
+    return jsonify({'ok': True})
