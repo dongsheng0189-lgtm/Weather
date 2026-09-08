@@ -1076,6 +1076,10 @@ function doSave() {
           // 重整不掉內容、之後存檔走 PUT。不 redirect。
           history.replaceState(null, '', '/notes/' + NOTE_ID + window.location.search);
           if (_publishCreated) { _publishCreated.resolve(NOTE_ID); _publishCreated = null; }
+          // 首次存檔後 NOTE_ID 才有值，補渲染筆記層快速鍵 ——
+          // renderNoteQuickTags 只掛在一次性的 DOMContentLoaded 上，
+          // 不補這一行的話按鈕要重整頁面才會出現。
+          renderNoteQuickTags();
         }
         // 如果有暫存的檔案，先全部上傳完才標記已儲存
         if (pendingFiles.length > 0) {
@@ -1137,6 +1141,8 @@ function ensureNoteExists() {
         tb.appendChild(b);
       }
       // 新建筆記後我們就是 owner — handleMutationResponse 已啟動 heartbeat
+      // 理由同 doSave：NOTE_ID 剛產生，補渲染筆記層快速鍵
+      renderNoteQuickTags();
       return NOTE_ID;
     }
     throw new Error(d.message || '儲存失敗');

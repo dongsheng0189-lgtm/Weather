@@ -84,10 +84,34 @@ def test_note_level_quick_tags_are_rendered():
 
 
 def test_note_quick_tags_only_when_note_exists():
-    """新建但還沒存的筆記沒有 id，不能渲染（會打到 /notes/api/undefined/tags/...）。"""
+    """新建但尚未存檔的筆記沒有 id，不能渲染（會打到 /notes/api/undefined/tags/...）。
+
+    斷言要限縮在 renderNoteQuickTags 的函式體內 —— 全檔案有多處無關的
+    `if (!NOTE_ID) return;`，只檢查整檔會恆真、對迴歸沒有偵測力。
+    """
     src = EDITOR.read_text(encoding='utf-8')
-    assert 'if (!NOTE_ID) return;' in src or 'if (NOTE_ID)' in src, \
-        '沒有擋住「筆記尚未建立」的情形'
+    start = src.index('function renderNoteQuickTags(')
+    rest = src[start + len('function renderNoteQuickTags('):]
+    nxt = rest.find('\nfunction ')
+    block = rest if nxt == -1 else rest[:nxt]
+    assert 'if (!NOTE_ID) return;' in block, \
+        'renderNoteQuickTags 沒有擋住「筆記尚未建立」的情形'
+
+
+def test_note_quick_tags_rerendered_after_note_created():
+    """新建筆記首次存檔後要補渲染，否則按鈕要重整頁面才會出現。
+
+    renderNoteQuickTags 只掛在一次性的 DOMContentLoaded 上，而那時 NOTE_ID
+    還是空的、被 guard 擋掉。兩條會產生 NOTE_ID 的路徑都要補呼叫。
+    """
+    src = EDITOR.read_text(encoding='utf-8')
+    for fn in ('function doSave()', 'function ensureNoteExists()'):
+        start = src.index(fn)
+        rest = src[start + len(fn):]
+        nxt = rest.find('\nfunction ')
+        block = rest if nxt == -1 else rest[:nxt]
+        assert 'renderNoteQuickTags()' in block, \
+            f'{fn} 建立筆記後沒有重新渲染筆記層快速鍵'
 
 
 def test_note_quick_tags_wait_for_dom_ready():
