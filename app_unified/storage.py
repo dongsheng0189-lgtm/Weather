@@ -110,7 +110,12 @@ def upload_attachment(file_bytes: bytes, note_id: int, filename: str, content_ty
                 ContentType="image/jpeg",
             )
         except Exception:
-            thumb_key = None   # 縮圖失敗不擋主上傳，前端 fallback 原圖
+            # 縮圖失敗刻意不擋主上傳（前端 fallback 原圖），但不可無聲無息 ——
+            # 見 tests/test_storage_failure_logging.py 的檔頭說明。
+            current_app.logger.warning(
+                "R2 thumb upload failed (fallback to original): key=%s",
+                thumb_key, exc_info=True)
+            thumb_key = None
 
     return object_key, thumb_key
 
@@ -128,6 +133,8 @@ def delete_attachment(object_key: str) -> bool:
         client.delete_object(Bucket=cfg["R2_BUCKET_NAME"], Key=object_key)
         return True
     except Exception:
+        current_app.logger.warning(
+            "R2 delete failed: key=%s", object_key, exc_info=True)
         return False
 
 
@@ -151,6 +158,8 @@ def get_signed_url(object_key: str, expires_in: int = 3600) -> str | None:
         )
         return url
     except ClientError:
+        current_app.logger.warning(
+            "R2 presigned URL failed: key=%s", object_key, exc_info=True)
         return None
 
 
@@ -205,4 +214,6 @@ def get_download_url(object_key: str, filename: str, content_type: str,
         )
         return url
     except ClientError:
+        current_app.logger.warning(
+            "R2 presigned URL failed: key=%s", object_key, exc_info=True)
         return None

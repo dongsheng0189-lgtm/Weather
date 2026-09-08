@@ -66,6 +66,10 @@ def api_weather():
         _inject_ext_ptr(data)
         return jsonify(data), resp.status_code
     except Exception as e:
+        # 只回給前端不夠 —— 事後查「那天天氣為什麼一直掛」時 server 端要有痕跡。
+        # exc_info 保留堆疊，才分得出是上游逾時、金鑰失效還是 DNS 解不出來。
+        current_app.logger.warning("weather: %s failed: %s",
+                                   request.path, e, exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -135,4 +139,8 @@ def api_air_quality():
             db.session.commit()
         return jsonify(data), resp.status_code
     except Exception as e:
+        # 只回給前端不夠 —— 事後查「那天天氣為什麼一直掛」時 server 端要有痕跡。
+        # exc_info 保留堆疊，才分得出是上游逾時、金鑰失效還是 DNS 解不出來。
+        current_app.logger.warning("weather: %s failed: %s",
+                                   request.path, e, exc_info=True)
         return jsonify({"error": str(e)}), 500
