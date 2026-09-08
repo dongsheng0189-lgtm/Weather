@@ -425,7 +425,6 @@
     var btn = document.getElementById('open-tag-picker');
     if (!btn) return;
     var targetType = btn.dataset.targetType;
-    var rawId = btn.dataset.targetId;
     var currentIds = [];
     try { currentIds = JSON.parse(btn.dataset.currentTagIds || '[]'); } catch (e) {}
     var badge = document.getElementById('note-tag-count');

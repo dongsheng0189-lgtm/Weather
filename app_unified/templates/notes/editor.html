@@ -1136,13 +1136,13 @@ function ensureNoteExists() {
     if (d.id) {
       NOTE_ID = d.id;
       history.replaceState(null, '', '/notes/' + NOTE_ID);
-          // 首存後把標籤選擇器的 target id 補上 —— 它是在點擊當下從 dataset 讀的，
-          // 不更新的話會一直走「新建未存檔」分支，選的標籤靜默存不進去。
-          var _picker = document.getElementById('open-tag-picker');
-          if (_picker) _picker.dataset.targetId = NOTE_ID;
-          // ⚠️ 與 doSave 不同：ensureNoteExists 的 POST **沒有**帶 tag_ids，
-          // 所以這條路建出來的筆記身上沒有任何標籤，NOTE_TAG_IDS 要是空的。
-          window.NOTE_TAG_IDS = [];
+      // 首存後把標籤選擇器的 target id 補上 —— 它是在點擊當下從 dataset 讀的，
+      // 不更新的話會一直走「新建未存檔」分支，選的標籤靜默存不進去。
+      var _picker = document.getElementById('open-tag-picker');
+      if (_picker) _picker.dataset.targetId = NOTE_ID;
+      // ⚠️ 與 doSave 不同：ensureNoteExists 的 POST **沒有**帶 tag_ids，
+      // 所以這條路建出來的筆記身上沒有任何標籤，NOTE_TAG_IDS 要是空的。
+      window.NOTE_TAG_IDS = [];
       // 顯示刪除按鈕
       var tb = document.querySelector('.editor-toolbar');
       if (tb && !document.getElementById('btn-delete')) {
