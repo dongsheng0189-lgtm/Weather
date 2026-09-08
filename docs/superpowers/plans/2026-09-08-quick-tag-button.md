@@ -18,6 +18,7 @@
 - **權限沿用既有標籤指派**：`current_user.role != 'super_admin' and X.store != current_user.store` → 403。不新增權限概念。
 - **新欄位一律 nullable**：既有的標籤關聯沒有這些值，UI 遇到 null 就不顯示 hover 資訊。
 - **prod 的欄位要靠開機修復 DDL 才會生效**：本專案 prod 除了 Alembic migration，`app_unified/app.py` 的開機 schema 修復區塊還會跑一輪 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`。**兩邊都要加**，只加 migration 在 prod 不會生效。
+- **指向 `users` 的欄位一律要建真的外鍵**（`REFERENCES users(id) ON DELETE SET NULL`），migration 與開機 DDL 兩邊都要。專案既有的七個同類欄位（`locked_by` / `deleted_by` / `created_by` / `updated_by` / `reminder_set_by`）都是這樣；只在 `models.py` 宣告 `ForeignKey` 是不夠的，prod 的表是既存的、靠 DDL 補欄位。（本計畫初版漏了這條，審查時抓到。）
 - 所有指令都在 `app_unified/` 目錄下執行，Python 用 `../venv/bin/python`。
 
 ---
@@ -177,10 +178,14 @@ def upgrade():
         op.add_column(t, sa.Column('tagged_by', sa.Integer(), nullable=True))
         op.add_column(t, sa.Column('tagged_by_name', sa.Text(), nullable=True))
         op.add_column(t, sa.Column('tagged_at', sa.DateTime(), nullable=True))
+        # 與專案其他「誰做的」欄位一致：刪帳號時自動設 NULL，不留孤兒 id
+        op.create_foreign_key(f'fk_{t}_tagged_by', t, 'users',
+                              ['tagged_by'], ['id'], ondelete='SET NULL')
 
 
 def downgrade():
     for t in _TABLES:
+        op.drop_constraint(f'fk_{t}_tagged_by', t, type_='foreignkey')
         op.drop_column(t, 'tagged_at')
         op.drop_column(t, 'tagged_by_name')
         op.drop_column(t, 'tagged_by')
@@ -201,7 +206,8 @@ def downgrade():
                 # 標籤指派的作者資訊（2026-09-08 快速標籤鍵）。
                 # ⚠️ 只加 Alembic migration 在 prod 不會生效 —— prod 靠這段 DDL。
                 for _tbl in ("note_tags", "checklist_item_tags"):
-                    _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_by INTEGER")
+                    _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_by INTEGER "
+                              "REFERENCES users(id) ON DELETE SET NULL")
                     _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_by_name TEXT")
                     _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_at TIMESTAMP")
 ```
