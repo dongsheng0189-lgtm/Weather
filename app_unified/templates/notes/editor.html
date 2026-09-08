@@ -2182,10 +2182,14 @@ window.addEventListener('beforeunload', function(e) {
 <script>
   // Expose tag context to tag_system.js
   window.ITEM_TAG_IDS_MAP = {{ item_tag_ids_map|tojson|safe if item_tag_ids_map is defined else '{}' }};
+  // 快速標籤鍵用：誰在什麼時候掛的（hover 顯示）。key 都是字串。
+  window.ITEM_TAG_META_MAP = {{ item_tag_meta_map|tojson|safe if item_tag_meta_map is defined else '{}' }};
+  window.NOTE_TAG_META = {{ note_tag_meta|tojson|safe if note_tag_meta is defined else '{}' }};
+  window.NOTE_TAG_IDS = {{ current_tag_ids|tojson|safe if current_tag_ids is defined else '[]' }};
   window.ALL_STORE_TAGS = [
     {% if all_store_tags is defined and all_store_tags %}
     {% for t in all_store_tags %}
-    {id: {{ t.id }}, name: "{{ t.name|e }}", color: "{{ t.color }}"}{% if not loop.last %},{% endif %}
+    {id: {{ t.id }}, name: "{{ t.name|e }}", color: "{{ t.color }}", pinned: {{ t.pinned|tojson }}}{% if not loop.last %},{% endif %}
     {% endfor %}
     {% endif %}
   ];

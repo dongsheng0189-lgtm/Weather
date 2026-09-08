@@ -577,6 +577,8 @@ def new_note():
                            default_store=_user_store,
                            current_tag_ids=[],
                            item_tag_ids_map={},
+                           item_tag_meta_map={},
+                           note_tag_meta={},
                            all_store_tags=all_store_tags)
 
 
@@ -2134,13 +2136,27 @@ def edit_note(note_id):
     is_locked, locker = _lock_status(note)
     # Tag context for picker / item chips
     from models import NoteTag as _NT, ChecklistItemTag as _CIT, Tag as _Tag
-    current_tag_ids = [nt.tag_id for nt in _NT.query.filter_by(note_id=note.id).all()]
+    # 快速標籤鍵要顯示「誰在什麼時候掛的」，所以除了 id 清單，另外帶一份 meta。
+    # key 一律轉成字串：|tojson 之後 JSON 物件的 key 本來就是字串，前端用
+    # 數字取值時 JS 會自動轉，兩邊一致比較不會踩坑。
+    note_tag_rows = _NT.query.filter_by(note_id=note.id).all()
+    current_tag_ids = [nt.tag_id for nt in note_tag_rows]
+    note_tag_meta = {
+        str(r.tag_id): {'by': r.tagged_by_name,
+                        'at': r.tagged_at.isoformat() if r.tagged_at else None}
+        for r in note_tag_rows
+    }
     item_tag_ids_map = {}
+    item_tag_meta_map = {}
     if note.note_type == 'checklist':
         active_item_ids = [it.id for it in note.active_checklist_items]
         if active_item_ids:
             for r in _CIT.query.filter(_CIT.item_id.in_(active_item_ids)).all():
                 item_tag_ids_map.setdefault(r.item_id, []).append(r.tag_id)
+                item_tag_meta_map.setdefault(str(r.item_id), {})[str(r.tag_id)] = {
+                    'by': r.tagged_by_name,
+                    'at': r.tagged_at.isoformat() if r.tagged_at else None,
+                }
     all_store_tags = _Tag.query.filter_by(store=note.store).all()
     return render_template("notes/editor.html", note=note, stores=stores,
                            status_choices=STATUS_CHOICES,
@@ -2148,4 +2164,6 @@ def edit_note(note_id):
                            locker_name=locker.username if locker else None,
                            current_tag_ids=current_tag_ids,
                            item_tag_ids_map=item_tag_ids_map,
+                           item_tag_meta_map=item_tag_meta_map,
+                           note_tag_meta=note_tag_meta,
                            all_store_tags=all_store_tags)
