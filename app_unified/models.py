@@ -528,6 +528,11 @@ class NoteTag(db.Model):
 
     note_id = db.Column(db.Integer, db.ForeignKey("notes.id", ondelete="CASCADE"), primary_key=True)
     tag_id = db.Column(db.Integer, db.ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    # 誰在什麼時候掛上這個標籤（2026-09-08 快速標籤鍵）。三欄皆 nullable：
+    # 既有關聯沒有這些值，UI 遇到 null 就不顯示 hover 資訊。
+    tagged_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    tagged_by_name = db.Column(EncryptedText, nullable=True)  # 快照，比照 ChecklistItem.checked_by_name
+    tagged_at = db.Column(db.DateTime, nullable=True)
 
 
 class ChecklistItemTag(db.Model):
@@ -535,3 +540,6 @@ class ChecklistItemTag(db.Model):
 
     item_id = db.Column(db.Integer, db.ForeignKey("checklist_items.id", ondelete="CASCADE"), primary_key=True)
     tag_id = db.Column(db.Integer, db.ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    tagged_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    tagged_by_name = db.Column(EncryptedText, nullable=True)
+    tagged_at = db.Column(db.DateTime, nullable=True)
