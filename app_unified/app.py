@@ -36,6 +36,7 @@ from flask import Flask, redirect, url_for, render_template, request, session, j
 from flask_login import current_user, logout_user
 from config import Config
 from extensions import db, login_manager, limiter, socketio
+import dns_cache
 from models import User
 from monitor_ship import ship_event_from_request_async
 from ratelimit_forensics import default_aggregator
@@ -126,6 +127,14 @@ def _safe_ddl(sql, label=""):
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+
+    # 外部來源的 DNS 快取 + stale-on-error。2026-09-08 查明：警政署的 5 個權威
+    # NS IP 中有一台是死的，遞迴解析器挑中它就解不出來 → 使用者看到
+    # 「警政署系統暫時無法連線」（9/05 起 252 筆）。對方的 DNS 我們與 Zeabur
+    # 都修不了，只能在自己這端沿用上次成功的 IP。詳見 dns_cache.py。
+    # 必須在 gevent monkey.patch_all() 之後 —— wsgi.py 最上面就 patch 了。
+    dns_cache.install()
+
     # Session 硬性過期：35 分鐘（涵蓋私人筆記筆電 30 分鐘 + 緩衝）
     # 真正的 idle 強制由 _enforce_session_idle 依路徑判定（5 分鐘 / 30 分鐘）
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=35)
