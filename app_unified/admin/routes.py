@@ -21,6 +21,25 @@ def _log_user_action(action, target_user, detail=None):
     db.session.add(log)
 
 
+def _log_store_action(action, store_name, detail=None):
+    """記錄店家管理動作（新增/刪除/切換登入）。
+
+    沿用 UserLog：店家操作沒有「目標使用者」，所以 target_id 留 None、
+    把**店名**放進 target_name。決策理由：零 migration、馬上在現有後台的
+    「使用者操作紀錄」看得到。代價是表名叫 UserLog 卻存了店家事件 ——
+    action 名稱一律帶 `_store` 後綴以資區別。
+    見 tests/test_audit_log_gaps.py。
+    """
+    db.session.add(UserLog(
+        operator_id=current_user.id,
+        operator_name=current_user.username,
+        target_id=None,
+        target_name=store_name,
+        action=action,
+        detail=detail,
+    ))
+
+
 # NOTE: 角色（role）與模組權限（features）刻意「完全脫鉤」。改角色絕不增刪任何
 # feature——模組權限只透過 root-admin（username=='admin'）的「設定模組權限」UI
 # (set_user_features) 管理。歷史上 set_role 會 sync features，導致「admin→user 被
@@ -422,6 +441,9 @@ def list_user_logs():
         "approve_device": "核准裝置",
         "set_features": "改模組權限",
         "rename": "改名",
+        "create_store": "新增店家",
+        "delete_store": "刪除店家",
+        "toggle_store_login": "切換店家登入",
     }
     return jsonify([{
         "id": log.id,
@@ -794,6 +816,7 @@ def create_store():
     if Store.query.filter_by(name=name).first():
         return jsonify({"status": "error", "message": "店家已存在"}), 409
     db.session.add(Store(name=name))
+    _log_store_action("create_store", name, f"新增店家 {name}")
     db.session.commit()
     return jsonify({"status": "ok", "name": name}), 201
 
@@ -804,6 +827,8 @@ def delete_store(name):
     require_admin()
     store = Store.query.filter_by(name=name).first_or_404()
     db.session.delete(store)
+    # 破壞性操作：刪掉整間店。2026-09-08 之前這條完全不留痕跡。
+    _log_store_action("delete_store", name, f"刪除店家 {name}")
     db.session.commit()
     return jsonify({"status": "ok"})
 
@@ -814,6 +839,9 @@ def toggle_store_login(name):
     require_admin()
     store = Store.query.filter_by(name=name).first_or_404()
     store.login_enabled = not store.login_enabled
+    _log_store_action(
+        "toggle_store_login", name,
+        f"登入 {'啟用' if store.login_enabled else '停用'}（login_enabled={store.login_enabled}）")
     db.session.commit()
     return jsonify({"status": "ok", "login_enabled": store.login_enabled})
 
