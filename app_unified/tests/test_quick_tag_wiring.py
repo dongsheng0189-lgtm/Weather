@@ -38,6 +38,14 @@ def test_quick_tag_rendered_for_pinned_only():
 
 
 def test_quick_tag_shows_authorship_on_hover():
+    """hover 顯示「誰在什麼時候掛的」。
+
+    斷言必須落在 makeQuickTagBtn 的定義區塊內 —— 只檢查整檔有沒有出現
+    'ITEM_TAG_META_MAP' / 'title' 會偽陽性（前者是上個任務注入的、後者
+    整份模板到處都是），那樣的測試在功能實作前就會通過、對迴歸沒有偵測力。
+    """
     src = EDITOR.read_text(encoding='utf-8')
-    assert 'ITEM_TAG_META_MAP' in src and 'title' in src, \
-        '沒有把作者資訊放進 title（hover 提示）'
+    start = src.index('function makeQuickTagBtn(')
+    block = src[start:start + 2500]
+    assert '_quickTagMeta(' in block, 'makeQuickTagBtn 沒有讀取作者資訊'
+    assert 'btn.title' in block, '作者資訊沒有放進 title（hover 提示）'

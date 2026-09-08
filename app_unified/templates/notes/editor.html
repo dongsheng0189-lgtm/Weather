@@ -1645,6 +1645,7 @@ function makeQuickTagBtn(targetType, targetId, tag) {
           else { window.NOTE_TAG_META[String(tag.id)] = { by: d.tagged_by_name, at: d.tagged_at }; }
         }
         paint();
+        if (targetType === 'item') paintItemTagChips(targetId);
       })
       .catch(function(err) {
         btn.disabled = false;
@@ -1654,6 +1655,26 @@ function makeQuickTagBtn(targetType, targetId, tag) {
 
   paint();
   return btn;
+}
+
+// 重繪某個項目的 tag chip 列。快速標籤鍵 toggle 後要呼叫，否則按鈕變了、
+// 上方的 chip 卻停在舊狀態（那排是 render 當下建好的靜態 DOM）。
+function paintItemTagChips(itemId) {
+  var wrap = document.querySelector('.item-tags[data-item-id="' + itemId + '"]');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  var tagIds = (window.ITEM_TAG_IDS_MAP && window.ITEM_TAG_IDS_MAP[itemId]) || [];
+  tagIds.forEach(function(tid) {
+    var tag = (window.ALL_STORE_TAGS || []).find(function(t) { return t.id === tid; });
+    if (!tag) return;
+    var fg = (window.__tag_system ? window.__tag_system.pickFg(tag.color) : '#fff');
+    var chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.style.setProperty('--tag-bg', tag.color);
+    chip.style.setProperty('--tag-fg', fg);
+    chip.textContent = tag.name;
+    wrap.appendChild(chip);
+  });
 }
 
 function renderChecklistItem(item) {
@@ -1703,25 +1724,14 @@ function renderChecklistItem(item) {
     content.appendChild(atts);
   }
 
-  // tag chips (render from preloaded ITEM_TAG_IDS_MAP + ALL_STORE_TAGS)
+  // tag chips：容器一律建立（即使目前沒有標籤），這樣快速標籤鍵 toggle 之後
+  // 才有東西可以重繪 —— 否則從 0 個標籤掛上第一個時會找不到容器。
   if (window.ITEM_TAG_IDS_MAP && window.ALL_STORE_TAGS) {
-    var tagIds = window.ITEM_TAG_IDS_MAP[item.id] || [];
-    if (tagIds.length > 0) {
-      var tagWrap = document.createElement('div');
-      tagWrap.className = 'item-tags';
-      tagIds.forEach(function(tid) {
-        var tag = window.ALL_STORE_TAGS.find(function(t) { return t.id === tid; });
-        if (!tag) return;
-        var fg = (window.__tag_system ? window.__tag_system.pickFg(tag.color) : '#fff');
-        var chip = document.createElement('span');
-        chip.className = 'tag-chip';
-        chip.style.setProperty('--tag-bg', tag.color);
-        chip.style.setProperty('--tag-fg', fg);
-        chip.textContent = tag.name;
-        tagWrap.appendChild(chip);
-      });
-      content.appendChild(tagWrap);
-    }
+    var tagWrap = document.createElement('div');
+    tagWrap.className = 'item-tags';
+    tagWrap.dataset.itemId = item.id;
+    content.appendChild(tagWrap);
+    paintItemTagChips(item.id);
   }
 
   // 快速標籤鍵：釘選的標籤各一顆。唯讀時不顯示。
