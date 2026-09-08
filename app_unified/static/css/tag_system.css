@@ -98,6 +98,13 @@
   margin-top: .25rem;
 }
 
+/* 容器一律建立（快速標籤鍵 toggle 後才有東西可重繪），但空的時候不可佔位 ——
+   display:flex 的空元素不會自我摺疊 margin，會讓 0 標籤的項目多出 4px 空隙。
+   :empty 是即時 pseudo-class，掛上第一個標籤時瀏覽器會自動改回 flex。 */
+.item-tags:empty {
+  display: none;
+}
+
 /* Tag management section */
 .tag-mgmt-list {
   display: flex;

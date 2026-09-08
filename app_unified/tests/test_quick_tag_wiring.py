@@ -49,3 +49,25 @@ def test_quick_tag_shows_authorship_on_hover():
     block = src[start:start + 2500]
     assert '_quickTagMeta(' in block, 'makeQuickTagBtn 沒有讀取作者資訊'
     assert 'btn.title' in block, '作者資訊沒有放進 title（hover 提示）'
+
+
+def test_toggle_repaints_chip_row():
+    """toggle 成功後要同步重繪 chip 列。
+
+    少了這一步，按鈕會變成 ✓ 但上方的 chip 列停在舊狀態（那排是 render 當下
+    建好的靜態 DOM），要等下次整批重繪才校正。
+    """
+    src = EDITOR.read_text(encoding='utf-8')
+    assert 'function paintItemTagChips(' in src, '缺少 chip 列重繪函式'
+    start = src.index('function makeQuickTagBtn(')
+    rest = src[start + len('function makeQuickTagBtn('):]
+    nxt = rest.find('\nfunction ')
+    block = rest if nxt == -1 else rest[:nxt]
+    assert 'paintItemTagChips(' in block, 'toggle 成功後沒有重繪 chip 列'
+
+
+def test_empty_tag_container_is_hidden():
+    """容器一律建立，但空的時候要隱藏，否則 0 標籤的項目會多出 4px 空隙。"""
+    from pathlib import Path
+    css = (Path(__file__).parent.parent / 'static' / 'css' / 'tag_system.css').read_text(encoding='utf-8')
+    assert '.item-tags:empty' in css, '空的標籤容器沒有隱藏，會佔掉 margin-top 的空間'
