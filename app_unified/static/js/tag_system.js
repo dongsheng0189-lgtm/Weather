@@ -437,10 +437,15 @@
     // expose pre-save buffer 給 doSave 用
     window.__PRESAVE_TAG_IDS = currentIds.slice();
     btn.addEventListener('click', function() {
-      openPicker(targetType, targetId, currentIds, function(ids) {
-        currentIds = ids;
-        refreshCountBadge(ids);
-        window.__PRESAVE_TAG_IDS = ids.slice();
+      // 已存檔的筆記：每次點開都從 window.NOTE_TAG_IDS 重讀 —— 快速標籤鍵會
+      // 直接改它，沿用 closure 裡載入時抓的那份會讓 PUT 把剛掛上的標籤靜默刪掉。
+      // 尚未存檔的新筆記沒有 id，仍用 closure 的 pre-save 緩衝。
+      var ids = targetId ? ((window.NOTE_TAG_IDS || []).slice()) : currentIds;
+      openPicker(targetType, targetId, ids, function(newIds) {
+        currentIds = newIds;
+        if (targetId) window.NOTE_TAG_IDS = newIds.slice();
+        refreshCountBadge(newIds);
+        window.__PRESAVE_TAG_IDS = newIds.slice();
       });
     });
   }

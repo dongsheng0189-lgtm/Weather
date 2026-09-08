@@ -140,3 +140,18 @@ def test_cross_store_tag_rejected_on_delete(ctx, db_session):
     db_session.delete(foreign)
     db_session.delete(other_store)
     db_session.commit()
+
+
+def test_cross_store_tag_rejected_on_delete_note(ctx, db_session):
+    """對稱測試：note 端點的 DELETE 也要擋跨店標籤。"""
+    c, _, note, _, _, _ = ctx
+    other_store = Store(name=f'W{uuid.uuid4().hex[:5]}'.upper())
+    db_session.add(other_store)
+    db_session.commit()
+    foreign = Tag(store=other_store.name, name='別店標籤N', color='#222222')
+    db_session.add(foreign)
+    db_session.commit()
+    assert c.delete(f'/notes/api/{note.id}/tags/{foreign.id}').status_code == 400
+    db_session.delete(foreign)
+    db_session.delete(other_store)
+    db_session.commit()

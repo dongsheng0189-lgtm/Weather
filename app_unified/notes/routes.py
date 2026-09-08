@@ -2143,7 +2143,7 @@ def edit_note(note_id):
     current_tag_ids = [nt.tag_id for nt in note_tag_rows]
     note_tag_meta = {
         str(r.tag_id): {'by': r.tagged_by_name,
-                        'at': r.tagged_at.isoformat() if r.tagged_at else None}
+                        'at': tw_iso(r.tagged_at, fallback=None)}
         for r in note_tag_rows
     }
     item_tag_ids_map = {}
@@ -2155,7 +2155,7 @@ def edit_note(note_id):
                 item_tag_ids_map.setdefault(r.item_id, []).append(r.tag_id)
                 item_tag_meta_map.setdefault(str(r.item_id), {})[str(r.tag_id)] = {
                     'by': r.tagged_by_name,
-                    'at': r.tagged_at.isoformat() if r.tagged_at else None,
+                    'at': tw_iso(r.tagged_at, fallback=None),
                 }
     all_store_tags = _Tag.query.filter_by(store=note.store).all()
     return render_template("notes/editor.html", note=note, stores=stores,

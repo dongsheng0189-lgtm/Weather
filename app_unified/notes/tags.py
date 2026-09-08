@@ -7,6 +7,7 @@ from extensions import db
 from models import Tag, NoteTag, ChecklistItemTag, Note, ChecklistItem
 from notes.routes import notes_bp
 from notes.tag_palette import is_valid_color, pick_fg
+from tw_time import tw_iso
 
 
 PIN_LIMIT = 3
@@ -236,7 +237,9 @@ def _assignment_to_dict(row):
     return {
         'tag_id': row.tag_id,
         'tagged_by_name': row.tagged_by_name,
-        'tagged_at': row.tagged_at.isoformat() if row.tagged_at else None,
+        # tw_iso 而非裸 isoformat：存的是 naive UTC，前端 new Date() 會把不帶
+        # 時區的字串當成本地時間 → 差 8 小時。同頁「建立/修改」時間也是用它。
+        'tagged_at': tw_iso(row.tagged_at, fallback=None),
     }
 
 

@@ -1651,6 +1651,8 @@ function makeQuickTagBtn(targetType, targetId, tag) {
           window.NOTE_TAG_META = window.NOTE_TAG_META || {};
           if (on) { delete window.NOTE_TAG_META[String(tag.id)]; }
           else { window.NOTE_TAG_META[String(tag.id)] = { by: d.tagged_by_name, at: d.tagged_at }; }
+          var _badge = document.getElementById('note-tag-count');
+          if (_badge) _badge.textContent = '(' + ids.length + '/5)';
         }
         paint();
         if (targetType === 'item') paintItemTagChips(targetId);
@@ -1669,6 +1671,7 @@ function renderNoteQuickTags() {
   var host = document.getElementById('note-quick-tags');
   if (!host) return;
   host.innerHTML = '';
+  host.style.display = 'none';
   // 新建但尚未存檔的筆記沒有 id，這時渲染會打到 /notes/api/undefined/...
   if (!NOTE_ID) return;
   if (IS_READONLY || !window.ALL_STORE_TAGS) return;
@@ -1676,12 +1679,17 @@ function renderNoteQuickTags() {
     .forEach(function(t) {
       host.appendChild(makeQuickTagBtn('note', NOTE_ID, t));
     });
+  // 空的時候不要佔位：inline style 蓋過 CSS，所以 :empty 規則無效，只能在這裡設。
+  host.style.display = host.children.length ? 'inline-flex' : 'none';
 }
 
 // 重繪某個項目的 tag chip 列。快速標籤鍵 toggle 後要呼叫，否則按鈕變了、
 // 上方的 chip 卻停在舊狀態（那排是 render 當下建好的靜態 DOM）。
-function paintItemTagChips(itemId) {
-  var wrap = document.querySelector('.item-tags[data-item-id="' + itemId + '"]');
+function paintItemTagChips(itemId, el) {
+  // el 可省略：從 DOM 找。但 renderChecklistItem 建的是還沒掛進 document 的
+  // detached row，querySelector 找不到 —— 那條路徑必須把剛建好的容器傳進來，
+  // 否則 chip 永遠不會被畫出來（本分支曾因此讓既有 chip 全部消失）。
+  var wrap = el || document.querySelector('.item-tags[data-item-id="' + itemId + '"]');
   if (!wrap) return;
   wrap.innerHTML = '';
   var tagIds = (window.ITEM_TAG_IDS_MAP && window.ITEM_TAG_IDS_MAP[itemId]) || [];
@@ -1752,7 +1760,7 @@ function renderChecklistItem(item) {
     tagWrap.className = 'item-tags';
     tagWrap.dataset.itemId = item.id;
     content.appendChild(tagWrap);
-    paintItemTagChips(item.id);
+    paintItemTagChips(item.id, tagWrap);
   }
 
   // 快速標籤鍵：釘選的標籤各一顆。唯讀時不顯示。
@@ -1808,7 +1816,10 @@ function renderChecklistItem(item) {
   tagBtn.dataset.currentTagIds = JSON.stringify(currentItemTagIds);
   tagBtn.onclick = function() {
     if (window.__tag_system && window.__tag_system.openPicker) {
-      window.__tag_system.openPicker('item', item.id, currentItemTagIds, function(ids) {
+      // 每次點開都從全域 map 重讀 —— 快速標籤鍵會直接換掉 ITEM_TAG_IDS_MAP[id]
+      // 的陣列，沿用 render 當下抓的舊清單會讓 PUT 把剛掛上的標籤靜默刪掉。
+      var freshIds = (window.ITEM_TAG_IDS_MAP && window.ITEM_TAG_IDS_MAP[item.id]) || [];
+      window.__tag_system.openPicker('item', item.id, freshIds, function(ids) {
         window.location.reload();
       });
     }

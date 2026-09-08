@@ -125,3 +125,32 @@ def test_note_quick_tags_wait_for_dom_ready():
     src = EDITOR.read_text(encoding='utf-8')
     assert "addEventListener('DOMContentLoaded', renderNoteQuickTags)" in src, \
         'renderNoteQuickTags 沒有等 DOMContentLoaded，按鈕會因為腳本執行順序而永遠不渲染'
+
+
+def test_chip_paint_accepts_element_for_detached_row():
+    """renderChecklistItem 回傳的是還沒掛進 document 的 row，
+    用 document.querySelector 找不到容器 → chip 永遠不會被畫出來。"""
+    src = EDITOR.read_text(encoding='utf-8')
+    assert 'function paintItemTagChips(itemId, el)' in src, \
+        'paintItemTagChips 不接受直接傳入元素'
+    assert 'paintItemTagChips(item.id, tagWrap)' in src, \
+        'renderChecklistItem 沒有把剛建好的容器傳進去'
+
+
+def test_item_picker_reads_fresh_tag_ids():
+    """選擇器要在點擊當下重讀，否則會用舊清單把快速鍵剛掛上的標籤靜默刪掉。"""
+    src = EDITOR.read_text(encoding='utf-8')
+    assert 'var freshIds = (window.ITEM_TAG_IDS_MAP' in src, \
+        '項目的標籤選擇器仍在用 render 當下抓的舊清單'
+
+
+def test_tagged_at_uses_taiwan_time():
+    """hover 的時間要與同頁「建立/修改」一致；裸 isoformat() 是 naive UTC，
+    前端 new Date() 會當成本地時間 → 差 8 小時。"""
+    from pathlib import Path
+    root = Path(__file__).parent.parent
+    tags_src = (root / 'notes' / 'tags.py').read_text(encoding='utf-8')
+    routes_src = (root / 'notes' / 'routes.py').read_text(encoding='utf-8')
+    assert 'tw_iso' in tags_src, 'notes/tags.py 沒有用 tw_iso'
+    assert 'tagged_at.isoformat()' not in tags_src, 'tags.py 仍有裸 isoformat()'
+    assert 'r.tagged_at.isoformat()' not in routes_src, 'routes.py 仍有裸 isoformat()'
