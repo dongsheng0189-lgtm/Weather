@@ -1560,6 +1560,102 @@ function loadChecklistItems() {
     }).catch(function() {});
 }
 
+// ── 快速標籤鍵（2026-09-08）───────────────────────────────────
+// 釘選的標籤各渲染一顆按鈕，按一下掛上、再按一下取消。
+// 打的是單標籤端點（POST/DELETE .../tags/<tag_id>），不是會覆寫整份清單的
+// PUT .../tags —— 後者兩個人同時操作會互相蓋掉。
+// 後端刻意不碰 updated_at，所以按了不會讓項目跳到清單最上面。
+function _quickTagState(targetType, targetId) {
+  if (targetType === 'item') {
+    return (window.ITEM_TAG_IDS_MAP && window.ITEM_TAG_IDS_MAP[targetId]) || [];
+  }
+  return window.NOTE_TAG_IDS || [];
+}
+
+function _quickTagMeta(targetType, targetId, tagId) {
+  if (targetType === 'item') {
+    var m = window.ITEM_TAG_META_MAP || {};
+    return (m[String(targetId)] || {})[String(tagId)] || null;
+  }
+  return (window.NOTE_TAG_META || {})[String(tagId)] || null;
+}
+
+function _quickTagUrl(targetType, targetId, tag) {
+  if (targetType === 'item') {
+    return '/notes/api/items/' + targetId + '/tags/' + tag.id;
+  }
+  return '/notes/api/' + targetId + '/tags/' + tag.id;
+}
+
+function makeQuickTagBtn(targetType, targetId, tag) {
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'quick-tag-btn';
+  btn.dataset.tagId = tag.id;
+
+  function paint() {
+    var on = _quickTagState(targetType, targetId).indexOf(tag.id) >= 0;
+    btn.textContent = (on ? '✓ ' : '+ ') + tag.name;
+    btn.style.cssText =
+      'font-size:.75rem;padding:.2rem .5rem;border-radius:12px;cursor:pointer;' +
+      'margin-right:.3rem;margin-top:.3rem;border:1px solid ' + tag.color + ';' +
+      (on ? ('background:' + tag.color + ';color:#fff;')
+          : 'background:#fff;color:' + tag.color + ';');
+    var meta = on ? _quickTagMeta(targetType, targetId, tag.id) : null;
+    btn.title = (meta && meta.by)
+      ? (meta.by + (meta.at ? ' · ' + fmtDateTime(meta.at) : ''))
+      : (on ? '已掛上' : '點一下掛上「' + tag.name + '」');
+  }
+
+  btn.onclick = function() {
+    if (btn.disabled) return;
+    var on = _quickTagState(targetType, targetId).indexOf(tag.id) >= 0;
+    btn.disabled = true;
+    fetch(_quickTagUrl(targetType, targetId, tag), { method: on ? 'DELETE' : 'POST' })
+      .then(function(r) {
+        return r.json().catch(function() { return {}; })
+                .then(function(j) { return [r, j]; });
+      })
+      .then(function(pair) {
+        var r = pair[0], d = pair[1];
+        btn.disabled = false;
+        if (!r.ok) {
+          // 上限已滿等情形要看得見，不可靜默失敗
+          alert(d.error || '操作失敗');
+          return;
+        }
+        var ids = _quickTagState(targetType, targetId).slice();
+        if (on) {
+          ids = ids.filter(function(x) { return x !== tag.id; });
+        } else if (ids.indexOf(tag.id) < 0) {
+          ids.push(tag.id);
+        }
+        if (targetType === 'item') {
+          window.ITEM_TAG_IDS_MAP = window.ITEM_TAG_IDS_MAP || {};
+          window.ITEM_TAG_IDS_MAP[targetId] = ids;
+          window.ITEM_TAG_META_MAP = window.ITEM_TAG_META_MAP || {};
+          var im = window.ITEM_TAG_META_MAP[String(targetId)] || {};
+          if (on) { delete im[String(tag.id)]; }
+          else { im[String(tag.id)] = { by: d.tagged_by_name, at: d.tagged_at }; }
+          window.ITEM_TAG_META_MAP[String(targetId)] = im;
+        } else {
+          window.NOTE_TAG_IDS = ids;
+          window.NOTE_TAG_META = window.NOTE_TAG_META || {};
+          if (on) { delete window.NOTE_TAG_META[String(tag.id)]; }
+          else { window.NOTE_TAG_META[String(tag.id)] = { by: d.tagged_by_name, at: d.tagged_at }; }
+        }
+        paint();
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        alert('連線失敗：' + err.message);
+      });
+  };
+
+  paint();
+  return btn;
+}
+
 function renderChecklistItem(item) {
   var row = document.createElement('div');
   row.className = 'cl-item';
@@ -1625,6 +1721,19 @@ function renderChecklistItem(item) {
         tagWrap.appendChild(chip);
       });
       content.appendChild(tagWrap);
+    }
+  }
+
+  // 快速標籤鍵：釘選的標籤各一顆。唯讀時不顯示。
+  if (window.ALL_STORE_TAGS && !IS_READONLY) {
+    var pinnedTags = window.ALL_STORE_TAGS.filter(function(t) { return t.pinned; });
+    if (pinnedTags.length > 0) {
+      var qWrap = document.createElement('div');
+      qWrap.className = 'quick-tag-row';
+      pinnedTags.forEach(function(t) {
+        qWrap.appendChild(makeQuickTagBtn('item', item.id, t));
+      });
+      content.appendChild(qWrap);
     }
   }
 
