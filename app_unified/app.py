@@ -448,7 +448,8 @@ def create_app():
                 # 標籤指派的作者資訊（2026-09-08 快速標籤鍵）。
                 # ⚠️ 只加 Alembic migration 在 prod 不會生效 —— prod 靠這段 DDL。
                 for _tbl in ("note_tags", "checklist_item_tags"):
-                    _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_by INTEGER")
+                    _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_by INTEGER "
+                              "REFERENCES users(id) ON DELETE SET NULL")
                     _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_by_name TEXT")
                     _safe_ddl(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tagged_at TIMESTAMP")
 
