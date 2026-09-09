@@ -543,3 +543,55 @@ class ChecklistItemTag(db.Model):
     tagged_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     tagged_by_name = db.Column(EncryptedText, nullable=True)
     tagged_at = db.Column(db.DateTime, nullable=True)
+
+
+# ─────────────────────────────────────────────────────────────
+# 建檔追蹤（2026-09-09）
+#
+# 一張 TrackedKeyword = 一個持續累積的關鍵字追蹤表；TrackedKeywordHit = 一筆命中。
+# 命中列存的是**指向原始資料的參照**（target_type + target_id），不是複本 ——
+# 複本會與原文脫節（原始項目改成「遲到 5 分鐘」，追蹤表還寫著 10 分鐘），對一個
+# 要當依據的表來說是致命的。
+# ─────────────────────────────────────────────────────────────
+
+class TrackedKeyword(db.Model):
+    __tablename__ = "tracked_keywords"
+
+    id = db.Column(db.Integer, primary_key=True)
+    store = db.Column(db.String(8), nullable=False, index=True)
+    # 追蹤的關鍵字通常是員工姓名 → 個資，必須加密
+    keyword = db.Column(EncryptedText, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_name = db.Column(EncryptedText, nullable=True)  # 快照，比照 ChecklistItem.checked_by_name
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    # 增量水位：上次掃描「開始」的時刻。下次只掃 updated_at > scanned_through 的資料。
+    # 存的是掃描開始而非結束的時間，這樣掃描期間被改動的資料下一輪還會再掃到。
+    # ⚠️ 這條路徑依賴「內容有變 → updated_at 會被 bump」。日後若有人讓某個會改
+    # 文字的操作停止更新 updated_at，這裡就會靜默漏掃。
+    scanned_through = db.Column(db.DateTime, nullable=True)
+
+    hits = db.relationship("TrackedKeywordHit", backref="tracked", lazy="select",
+                           cascade="all, delete-orphan")
+
+
+class TrackedKeywordHit(db.Model):
+    __tablename__ = "tracked_keyword_hits"
+
+    id = db.Column(db.Integer, primary_key=True)
+    keyword_id = db.Column(db.Integer, db.ForeignKey("tracked_keywords.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    # 'note' | 'item'。指向兩張不同的表，所以 target_id 不能是真的 FK。
+    target_type = db.Column(db.String(8), nullable=False)
+    target_id = db.Column(db.Integer, nullable=False)
+    # 使用者對這一筆寫的備註，顯示在該列最上面。含對人的評語 → 加密
+    note_text = db.Column(EncryptedText, nullable=True)
+    # 「不相關」的剔除紀錄。用軟刪除而非真刪：真刪的話下一輪增量掃描會再把它抓回來
+    excluded_at = db.Column(db.DateTime, nullable=True)
+    excluded_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    excluded_by_name = db.Column(EncryptedText, nullable=True)
+    matched_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("keyword_id", "target_type", "target_id",
+                            name="uq_tracked_hit_target"),
+    )
