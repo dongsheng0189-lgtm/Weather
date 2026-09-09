@@ -22,7 +22,7 @@ def upgrade():
     op.create_table(
         'tracked_keywords',
         sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('store', sa.String(length=8), nullable=False),
+        sa.Column('store', sa.Text(), nullable=False),
         sa.Column('keyword', sa.Text(), nullable=False),
         sa.Column('created_by', sa.Integer(), nullable=True),
         sa.Column('created_by_name', sa.Text(), nullable=True),

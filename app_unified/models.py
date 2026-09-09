@@ -558,7 +558,12 @@ class TrackedKeyword(db.Model):
     __tablename__ = "tracked_keywords"
 
     id = db.Column(db.Integer, primary_key=True)
-    store = db.Column(db.String(8), nullable=False, index=True)
+    # Text 而非 String(8)：要跟它比對的 Note.store 就是 Text，沒有長度上限。
+    # Tag.store 也是 String(8)（是這裡的既有前例，早就存在、先不動），但這張表
+    # 尚未部署到 prod，改起來沒有遷移成本 —— 用 String(8) 的話，admin/routes.py
+    # 建店時沒做長度驗證，一個 9 個字的店名在本機 SQLite 插得進去，到 prod
+    # PostgreSQL 會直接是 StringDataRightTruncation（500）。
+    store = db.Column(db.Text, nullable=False, index=True)
     # 追蹤的關鍵字通常是員工姓名 → 個資，必須加密
     keyword = db.Column(EncryptedText, nullable=False)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

@@ -42,6 +42,22 @@ def test_keyword_column_is_encrypted_at_rest(db):
     assert kw not in (raw or '')
 
 
+def test_store_column_has_no_length_limit(db):
+    """store 要跟 Note.store（Text，無長度上限）比對，欄位型別不該帶長度上限。
+
+    這裡刻意檢查欄位型別本身，而不是插入一個超長字串看會不會噴例外——後者
+    在本機 SQLite 上永遠不會噴（SQLite 不強制 VARCHAR 長度上限），測試會是
+    巧合通過、完全沒有偵測力。真正會炸的是 prod PostgreSQL：String(8) 底下，
+    一個 9 個字的店名（admin/routes.py 建店時沒做長度驗證）插進去就是
+    StringDataRightTruncation（500），而這張表還沒部署過，改起來沒有遷移
+    成本。"""
+    from models import TrackedKeyword
+    col_type = TrackedKeyword.__table__.columns['store'].type
+    assert getattr(col_type, 'length', None) is None, (
+        f'store 欄位型別 {col_type!r} 帶有長度上限'
+    )
+
+
 def test_hit_unique_per_target(db):
     from models import TrackedKeywordHit
     t = _mk_tracked(db)
