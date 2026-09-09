@@ -132,6 +132,35 @@ def test_rows_hide_item_whose_parent_note_soft_deleted(db):
     assert item.deleted_at is None   # 項目本身沒被動，只有母筆記被刪
 
 
+def test_list_hit_count_agrees_with_detail_row_count(db):
+    """清單頁的『N 筆』與詳細頁實際列出的筆數不可以對不上。
+
+    背景：`_tracked_to_dict` 算 hit_count 曾經只看 `excluded_at IS NULL`，沒有
+    像 `_detail_rows` 那樣再檢查一次目標是否已被軟刪 —— 結果是清單頁寫「2
+    筆」、點進去卻只看到 1 筆，使用者會誤以為資料憑空少了一筆（尤其在這個
+    「漏掃即永久消失」的功能上，這種筆數落差會被直接當成同一種缺陷來擔心）。
+    這裡故意造出兩者過去會不一致的狀態：兩筆命中，其中一筆的目標之後被軟
+    刪 —— 修好之後兩個數字都該是 1。
+    """
+    from notes.tracking import _detail_rows, _tracked_to_dict
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    n1 = _mk_note(db, title=f'{kw} 的交接一')
+    n2 = _mk_note(db, title=f'{kw} 的交接二')
+    t = _mk_tracked_and_scan(db, kw)
+    assert len(_detail_rows(t)) == 2   # 掃描當下：兩筆都在
+
+    n2.deleted_at = datetime.utcnow()
+    db.session.commit()
+
+    rows = _detail_rows(t)
+    hit_count = _tracked_to_dict(t)['hit_count']
+    assert len(rows) == 1
+    assert hit_count == 1, (
+        f'清單頁計數（{hit_count}）跟詳細頁實際列出的筆數（{len(rows)}）對不上'
+    )
+    assert hit_count == len(rows)
+
+
 def test_rows_hide_excluded(db):
     from notes.tracking import _detail_rows
     from models import TrackedKeywordHit

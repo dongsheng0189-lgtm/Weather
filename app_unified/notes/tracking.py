@@ -59,14 +59,61 @@ def find_tracking_for_keyword(keyword):
     return None
 
 
+def _live_target_ids(hits):
+    """從一批命中列（已排除 excluded）篩出『原始資料仍在（沒被軟刪）』的
+    note 型 / item 型 target_id 集合。
+
+    只查 id 與 deleted_at，不觸發任何 EncryptedText 解密（理由同
+    tracking_scan.py 的 `_target_ids`）。這裡刻意獨立成一個函式、被 list 頁的
+    計數（`_tracked_to_dict` 的 hit_count）與 detail 頁的列表（`_detail_rows`）
+    共用 —— 兩者過去各自維護一份「這筆命中還算不算數」的邏輯，`_tracked_to_dict`
+    完全沒檢查目標是否已被軟刪，結果是清單頁寫「2 筆」、詳細頁卻只有 1 筆
+    可看，使用者會誤以為資料憑空少了一筆。只有一份判斷，兩邊就不可能再對不上。
+    """
+    note_target_ids = [h.target_id for h in hits if h.target_type == 'note']
+    item_target_ids = [h.target_id for h in hits if h.target_type == 'item']
+
+    live_note_ids = set()
+    if note_target_ids:
+        live_note_ids = {r[0] for r in db.session.query(Note.id).filter(
+            Note.id.in_(note_target_ids), Note.deleted_at.is_(None))}
+
+    live_item_ids = set()
+    if item_target_ids:
+        # item 本身沒被刪，但它的母筆記可能已經被軟刪 —— 兩者都要活著才算數。
+        live_item_ids = {r[0] for r in db.session.query(ChecklistItem.id).join(
+            Note, ChecklistItem.note_id == Note.id).filter(
+            ChecklistItem.id.in_(item_target_ids),
+            ChecklistItem.deleted_at.is_(None),
+            Note.deleted_at.is_(None))}
+
+    return live_note_ids, live_item_ids
+
+
+def _visible_hits(tracked):
+    """這張追蹤表目前『看得到』的命中列：未被剔除、且原始資料仍在。"""
+    hits = TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).filter(
+        TrackedKeywordHit.excluded_at.is_(None)).all()
+    live_note_ids, live_item_ids = _live_target_ids(hits)
+    return [h for h in hits
+            if (h.target_type == 'note' and h.target_id in live_note_ids)
+            or (h.target_type == 'item' and h.target_id in live_item_ids)]
+
+
+def _excluded_hits(tracked):
+    """這張追蹤表已被剔除的命中列（供詳細頁的「已剔除」收合區塊使用）。"""
+    return TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).filter(
+        TrackedKeywordHit.excluded_at.isnot(None)).order_by(
+        TrackedKeywordHit.excluded_at.desc()).all()
+
+
 def _tracked_to_dict(t):
     return {
         'id': t.id,
         'keyword': t.keyword,
         'created_by_name': t.created_by_name,
         'created_at': tw_str(t.created_at),
-        'hit_count': TrackedKeywordHit.query.filter_by(
-            keyword_id=t.id).filter(TrackedKeywordHit.excluded_at.is_(None)).count(),
+        'hit_count': len(_visible_hits(t)),
     }
 
 
@@ -215,41 +262,52 @@ def _detail_rows(tracked):
     過濾兩層：已剔除的（excluded_at 有值）、以及原始資料已軟刪的。後者必須在
     顯示時再檢查一次 —— 命中列是掃描當下寫的，資料可能之後才被刪；而命中列刻意
     不主動清除（原始資料可能只是暫時被刪、24 小時內可還原）。
+
+    兩層過濾都交給 `_visible_hits()` 做（與清單頁的 `_tracked_to_dict` 共用同
+    一份「這筆命中還算不算數」判斷，理由見該函式），這裡拿到的 hits 已經保證
+    是活的 —— 下面的 Note / ChecklistItem 查詢因此不再需要重複套一次
+    `deleted_at.is_(None)`，那樣寫等於把同一個規則寫兩份，兩份哪天被改得不一致
+    就是這次要修的「清單筆數與詳細頁筆數對不上」重演。
     """
-    hits = TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).filter(
-        TrackedKeywordHit.excluded_at.is_(None)).all()
+    hits = _visible_hits(tracked)
     note_ids = [h.target_id for h in hits if h.target_type == 'note']
     item_ids = [h.target_id for h in hits if h.target_type == 'item']
 
-    notes = {n.id: n for n in Note.query.filter(
-        Note.id.in_(note_ids), Note.deleted_at.is_(None)).all()} if note_ids else {}
-    items = {i.id: i for i in ChecklistItem.query.filter(
-        ChecklistItem.id.in_(item_ids),
-        ChecklistItem.deleted_at.is_(None)).all()} if item_ids else {}
+    # .options(load_only(...)) 限制要撈的欄位：EncryptedText 是 TypeDecorator，
+    # process_result_value 在**取列（row fetch）當下**就會跑，不是屬性存取當下
+    # 才跑——所以就算不碰 n.author_name，只要 Note.query 把整列選出來，
+    # author_name / ai_summary / ai_outline / reminder_set_by_name 這些
+    # EncryptedText 欄位一樣會被 AES-GCM 解密一次，白白解出這裡用不到的欄位。
+    # ChecklistItem 同理：checked_by_name / created_by_name / updated_by_name /
+    # reminder_set_by_name 四個快照欄位這裡從來不讀，不限制的話每一筆 item 型
+    # 命中都會多解密這四欄。
+    notes = {n.id: n for n in Note.query.options(
+        load_only(Note.id, Note.title, Note.content, Note.updated_at)).filter(
+        Note.id.in_(note_ids)).all()} if note_ids else {}
+    items = {i.id: i for i in ChecklistItem.query.options(
+        load_only(ChecklistItem.id, ChecklistItem.note_id, ChecklistItem.text,
+                  ChecklistItem.updated_at)).filter(
+        ChecklistItem.id.in_(item_ids)).all()} if item_ids else {}
 
-    # item 分支需要母筆記的 title/deleted_at，但絕對不能靠 `i.note` 的 lazy
-    # load 逐筆去拿 —— 那是每個「不同的」母筆記各一次 SELECT。改成批次查詢，
-    # 一次撈完；但這個 parent_notes 查詢**不能**併進上面的 notes 字典 ——
-    # 兩者故意分開存放，見下方 load_only 的說明。
-    # 用 `- notes.keys()` 排掉已經查過的 id 純粹省一點查詢範圍，不影響正確性
-    # ——就算重疊，兩邊套的都是同一個 deleted_at.is_(None) 過濾條件。
+    # item 分支需要母筆記的 title，但絕對不能靠 `i.note` 的 lazy load 逐筆去
+    # 拿 —— 那是每個「不同的」母筆記各一次 SELECT。改成批次查詢，一次撈完；
+    # 但這個 parent_notes 查詢**不能**併進上面的 notes 字典 —— 兩者故意分開
+    # 存放：parent_notes 是欄位受限的物件（只選了 id/title），notes 才是完整
+    # 物件，若合併進去，一旦哪天有人改成從 notes 讀 note 型命中的 content，
+    # 會在不知情下重新對這批欄位受限的物件觸發 lazy load（連帶解密），且是
+    # 靜默發生。
+    # 用 `- notes.keys()` 排掉已經查過的 id 純粹省一點查詢範圍，不影響正確性。
     #
-    # ⚠️ 只用 .options(load_only(...)) 限制要撈的欄位，不能只靠批次查詢本身：
-    # EncryptedText 是 TypeDecorator，process_result_value 在**取列（row
-    # fetch）當下**就會跑，不是屬性存取當下才跑——所以就算不碰 n.content，
-    # 只要 Note.query 把整列選出來，content / author_name / ai_summary /
-    # ai_outline 這些 EncryptedText 欄位一樣會被 AES-GCM 解密一次，白白解出
-    # 這裡用不到的欄位。用 load_only 只選 id/title/deleted_at，才真的只解密
-    # title 一欄。也因此結果特意存進獨立的 parent_notes 字典、不合併進
-    # notes —— 合併進去的話，一旦哪天有人改成從 notes 讀 note 型命中的
-    # content，會在不知情下重新對這批欄位受限的物件觸發 lazy load（連帶
-    # 解密），且是靜默發生。
+    # 不需要再套 `Note.deleted_at.is_(None)`：這裡的 items 已經是
+    # `_visible_hits()` 篩過的——item 型命中要進到這個集合，join 條件本來就
+    # 要求它的母筆記也活著（見 `_live_target_ids`），所以這裡的母筆記必定存在
+    # 且未刪，重複過濾只會是同一條規則的第二份抄本。
     parent_note_ids = {i.note_id for i in items.values()} - notes.keys()
     parent_notes = {}
     if parent_note_ids:
         for n in Note.query.options(
-                load_only(Note.id, Note.title, Note.deleted_at)).filter(
-                Note.id.in_(parent_note_ids), Note.deleted_at.is_(None)).all():
+                load_only(Note.id, Note.title)).filter(
+                Note.id.in_(parent_note_ids)).all():
             parent_notes[n.id] = n
 
     rows = []
@@ -287,6 +345,51 @@ def _detail_rows(tracked):
     return [row for _, row in rows]
 
 
+def _excluded_rows(tracked):
+    """詳細頁「已剔除 (n)」收合區塊要顯示的列。
+
+    刻意**不**套 `_visible_hits()` 的「原始資料還在」過濾——剔除紀錄本身就是
+    要留給人核對「誰、什麼時候，把哪一筆判定成不相關」的稽核用途，原文事後
+    被刪掉不該讓這筆紀錄跟著憑空消失。查得到原文就顯示，查不到（已硬刪，或
+    暫時軟刪但還沒到還原的必要）就退回一個明確的提示字串，而不是讓整列
+    消失或整頁噴錯。
+    """
+    hits = _excluded_hits(tracked)
+    note_ids = [h.target_id for h in hits if h.target_type == 'note']
+    item_ids = [h.target_id for h in hits if h.target_type == 'item']
+
+    notes = {n.id: n for n in Note.query.options(
+        load_only(Note.id, Note.title)).filter(Note.id.in_(note_ids)).all()} if note_ids else {}
+    items = {i.id: i for i in ChecklistItem.query.options(
+        load_only(ChecklistItem.id, ChecklistItem.note_id)).filter(
+        ChecklistItem.id.in_(item_ids)).all()} if item_ids else {}
+    parent_note_ids = {i.note_id for i in items.values()} - notes.keys()
+    parent_notes = {}
+    if parent_note_ids:
+        for n in Note.query.options(load_only(Note.id, Note.title)).filter(
+                Note.id.in_(parent_note_ids)).all():
+            parent_notes[n.id] = n
+
+    MISSING = '（原文已不存在）'
+    rows = []
+    for h in hits:
+        if h.target_type == 'note':
+            n = notes.get(h.target_id)
+            title = n.title if n else MISSING
+        else:
+            i = items.get(h.target_id)
+            n = (notes.get(i.note_id) or parent_notes.get(i.note_id)) if i else None
+            title = n.title if n else MISSING
+        rows.append({
+            'hit_id': h.id,
+            'target_type': h.target_type,
+            'title': title or '（未命名）',
+            'excluded_by_name': h.excluded_by_name or '—',
+            'excluded_at': tw_str(h.excluded_at, fmt='%m/%d %H:%M') if h.excluded_at else '',
+        })
+    return rows
+
+
 @notes_bp.route('/tracking/<int:kid>')
 @login_required
 def tracking_detail_page(kid):
@@ -299,4 +402,5 @@ def tracking_detail_page(kid):
     return render_template('notes/tracking_detail.html',
                            tracked=_tracked_to_dict(t),
                            rows=_detail_rows(t),
+                           excluded_rows=_excluded_rows(t),
                            last_updated=tw_str(t.scanned_through, fmt='%m/%d %H:%M'))

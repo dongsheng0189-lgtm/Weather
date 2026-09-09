@@ -24,6 +24,15 @@
 .hit-actions { display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem; }
 .tracking-empty { color:#888; padding:1.2rem; text-align:center; }
 .tracking-last-updated { color:#999; font-size:.78rem; margin:-.4rem 0 .8rem; }
+/* 已剔除區塊：預設收合，跟主清單明顯區分開（灰底、無白卡片陰影），
+   避免使用者把「已經判定不相關」的東西誤認成還在追蹤中的資料。 */
+.tracking-excluded { margin-top:1.2rem; }
+.tracking-excluded summary { cursor:pointer; font-size:.85rem; color:#666;
+  padding:.4rem 0; }
+.excluded-card { display:flex; align-items:center; gap:.6rem;
+  background:#f4f4f4; border:1px solid #e0e0e0; border-radius:8px;
+  padding:.6rem .8rem; margin-bottom:.5rem; }
+.excluded-meta { flex:1; font-size:.82rem; color:#777; }
 </style>
 {% endblock %}
 {% block content %}
@@ -57,6 +66,27 @@
 {% endfor %}
 {% else %}
 <div class="tracking-empty">目前沒有命中的資料。</div>
+{% endif %}
+
+{% if excluded_rows %}
+{# 這個標籤原生就有收合行為，不需要另外寫展開/收合的 JS —— 「不相關」是
+   一鍵、整店共用、事後不主動提示的動作，這個區塊預設收合是刻意的：平常
+   不該佔用版面，但一旦有人要核對「這筆是誰、什麼時候判定不相關的」，
+   點開就在，不必離開這一頁去別的地方找。 #}
+<details class="tracking-excluded">
+  <summary>已剔除 ({{ excluded_rows|length }})</summary>
+  {% for r in excluded_rows %}
+  <div class="excluded-card" data-hit="{{ r.hit_id }}">
+    <div class="excluded-meta">
+      {{ r.title }}{% if r.target_type == 'item' %} · 項目{% endif %} ·
+      {{ r.excluded_by_name }} 於 {{ r.excluded_at }} 剔除
+    </div>
+    <button type="button" class="btn btn-secondary" data-role="restore-exclude"
+            data-hit="{{ r.hit_id }}"
+            style="font-size:.8rem;padding:.3rem .7rem;">還原</button>
+  </div>
+  {% endfor %}
+</details>
 {% endif %}
 
 <script>
@@ -116,7 +146,24 @@ document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
 
 document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
   var originalLabel = btn.textContent;
+  var armTimer = null;
   btn.addEventListener('click', function () {
+    // 「不相關」一按就整店共用地消失、不會自動再出現在主清單，只有翻開下面
+    // 「已剔除」區塊才找得回來 —— 跟一般的顯示切換不同，值得比照
+    // tracking_list.html 的刪除按鈕，加一次行內二次確認再送出。刻意不用
+    // confirm()（瀏覽器 modal 會卡住自動化工具）。
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = '再按一次確認不相關';
+      // 計時器 id 存在閉包變數裡，理由同 tracking_list.html 的 armTimer：
+      // 若 fetch 恰好在這 4 秒內失敗，得先取消這個「恢復原字」的計時器，
+      // 不然它會緊接著把失敗訊息蓋掉。
+      armTimer = setTimeout(function () {
+        btn.dataset.armed = '0';
+        btn.textContent = originalLabel;
+      }, 4000);
+      return;
+    }
     fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -127,10 +174,42 @@ document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
     }).then(function () {
       var card = document.querySelector('.hit-card[data-hit="' + btn.dataset.hit + '"]');
       if (card) card.remove();
+      // 不即時插入「已剔除」區塊 —— 那裡的內容（標題、剔除者）是伺服器端
+      // 組好的，這裡不重複那份查詢邏輯；下次重新整理／重進這頁就看得到，
+      // 這筆資料本身不會遺失（軟刪，API 已保證）。
     }).catch(function () {
       // 這個動作不遺失資料（頂多這一列該消失卻沒消失），輕量提示即可：
       // 短暫換字提醒使用者再按一次，不做記憶體級的持久標記。
+      clearTimeout(armTimer);
+      btn.dataset.armed = '0';
       btn.textContent = '失敗，再試一次';
+      setTimeout(function () { btn.textContent = originalLabel; }, 2500);
+    });
+  });
+});
+
+document.querySelectorAll('[data-role="restore-exclude"]').forEach(function (btn) {
+  var originalLabel = btn.textContent;
+  btn.addEventListener('click', function () {
+    // 還原是「把一筆已經被判定不相關的東西放回追蹤表」，方向跟剔除相反、
+    // 後果比較輕（頂多這筆命中重新出現在主清單，不會遺失任何資料），所以
+    // 不比照剔除加二次確認 —— 使用者本來就是刻意點開「已剔除」區塊才看得到
+    // 這顆按鈕，這一步本身已經是有意的操作。
+    fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({excluded: false})
+    }).then(function (r) {
+      // 失敗必須「看得見」——理由同上面備註／剔除的 fetch：r.json() 對非
+      // 2xx 回應可能安靜地 resolve，使用者以為還原成功了，其實這筆命中
+      // 還卡在已剔除狀態。
+      if (!r.ok) throw new Error('restore failed: ' + r.status);
+      return r.json();
+    }).then(function () {
+      var card = document.querySelector('.excluded-card[data-hit="' + btn.dataset.hit + '"]');
+      if (card) card.remove();
+    }).catch(function () {
+      btn.textContent = '還原失敗，再試一次';
       setTimeout(function () { btn.textContent = originalLabel; }, 2500);
     });
   });

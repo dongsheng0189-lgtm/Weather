@@ -21,11 +21,14 @@ INDEX = Path(__file__).parent.parent / 'templates' / 'notes' / 'index.html'
 
 
 def test_data_role_hooks_present():
-    """三個 data-role 是 JS 綁事件的唯一依據，少一個對應功能就整個失效。"""
+    """四個 data-role 是 JS 綁事件的唯一依據，少一個對應功能就整個失效。"""
     detail_src = DETAIL.read_text(encoding='utf-8')
     list_src = LIST.read_text(encoding='utf-8')
     assert 'data-role="memo"' in detail_src, '缺少備註欄位的 data-role hook'
     assert 'data-role="exclude"' in detail_src, '缺少「不相關」按鈕的 data-role hook'
+    assert 'data-role="restore-exclude"' in detail_src, (
+        '缺少「已剔除」區塊還原按鈕的 data-role hook'
+    )
     assert 'data-role="del-tracking"' in list_src, '缺少刪除按鈕的 data-role hook'
 
 
