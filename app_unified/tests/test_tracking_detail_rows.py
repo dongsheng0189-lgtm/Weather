@@ -37,6 +37,32 @@ def _mk_tracked_and_scan(db, keyword, store='B店'):
     return t
 
 
+def test_item_row_survives_when_its_parent_note_is_also_a_hit(db):
+    """母筆記本身也是 note 型命中時，它底下的 item 命中不可以消失。
+
+    背景：parent_notes 查詢用 `- notes.keys()` 排掉「已經在 notes 字典裡的 id」
+    省查詢範圍。若 item 分支只從 parent_notes 取母筆記，這些 id 就兩邊都找不到，
+    整列被 `continue` 掉。這個退化在實作 load_only 時真的發生過，而且**當時
+    全套測試都是綠的** —— 是靠一支臨時的計數腳本才發現列數從 9 掉到 3。
+    這條測試就是補上那個缺口。
+    """
+    from notes.tracking import _detail_rows
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    # 標題含關鍵字 → 母筆記自己會是 note 型命中
+    n = _mk_note(db, title=f'{kw} 的交接')
+    item = _mk_item(db, n, f'{kw} 遲到')      # 同一篇筆記底下的 item 型命中
+    t = _mk_tracked_and_scan(db, kw)
+
+    rows = _detail_rows(t)
+
+    kinds = sorted(r['target_type'] for r in rows)
+    assert kinds == ['item', 'note'], f'兩種命中都要在，實際拿到 {kinds}'
+    item_row = next(r for r in rows if r['target_type'] == 'item')
+    assert item_row['note_id'] == n.id
+    assert item_row['title'] == f'{kw} 的交接'   # 母筆記標題有正確取到
+    assert item.id
+
+
 def test_rows_read_live_text_not_a_copy(db):
     """原始項目被修正後，追蹤表必須顯示最新文字（參照，不是複本）。"""
     from notes.tracking import _detail_rows
