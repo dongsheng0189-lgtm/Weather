@@ -37,7 +37,12 @@ def find_tracking_for_keyword(keyword):
 
     keyword 是 EncryptedText、SQL 比不了，只能撈出來在 Python 端比。一店的追蹤表
     數量是「使用者手動建立的關鍵字」量級（幾個到幾十個），不是資料量級，撈全部
-    無妨 —— 不需要為它加雜湊欄位（那還會多一個可被離線比對的側channel）。
+    無妨 —— 不需要為它加雜湊欄位（那還會多一個可被離線比對的側通道）。
+
+    ⚠️ 回傳 None 有兩種含意：「本店沒有這個關鍵字的追蹤表」與「根本解析不出
+    店別」。呼叫端必須**先自己確認店別解析得出來**（路由層都已經在解析不出時
+    回 400），否則會把「你沒有店別」誤顯示成「還沒建過這個追蹤表」——那正是
+    list_tracking 曾經犯過、後來改成明確 400 的同一個錯。
     """
     needle = normalize(keyword)
     if not needle:
@@ -77,8 +82,9 @@ def create_tracking():
     # 建唯一約束，所以擋不住「兩個人同時對同一關鍵字按下建檔追蹤」——兩邊都
     # 查到「尚未存在」、都各自 insert，結果是兩張內容相同的追蹤表。後果是
     # 純外觀重複（多一張、不影響資料正確性），不值得為了這麼窄的競態去換一顆
-    # hash 欄位（那本身就是 Fix 6 之前 find_tracking_for_keyword 註解裡刻意
-    # 迴避的側channel），所以刻意不解決，只在此留下紀錄。
+    # hash 欄位 —— 那會多出一個可被離線比對的側通道（理由同
+    # find_tracking_for_keyword 的註解），代價遠大於這個競態。刻意不解決，
+    # 只在此留下紀錄，讓後人不要誤以為唯一性有被保證。
     existing_id = find_tracking_for_keyword(keyword)
     if existing_id:
         t = db.session.get(TrackedKeyword, existing_id)

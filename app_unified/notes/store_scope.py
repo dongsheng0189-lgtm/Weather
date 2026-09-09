@@ -10,6 +10,12 @@
 都要 `from notes.routes import notes_bp` 註冊路由；若這份邏輯留在其中一邊、
 被另一邊 import，會形成循環 import。本模組刻意不 import notes_bp、也不
 import tags.py / tracking.py 的任何東西。
+
+⚠️ 這裡**不是**店別規則的唯一真相來源：notes/tags.py 的 set_note_tags /
+set_item_tags 另有一套 inline 檢查（`current_user.role != 'super_admin' and
+n.store != current_user.store`），它完全不理會 ?store=，語意本來就與這裡不同。
+抽出本模組時刻意沒動它（那會是行為變更，不是純抽取）。要改店別規則時，
+記得那兩處要另外評估。
 """
 from flask import request, abort
 from flask_login import current_user

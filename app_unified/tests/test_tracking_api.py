@@ -58,6 +58,26 @@ def test_create_tracking_runs_full_scan(client, db):
     assert TrackedKeywordHit.query.filter_by(keyword_id=t.id).count() == 1
 
 
+def test_create_tracking_requires_a_store(client, db):
+    """建立追蹤表時解析不出店別 → 明確 400，不可靜默用某個預設店別建下去。
+
+    對稱於 list / page 兩條路的 400。少了這條，create 這一路退回靜默 fallback
+    時整套測試仍會綠。
+    """
+    from models import User
+    u = User(username=_uniq('nostore'), role='super_admin', store=None,
+             features=_json.dumps(['notes']))
+    u.set_password('0000')
+    db.session.add(u)
+    db.session.commit()
+    _login(client, u)
+
+    r = client.post('/notes/api/tracking', json={'keyword': _uniq('王小明')})
+
+    assert r.status_code == 400
+    assert '店別' in r.get_json()['error']
+
+
 def test_create_tracking_rejects_blank_keyword(client, db):
     u = _mk_user(db)
     _login(client, u)
