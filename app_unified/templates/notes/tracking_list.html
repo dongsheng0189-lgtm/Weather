@@ -25,7 +25,7 @@
 {% for t in tracking %}
 <div class="tracking-card">
   <div style="flex:1;">
-    <h3><a href="{{ url_for('notes.tracking_detail_page', kid=t.id) }}"
+    <h3><a href="{{ url_for('notes.tracking_detail_page', kid=t.id, store=current_store or None) }}"
            style="text-decoration:none;color:inherit;">{{ t.keyword }}</a></h3>
     <div class="tracking-meta">
       {{ t.hit_count }} 筆 · {{ t.created_by_name or '—' }} 於 {{ t.created_at }} 建立
@@ -44,6 +44,12 @@
 {% endif %}
 
 <script>
+// super_admin 的 effective_store() 只看 ?store=，不會自動 fallback 成畫面上
+// 這張表實際所在的店（那正是 create/detail 分別各自修過一次的同一個坑，見
+// index.html 的 SCOPED_STORE 與 tracking_detail_page 連結的說明）。這裡是
+// 頁級的單一 store 範圍（不像 index.html 一頁橫跨多店），所以只需要一個
+// 全域常數，不必逐列各自帶。
+var SCOPED_STORE = {{ (current_store or '')|tojson }};
 document.querySelectorAll('[data-role="del-tracking"]').forEach(function (btn) {
   var armTimer = null;
   btn.addEventListener('click', function () {
@@ -60,7 +66,9 @@ document.querySelectorAll('[data-role="del-tracking"]').forEach(function (btn) {
       }, 4000);
       return;
     }
-    fetch('/notes/api/tracking/' + btn.dataset.id, {method: 'DELETE'})
+    var delUrl = '/notes/api/tracking/' + btn.dataset.id;
+    if (SCOPED_STORE) delUrl += '?store=' + encodeURIComponent(SCOPED_STORE);
+    fetch(delUrl, {method: 'DELETE'})
       .then(function (r) {
         if (!r.ok) throw new Error('delete failed: ' + r.status);
         return r.json();

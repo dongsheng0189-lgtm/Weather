@@ -257,3 +257,68 @@ def test_plain_user_create_button_unaffected_by_fix1(client, db):
     assert '請先在上方選一間店別' not in html
     assert "var SCOPED_STORE = '';" not in html  # tojson 用雙引號，不是單引號
     assert 'var SCOPED_STORE = "";' in html
+
+
+# ─── Fix 2：super_admin 看別店的清單頁時，開啟／刪除都要帶上 store ───
+#
+# tracking_list.html 早於 index.html 那次「_createUrl / _detailUrl 一律帶
+# store」的修正而寫成，一直沒被回頭補上：detail 連結用的是不帶 store 的
+# url_for，刪除 fetch 也是不帶 store 的字面路徑。兩個端點都靠 effective_store()
+# 解析店別，對 super_admin 而言沒有 ?store= 就會落到 current_user.store（甚至
+# None）——不是畫面上正在看的那個店，於是這裡建的表 super_admin 自己建完，
+# 下一步（開啟／刪除）就先撞 403。
+
+def test_super_admin_list_detail_link_carries_store(client, db):
+    """列表頁的『開啟』連結要帶上 store，super_admin 才點得進去。"""
+    kw = _uniq('王小明')
+    _mk_store(db, 'A店')
+    owner = _mk_user(db, store='A店')
+    _login(client, owner)
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    admin = _mk_super_admin(db, store=None)
+    _login(client, admin)
+
+    html = client.get('/notes/tracking/?store=A店').get_data(as_text=True)
+
+    from flask import url_for
+    with client.application.test_request_context():
+        detail_url = _short(url_for('notes.tracking_detail_page', kid=kid, store='A店'))
+    assert detail_url in html, (
+        f'列表頁的連結沒有帶上 ?store=A店：期望片段 {detail_url!r}'
+    )
+
+    # 證明「有沒有帶 store」不是巧合：沒帶會 403，模板產生的那個連結（帶了）
+    # 才進得去。
+    assert client.get(f'/notes/tracking/{kid}').status_code == 403
+    assert client.get(f'/notes/tracking/{kid}?store=A店').status_code == 200
+
+
+def test_super_admin_list_delete_fetch_carries_store(client, db):
+    """列表頁的刪除 fetch 要帶上 store，super_admin 才刪得掉別店的表。"""
+    kw = _uniq('王小明')
+    _mk_store(db, 'A店')
+    owner = _mk_user(db, store='A店')
+    _login(client, owner)
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    admin = _mk_super_admin(db, store=None)
+    _login(client, admin)
+
+    html = client.get('/notes/tracking/?store=A店').get_data(as_text=True)
+    expected_store_js = 'var SCOPED_STORE = ' + _json.dumps('A店') + ';'
+    assert expected_store_js in html, (
+        f'刪除用的 SCOPED_STORE 沒有等於畫面正在看的 A店：期望片段 '
+        f'{expected_store_js!r}'
+    )
+    assert "delUrl += '?store=' + encodeURIComponent(SCOPED_STORE)" in html, (
+        '刪除的 fetch URL 沒有依 SCOPED_STORE 接上 ?store='
+    )
+
+    # 證明這條 query string 不是裝飾：沒帶 store 一樣會 403，帶了才能真的刪掉
+    # ——跟模板實際會送出的請求一致。
+    assert client.delete(f'/notes/api/tracking/{kid}').status_code == 403
+    from models import TrackedKeyword
+    assert db.session.get(TrackedKeyword, kid) is not None
+    assert client.delete(f'/notes/api/tracking/{kid}?store=A店').status_code == 200
+    assert db.session.get(TrackedKeyword, kid) is None
