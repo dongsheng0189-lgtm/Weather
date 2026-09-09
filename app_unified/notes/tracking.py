@@ -142,7 +142,17 @@ def set_hit_note(hid):
     """備註：整店共用，同店的人都能寫、也能覆蓋別人寫的（與剔除同一套規則）。"""
     h = _get_hit_or_404(hid)
     data = request.get_json(silent=True) or {}
-    h.note_text = (data.get('text') or '').strip()
+    # PUT 是整份取代語意，所以「明確傳空字串」＝清空備註是合法操作；但「根本沒帶
+    # text 欄位」或「text: null」是另一回事 —— 備註是對人的書面評語，加密存放、
+    # 沒有版本紀錄也沒有 log，一旦被誤清空就找不回來，所以這兩種情況一律擋在
+    # 400，不當成清空處理。同理，數字之類的非字串也直接拒絕，不做隱性轉型
+    # （那是呼叫端自己的 bug，應該讓它出錯而不是被吃掉）。
+    if 'text' not in data or data.get('text') is None:
+        return jsonify({'error': '缺少 text'}), 400
+    text = data.get('text')
+    if not isinstance(text, str):
+        return jsonify({'error': 'text 必須是字串'}), 400
+    h.note_text = text.strip()
     db.session.commit()
     return jsonify({'note_text': h.note_text})
 
@@ -154,7 +164,13 @@ def toggle_hit_exclude(hid):
     （那筆原始資料仍然含有關鍵字）。整店共用：一個人剔除，大家都不再看到。"""
     h = _get_hit_or_404(hid)
     data = request.get_json(silent=True) or {}
-    if data.get('excluded'):
+    excluded = data.get('excluded')
+    # 這是店範圍的軟刪除開關，要求真布林、不看 truthy——字串 "false" 是 truthy，
+    # 若沿用 if data.get('excluded') 會把「客戶端想還原」誤判成「剔除」，方向整個
+    # 反過來，而且是靜默發生、沒有任何錯誤訊息可以察覺。
+    if excluded is not True and excluded is not False:
+        return jsonify({'error': 'excluded 必須是布林值'}), 400
+    if excluded:
         h.excluded_at = datetime.utcnow()
         h.excluded_by = current_user.id
         h.excluded_by_name = current_user.username
