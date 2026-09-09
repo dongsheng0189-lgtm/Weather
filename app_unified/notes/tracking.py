@@ -73,6 +73,12 @@ def create_tracking():
     if not keyword:
         return jsonify({'error': '關鍵字不可為空'}), 400
 
+    # check-then-insert、無原子性：keyword 是 EncryptedText，DB 端無法對密文
+    # 建唯一約束，所以擋不住「兩個人同時對同一關鍵字按下建檔追蹤」——兩邊都
+    # 查到「尚未存在」、都各自 insert，結果是兩張內容相同的追蹤表。後果是
+    # 純外觀重複（多一張、不影響資料正確性），不值得為了這麼窄的競態去換一顆
+    # hash 欄位（那本身就是 Fix 6 之前 find_tracking_for_keyword 註解裡刻意
+    # 迴避的側channel），所以刻意不解決，只在此留下紀錄。
     existing_id = find_tracking_for_keyword(keyword)
     if existing_id:
         t = db.session.get(TrackedKeyword, existing_id)
@@ -95,7 +101,11 @@ def create_tracking():
 def list_tracking():
     store = effective_store()
     if not store:
-        return jsonify({'tracking': []})
+        # 不可靜默回空清單：store 為 None（例如沒有本店的 super_admin 忘記帶
+        # ?store=）跟「本店真的沒有任何追蹤表」在使用者眼裡看起來一模一樣，
+        # 前者是資料看不到、後者是真的沒資料——這個規格明文禁止的模糊地帶，
+        # 與 create_tracking 用同一句錯誤訊息、同樣回 400。
+        return jsonify({'error': '找不到店別，請先選擇店別'}), 400
     rows = TrackedKeyword.query.filter_by(store=store).order_by(
         TrackedKeyword.created_at.desc()).all()
     return jsonify({'tracking': [_tracked_to_dict(t) for t in rows]})
@@ -114,8 +124,18 @@ def delete_tracking(kid):
 @login_required
 def tracking_list_page():
     store = effective_store()
+    if not store:
+        # 同 list_tracking 的理由：不可讓「看不到店別」偽裝成「本店空清單」
+        # 靜默呈現。這裡選擇渲染同一個模板、帶一個明確的錯誤狀態（而非
+        # abort(400) 丟出 Flask 預設的除錯風格錯誤頁）——使用者是拿瀏覽器
+        # 點進這個頁面，明確的中文訊息＋維持頁面框架，比一片空清單或一個陌生
+        # 的系統錯誤頁更容易看懂發生了什麼、該怎麼辦（先選店別）。狀態碼仍是
+        # 400，讓自動化測試／工具能分辨這不是正常的 200 空清單。
+        return render_template('notes/tracking_list.html',
+                               tracking=[], current_store=None,
+                               store_error='找不到店別，請先選擇店別'), 400
     rows = TrackedKeyword.query.filter_by(store=store).order_by(
-        TrackedKeyword.created_at.desc()).all() if store else []
+        TrackedKeyword.created_at.desc()).all()
     return render_template('notes/tracking_list.html',
                            tracking=[_tracked_to_dict(t) for t in rows],
                            current_store=store)

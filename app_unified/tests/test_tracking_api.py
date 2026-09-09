@@ -40,7 +40,7 @@ def _mk_note(db, store='B店', title='日報'):
 
 def test_create_tracking_runs_full_scan(client, db):
     kw = _uniq('王小明')
-    n = _mk_note(db, title=f'{kw} 的交接')
+    _mk_note(db, title=f'{kw} 的交接')
     u = _mk_user(db)
     _login(client, u)
 
@@ -56,7 +56,6 @@ def test_create_tracking_runs_full_scan(client, db):
     assert t.created_by == u.id
     assert t.created_by_name == u.username
     assert TrackedKeywordHit.query.filter_by(keyword_id=t.id).count() == 1
-    assert n.id
 
 
 def test_create_tracking_rejects_blank_keyword(client, db):
@@ -68,8 +67,14 @@ def test_create_tracking_rejects_blank_keyword(client, db):
 
 
 def test_create_tracking_returns_existing_when_duplicate(client, db):
-    """同店同關鍵字不重複建表 —— 直接把既有那張回給前端。"""
-    kw = _uniq('王小明')
+    """同店同關鍵字不重複建表 —— 直接把既有那張回給前端。
+
+    kw 尾巴刻意固定加一個小寫字母（而非只靠 uuid4().hex 隨機出的英文字元）：
+    hex 有約 6% 機率全是數字，那樣 `.upper()` 就是 no-op，第二次送出的請求
+    只剩下前後空白這一種差異——route 自己的 `.strip()` 就足以讓它通過，測不到
+    大小寫折疊這條路徑，變成看隨機數臉色的測試。
+    """
+    kw = _uniq('王小明') + 'x'
     u = _mk_user(db)
     _login(client, u)
     first = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()
@@ -151,3 +156,62 @@ def test_store_page_lists_tracking(client, db):
 
     assert r.status_code == 200
     assert kw in r.get_data(as_text=True)
+
+
+def test_list_tracking_without_store_is_explicit_error_not_empty(client, db):
+    """store 為 None（例如沒有本店的 super_admin 忘了帶 ?store=）必須是明確的
+    400，不能悄悄回一個跟「本店真的沒有任何追蹤表」外觀一樣的空清單——那正是
+    規格明文禁止的「靜默資料消失」模糊地帶。"""
+    u = _mk_user(db, role='super_admin', store=None)
+    _login(client, u)
+
+    r = client.get('/notes/api/tracking')
+
+    assert r.status_code == 400
+    assert '店別' in r.get_json()['error']
+
+
+def test_tracking_list_page_without_store_is_explicit_error_not_empty(client, db):
+    u = _mk_user(db, role='super_admin', store=None)
+    _login(client, u)
+
+    r = client.get('/notes/tracking/')
+
+    assert r.status_code == 400
+    assert '店別' in r.get_data(as_text=True)
+
+
+def test_super_admin_store_override_sees_target_store(client, db):
+    """_effective_store 的特權那一半：super_admin 帶 ?store= 可以看到指定店的
+    追蹤表，之前完全沒有測試涵蓋（tag 那邊的同一條規則也沒有）。"""
+    kw = _uniq('王小明')
+    owner = _mk_user(db, store='A店')
+    _login(client, owner)
+    client.post('/notes/api/tracking', json={'keyword': kw})
+
+    admin = _mk_user(db, role='super_admin', store=None)
+    _login(client, admin)
+
+    r = client.get('/notes/api/tracking?store=A店')
+
+    assert r.status_code == 200
+    names = [row['keyword'] for row in r.get_json()['tracking']]
+    assert kw in names
+
+
+def test_plain_user_store_override_is_ignored(client, db):
+    """_effective_store 的越權防護那一半：一般 user 帶 ?store= 一律被忽略，
+    仍只看得到自己的店，不能藉此偷看別店。"""
+    kw = _uniq('王小明')
+    owner = _mk_user(db, store='A店')
+    _login(client, owner)
+    client.post('/notes/api/tracking', json={'keyword': kw})
+
+    u = _mk_user(db, role='user', store='B店')
+    _login(client, u)
+
+    r = client.get('/notes/api/tracking?store=A店')
+
+    assert r.status_code == 200
+    names = [row['keyword'] for row in r.get_json()['tracking']]
+    assert kw not in names

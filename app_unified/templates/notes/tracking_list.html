@@ -2,9 +2,13 @@
 {% block title %}建檔追蹤{% endblock %}
 {% block content %}
 <div class="toolbar"><h2>建檔追蹤</h2></div>
+{% if store_error %}
+<p class="error">{{ store_error }}</p>
+{% else %}
 <div class="notes-grid">
   {% for t in tracking %}
   <div class="note-card"><h3>{{ t.keyword }}</h3></div>
   {% endfor %}
 </div>
+{% endif %}
 {% endblock %}
