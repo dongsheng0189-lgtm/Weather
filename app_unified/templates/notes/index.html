@@ -286,34 +286,59 @@
 {# 建檔追蹤入口：只在關鍵字搜尋時出現。搜尋是暫時的、按下這顆才建立持續累積的表 —— #}
 {# 這個分界是刻意的，兩者都是「輸入關鍵字、列出命中」，很容易被混為一談。 #}
 {% if current_keyword %}
+{# super_admin 沒帶 ?store= 時，上面的搜尋結果橫跨好幾間店（routes.py index()
+   的 store_filter 分支：沒指定/指定到隱藏店 → 顯示所有未隱藏店的筆記）。
+   一張追蹤表只有一個 store 欄位，這種情況下「該建在哪一店」沒有正確答案 ——
+   若仍給按鈕，create_tracking 會透過 effective_store() 悄悄落到
+   current_user.store，那間店多半跟畫面上任何一筆結果都對不上，是靜默的
+   建錯店。所以這裡直接不給按鈕、只給提示，逼使用者先選店。
+   非 super_admin（含一般 admin）一律鎖在自己店 —— effective_store() 完全
+   忽略 query string —— 所以永遠視為「已限定單一店別」，跟改動前的行為一致，
+   按鈕照樣出現。 #}
+{% set tracking_scoped = (not current_user.is_super_admin()) or current_store %}
 <div style="display:flex;align-items:center;gap:.6rem;margin:.6rem 0;padding:.6rem .8rem;
-            background:#f6f9ff;border:1px solid #d6e4ff;border-radius:8px;">
+            background:#f6f9ff;border:1px solid #d6e4ff;border-radius:8px;flex-wrap:wrap;">
   <span style="font-size:.85rem;color:#555;">「{{ current_keyword }}」</span>
   {% if tracking_existing_id %}
-  <a href="{{ url_for('notes.tracking_detail_page', kid=tracking_existing_id) }}"
+  {# 已有追蹤表就一定開得成：tracking_existing_id 是 find_tracking_for_keyword()
+     用跟這個頁面同一個 effective_store() 查出來的，帶上 current_store 只是
+     讓 super_admin 落地時 detail 頁的 effective_store() 算出同一個店，
+     不會因為少了 ?store= 而 403。 #}
+  <a href="{{ url_for('notes.tracking_detail_page', kid=tracking_existing_id, store=current_store or None) }}"
      class="btn btn-primary" style="font-size:.82rem;padding:.3rem .8rem;text-decoration:none;">
     開啟追蹤表
   </a>
-  {% else %}
+  {% elif tracking_scoped %}
   <button type="button" class="btn btn-primary" data-role="create-tracking"
           data-keyword="{{ current_keyword }}"
           style="font-size:.82rem;padding:.3rem .8rem;">建檔追蹤</button>
   <span style="font-size:.78rem;color:#888;">建立後會持續累積，可寫備註、剔除不相關的</span>
-  {# 這段 <script> 刻意放在 else 分支裡（跟按鈕同一個條件），不是放在
-     {% if current_keyword %} 外層之後 —— 已追蹤時按鈕根本不存在，若腳本仍
-     整段輸出，document.querySelector 選到的 [data-role="create-tracking"]
-     這串「JS 原始碼字面值」會被誤判成「頁面上真的有這顆按鈕」（純文字比對
-     分不出這是程式碼還是 DOM），讓「已追蹤時不該有建立按鈕」的守門測試偽陽性
-     失效。放進同一個 else 也順便滿足腳本要在它查詢的元素之後才執行的要求 ——
-     兩者本來就在同一段輸出裡，順序自然成立，不必依賴其他 script 區塊的順序。 #}
+  {# 這段 <script> 刻意放在同一個分支裡（跟按鈕同一個條件），不是放在
+     {% if current_keyword %} 外層之後 —— 按鈕不存在的兩種情況（已追蹤 /
+     未限定店別）若腳本仍整段輸出，document.querySelector 選到的
+     [data-role="create-tracking"] 這串「JS 原始碼字面值」會被誤判成「頁面上
+     真的有這顆按鈕」（純文字比對分不出這是程式碼還是 DOM），讓「不該有建立
+     按鈕」的守門測試偽陽性失效。放進同一個分支也順便滿足腳本要在它查詢的
+     元素之後才執行的要求 —— 兩者本來就在同一段輸出裡，順序自然成立。 #}
   <script>
   (function () {
     var btn = document.querySelector('[data-role="create-tracking"]');
     if (!btn) return;
+    var CURRENT_STORE = {{ (current_store or '')|tojson }};
+    var _createUrl = '/notes/api/tracking';
+    if (CURRENT_STORE) _createUrl += '?store=' + encodeURIComponent(CURRENT_STORE);
+    // 失敗訊息的計時器 id 存在閉包變數裡：使用者常在訊息顯示的當下就重按一次
+    // （訊息本身就是在邀請「再試一次」）。若不取消，上一次留下的計時器會在
+    // 全歷史掃描還跑著的幾秒鐘內把 disabled 按鈕的文字從「建立中…」蓋回
+    // 「建檔追蹤」—— 按鈕仍是 disabled、實際上仍在等 fetch，但看起來像一顆
+    // 完全沒反應過的閒置按鈕，正是規格明文禁止的「看起來像死掉」。
+    // 同一套防呆見 tracking_list.html 的 del-tracking 按鈕（armTimer）。
+    var failTimer = null;
     btn.addEventListener('click', function () {
+      clearTimeout(failTimer);
       btn.disabled = true;
       btn.textContent = '建立中…';   // 第一次是完整掃描，會花幾秒
-      fetch('/notes/api/tracking', {
+      fetch(_createUrl, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({keyword: btn.dataset.keyword})
@@ -322,18 +347,32 @@
         // 使用者按下去以為在建立，其實什麼都沒發生。理由與 tracking_detail.html /
         // tracking_list.html 的 fetch 一致，這裡沿用同一套模式，不用 alert()
         // （瀏覽器 modal 會卡住自動化工具）。
-        if (!r.ok) throw new Error('create failed: ' + r.status);
-        return r.json();
+        if (r.ok) return r.json();
+        // 4xx（例如店別解析不出來）是使用者可以馬上處理的明確原因，retry
+        // 不會自己好——把伺服器訊息秀出來取代空泛的「再試一次」。5xx / 網路
+        // 錯誤沒有這種明確原因，仍走下面 catch 的通用重試訊息。r.json() 對
+        // 非 JSON 回應（例如 500 的 HTML 錯誤頁）可能丟例外，用 catch 接住
+        // fallback 成 {}，不讓這裡自己再拋一次沒處理的例外。
+        var isClientError = r.status >= 400 && r.status < 500;
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          var err = new Error('create failed: ' + r.status);
+          if (isClientError && d && d.error) err.userMessage = d.error;
+          throw err;
+        });
       }).then(function (d) {
-        location.href = '/notes/tracking/' + d.id;
-      }).catch(function () {
+        var _detailUrl = '/notes/tracking/' + d.id;
+        if (CURRENT_STORE) _detailUrl += '?store=' + encodeURIComponent(CURRENT_STORE);
+        location.href = _detailUrl;
+      }).catch(function (e) {
         btn.disabled = false;
-        btn.textContent = '建立失敗，再試一次';
-        setTimeout(function () { btn.textContent = '建檔追蹤'; }, 2500);
+        btn.textContent = (e && e.userMessage) || '建立失敗，再試一次';
+        failTimer = setTimeout(function () { btn.textContent = '建檔追蹤'; }, 2500);
       });
     });
   })();
   </script>
+  {% else %}
+  <span style="font-size:.82rem;color:#c0392b;">這個檢視橫跨多間店，請先在上方選一間店別，才能建立追蹤表</span>
   {% endif %}
 </div>
 {% endif %}

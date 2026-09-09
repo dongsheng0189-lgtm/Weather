@@ -88,21 +88,32 @@ def test_delete_path_matches_url_for(app):
 
 
 def test_index_create_tracking_fetch_matches_url_for(app):
-    """index.html 搜尋結果按鈕的建立 fetch，路徑要對得上 notes.create_tracking。"""
+    """index.html 搜尋結果按鈕的建立 fetch，路徑要對得上 notes.create_tracking。
+
+    Fix 1(a) 之後這個路徑會依 current_store 動態接上 `?store=`（super_admin
+    scoped 到單一店別時），所以不再是 fetch() 呼叫裡的字面字串，而是先指定
+    給 `_createUrl` 變數、fetch() 再讀這個變數。這裡分兩段驗證：字面值本身
+    對得上 url_for，而且真的被 fetch() 使用（不是宣告了卻沒用到的死變數）。
+    """
     with app.test_request_context():
         create_url = url_for('notes.create_tracking')
 
     index_src = INDEX.read_text(encoding='utf-8')
 
-    # create_tracking 沒有路徑參數，不需要 _split_on_placeholder 切前後段，
-    # 直接比對整段 fetch() 呼叫的第一個參數字面值。
-    assert f"fetch('{create_url}'" in index_src, (
+    assert f"var _createUrl = '{create_url}'" in index_src, (
         f'建檔追蹤的建立路徑跟 notes.create_tracking 的路由對不上：期望 {create_url!r}'
+    )
+    assert 'fetch(_createUrl' in index_src, (
+        '_createUrl 沒有被 fetch() 實際使用'
     )
 
 
 def test_index_redirect_path_matches_url_for(app):
-    """index.html 建立成功後的導向路徑，要對得上 notes.tracking_detail_page。"""
+    """index.html 建立成功後的導向路徑，要對得上 notes.tracking_detail_page。
+
+    同上，Fix 1(a) 之後這段路徑也會視 current_store 動態接上 `?store=`，
+    先組進 `_detailUrl` 變數再指定給 location.href。
+    """
     with app.test_request_context():
         detail_url = url_for('notes.tracking_detail_page', kid=999999)
 
@@ -110,7 +121,10 @@ def test_index_redirect_path_matches_url_for(app):
 
     detail_prefix, detail_suffix = _split_on_placeholder(detail_url, 999999)
     expected_redirect_js = _expected_js_concat(detail_prefix, 'd.id', detail_suffix)
-    assert expected_redirect_js in index_src, (
+    assert f'var _detailUrl = {expected_redirect_js}' in index_src, (
         f'建立成功後的導向路徑跟 notes.tracking_detail_page 的路由對不上：'
         f'期望片段 {expected_redirect_js!r}'
+    )
+    assert 'location.href = _detailUrl' in index_src, (
+        '_detailUrl 沒有被 location.href 實際使用'
     )
