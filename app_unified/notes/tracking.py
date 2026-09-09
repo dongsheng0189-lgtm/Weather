@@ -6,6 +6,8 @@ UI 上必須維持這個分界。
 
 權限沿用標籤管理：同店的人都可以建立／刪除／剔除／寫備註，不新增權限概念。
 """
+from datetime import datetime
+
 from flask import request, jsonify, abort, render_template
 from flask_login import login_required, current_user
 
@@ -124,6 +126,45 @@ def delete_tracking(kid):
     db.session.delete(t)   # cascade 清掉命中列
     db.session.commit()
     return jsonify({'ok': True})
+
+
+def _get_hit_or_404(hid):
+    h = db.session.get(TrackedKeywordHit, hid)
+    if not h:
+        abort(404)
+    _get_tracked_or_404(h.keyword_id)   # 同店檢查（不同店 403）
+    return h
+
+
+@notes_bp.route('/api/tracking/hits/<int:hid>/note', methods=['PUT'])
+@login_required
+def set_hit_note(hid):
+    """備註：整店共用，同店的人都能寫、也能覆蓋別人寫的（與剔除同一套規則）。"""
+    h = _get_hit_or_404(hid)
+    data = request.get_json(silent=True) or {}
+    h.note_text = (data.get('text') or '').strip()
+    db.session.commit()
+    return jsonify({'note_text': h.note_text})
+
+
+@notes_bp.route('/api/tracking/hits/<int:hid>/exclude', methods=['POST'])
+@login_required
+def toggle_hit_exclude(hid):
+    """「不相關」：軟刪除，不可改成真刪 —— 真刪的話下一輪增量掃描會再抓回來
+    （那筆原始資料仍然含有關鍵字）。整店共用：一個人剔除，大家都不再看到。"""
+    h = _get_hit_or_404(hid)
+    data = request.get_json(silent=True) or {}
+    if data.get('excluded'):
+        h.excluded_at = datetime.utcnow()
+        h.excluded_by = current_user.id
+        h.excluded_by_name = current_user.username
+    else:
+        h.excluded_at = None
+        h.excluded_by = None
+        h.excluded_by_name = None
+    db.session.commit()
+    return jsonify({'excluded': h.excluded_at is not None,
+                    'excluded_by_name': h.excluded_by_name})
 
 
 @notes_bp.route('/tracking/')
