@@ -1,0 +1,142 @@
+"""建檔追蹤的路由（頁面 + JSON API），註冊到 notes_bp。
+
+流程刻意分兩段（規格的命名決策）：**搜尋**是暫時的、關掉就沒了；按下**建檔追蹤**
+才真的建立一張持續累積的表。兩者都是輸入關鍵字、都列出命中，很容易混淆，所以
+UI 上必須維持這個分界。
+
+權限沿用標籤管理：同店的人都可以建立／刪除／剔除／寫備註，不新增權限概念。
+"""
+from datetime import datetime
+
+from flask import request, jsonify, abort, render_template
+from flask_login import login_required, current_user
+
+from extensions import db
+from models import TrackedKeyword, TrackedKeywordHit
+from notes.routes import notes_bp
+from notes.tracking_match import normalize
+from notes.tracking_scan import scan_tracked_keyword
+from tw_time import tw_str
+
+
+def _tracking_store():
+    """追蹤表綁單一店別。super_admin 可用 ?store= 指定，其他人鎖在自己的店。
+
+    與 notes/tags.py 的 _effective_store() 同一套規則 —— 規格原文說「與
+    _scope_notes 一致」，但 _scope_notes 對 super_admin 會撈「所有未隱藏的店」，
+    與「不做跨店」相矛盾，且一張追蹤表只有一個 store 欄位可填。
+    """
+    if current_user.role == 'super_admin':
+        s = request.args.get('store')
+        if s:
+            return s
+    return current_user.store
+
+
+def _get_tracked_or_404(kid):
+    t = db.session.get(TrackedKeyword, kid)
+    if not t:
+        abort(404)
+    store = _tracking_store()
+    if not store or t.store != store:
+        abort(403)
+    return t
+
+
+def find_tracking_for_keyword(keyword):
+    """本店是否已有這個關鍵字的追蹤表？有就回 id，沒有回 None。
+
+    keyword 是 EncryptedText、SQL 比不了，只能撈出來在 Python 端比。一店的追蹤表
+    數量是「使用者手動建立的關鍵字」量級（幾個到幾十個），不是資料量級，撈全部
+    無妨 —— 不需要為它加雜湊欄位（那還會多一個可被離線比對的側channel）。
+    """
+    needle = normalize(keyword)
+    if not needle:
+        return None
+    store = _tracking_store()
+    if not store:
+        return None
+    for t in TrackedKeyword.query.filter_by(store=store).all():
+        if normalize(t.keyword) == needle:
+            return t.id
+    return None
+
+
+def _tracked_to_dict(t):
+    return {
+        'id': t.id,
+        'keyword': t.keyword,
+        'created_by_name': t.created_by_name,
+        'created_at': tw_str(t.created_at),
+        'hit_count': TrackedKeywordHit.query.filter_by(
+            keyword_id=t.id).filter(TrackedKeywordHit.excluded_at.is_(None)).count(),
+    }
+
+
+@notes_bp.route('/api/tracking', methods=['POST'])
+@login_required
+def create_tracking():
+    store = _tracking_store()
+    if not store:
+        return jsonify({'error': '找不到店別，請先選擇店別'}), 400
+    data = request.get_json(silent=True) or {}
+    keyword = (data.get('keyword') or '').strip()
+    if not keyword:
+        return jsonify({'error': '關鍵字不可為空'}), 400
+
+    existing_id = find_tracking_for_keyword(keyword)
+    if existing_id:
+        t = db.session.get(TrackedKeyword, existing_id)
+        return jsonify(dict(_tracked_to_dict(t), existing=True))
+
+    t = TrackedKeyword(store=store, keyword=keyword,
+                       created_by=current_user.id,
+                       created_by_name=current_user.username)
+    db.session.add(t)
+    db.session.commit()
+    # 第一次是完整掃描（會慢，僅此一次）。成本與使用者現在按一次「搜尋」相同 ——
+    # 現有的關鍵字搜尋本來就是全歷史解密掃描（notes/routes.py 的 keyword 分支
+    # 不套 _date_filter）。
+    scan_tracked_keyword(t)
+    return jsonify(dict(_tracked_to_dict(t), existing=False))
+
+
+@notes_bp.route('/api/tracking', methods=['GET'])
+@login_required
+def list_tracking():
+    store = _tracking_store()
+    if not store:
+        return jsonify({'tracking': []})
+    rows = TrackedKeyword.query.filter_by(store=store).order_by(
+        TrackedKeyword.created_at.desc()).all()
+    return jsonify({'tracking': [_tracked_to_dict(t) for t in rows]})
+
+
+@notes_bp.route('/api/tracking/<int:kid>', methods=['DELETE'])
+@login_required
+def delete_tracking(kid):
+    t = _get_tracked_or_404(kid)
+    db.session.delete(t)   # cascade 清掉命中列
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@notes_bp.route('/tracking/')
+@login_required
+def tracking_list_page():
+    store = _tracking_store()
+    rows = TrackedKeyword.query.filter_by(store=store).order_by(
+        TrackedKeyword.created_at.desc()).all() if store else []
+    return render_template('notes/tracking_list.html',
+                           tracking=[_tracked_to_dict(t) for t in rows],
+                           current_store=store)
+
+
+@notes_bp.route('/tracking/<int:kid>')
+@login_required
+def tracking_detail_page(kid):
+    t = _get_tracked_or_404(kid)
+    scan_tracked_keyword(t)   # 每次開啟跑一次增量
+    return render_template('notes/tracking_detail.html',
+                           tracked=_tracked_to_dict(t),
+                           rows=[])
