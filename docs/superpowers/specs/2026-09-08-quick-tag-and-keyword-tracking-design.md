@@ -178,6 +178,15 @@ for tid in tag_ids:
 
 ### 資料模型
 
+> ⚠️ **2026-09-09 更新**：備註已從下面 `TrackedKeywordHit.note_text`（每一筆
+> 命中各自一欄）搬到 `TrackedKeyword.memo_text`（整張追蹤表共用一欄），對應
+> 的端點也從 `PUT /api/tracking/hits/<hid>/note` 改成
+> `PUT /api/tracking/<kid>/memo`。原因是 PO 手動測試後回饋「備註只要有一
+> 欄位就可以，在最上面，不用每一個項目就一個備註」。下面的表格保留當初
+> （執行計畫版）的原始設計，不回頭改寫；實際欄位與行為以
+> `app_unified/models.py` 的 `TrackedKeyword.memo_text` /
+> `TrackedKeywordMemoLog` 與 `app_unified/notes/tracking.py` 為準。
+
 **`TrackedKeyword`** —— 一張追蹤表
 
 | 欄位 | 說明 |

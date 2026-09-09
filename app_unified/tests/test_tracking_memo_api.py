@@ -41,6 +41,14 @@ def _login(client, user):
         sess['_fresh'] = True
 
 
+def _mk_note(db, store='B店', title='日報'):
+    from models import Note
+    n = Note(store=store, title=title, content='', note_type='note')
+    db.session.add(n)
+    db.session.commit()
+    return n
+
+
 def _setup_tracked(client, db, store='B店'):
     """建一張空的追蹤表（不需要任何命中——備註是掛在表上，不是掛在命中列上，
     測備註不需要底層筆記存在）。"""
@@ -240,14 +248,32 @@ def test_detail_page_shows_table_memo_at_top_not_per_row(client, db):
     """存好的備註要出現在詳細頁最上面的備註框，且**只出現一次**——不是像改版
     前那樣每一列各自複製一份。這是這次改版的核心行為，必須真的斷言『只有
     一個備註框』，不能只驗證文字有出現在頁面某處（那樣就算退化回每列各一份、
-    測試也不會發現）。"""
+    測試也不會發現）。
+
+    B1 修正：改版前這裡用 `_setup_tracked` 建一張**空**追蹤表（它的
+    docstring 說得沒錯——備註本身測試不需要底層筆記存在），但「只有一個
+    備註框、不是每列各一份」這句斷言，恰恰需要頁面上真的有列才測得出來：
+    沒有任何 hit-card 時，就算把每一列各自一份的舊版備註框原封不動搬回
+    模板，因為根本沒有列可以渲染，計數還是 1，測試照樣綠燈——完全測不出
+    這個改版真正要守的迴歸。這裡改成先建兩筆命中，並且額外斷言真的有列
+    渲染出來，讓「只有一個」這句話是在『有列』的前提下成立，不是在『沒有
+    東西可比較』的空頁面上碰巧為真。
+    """
     kw = _uniq('王小明')
-    u, kid = _setup_tracked(client, db)
+    _mk_note(db, title=f'{kw} 的交接一')
+    _mk_note(db, title=f'{kw} 的交接二')
+    _login(client, _mk_user(db))
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
     memo = f'整張表的備註_{uuid.uuid4().hex[:4]}'
     client.put(f'/notes/api/tracking/{kid}/memo', json={'text': memo})
 
     html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
 
+    assert html.count('class="hit-card"') >= 2, (
+        '這個測試必須在有命中列的頁面上驗證，不能像改版前那樣落在空清單—— '
+        '否則「只有一個備註框」這句斷言即使退化回每列各一份也照樣成立'
+        '（因為根本沒有列可以渲染出第二個備註框）'
+    )
     # 數 `<textarea class="tracking-memo"` 這個開始標籤本身，不能直接數
     # `data-role="memo"` 出現幾次——頁面下方的 JS 原始碼裡也會有一份一模一樣
     # 的字面字串（`document.querySelector('[data-role="memo"]')`），數整份
@@ -321,3 +347,38 @@ def test_detail_page_shows_latest_editor_not_earliest(client, db):
         TrackedKeywordMemoLog.id).all()
     assert len(logs) == 2
     assert logs[0].changed_by_name == u1.username
+
+
+def test_detail_page_last_editor_tiebreaks_by_id_when_timestamps_tie(client, db):
+    """B6：`_memo_edit_info` 只排 `changed_at` 時，兩筆 log 剛好落在同一個
+    時間戳（同一微秒內寫入，或 DB 把時間戳截斷到秒）會給出不確定的答案。
+
+    這裡直接把兩筆 log 的 `changed_at` 設成完全相同的值，讓 `changed_at`
+    完全無法分辨順序，只留 `id`（嚴格遞增，寫入順序一定跟 id 大小一致）
+    可以判斷——若 `_memo_edit_info` 沒有以 id 做次要排序鍵，這個測試在
+    SQLite 上的實際行為取決於查詢計畫（通常會退回插入順序或隨機），沒有
+    id tiebreak 就無法保證穩定顯示『後寫入』的 u2。"""
+    from models import TrackedKeywordMemoLog
+    from datetime import datetime as real_datetime
+    u1, kid = _setup_tracked(client, db)
+    client.put(f'/notes/api/tracking/{kid}/memo', json={'text': '第一版'})
+    u2 = _mk_user(db, store='B店')
+    _login(client, u2)
+    client.put(f'/notes/api/tracking/{kid}/memo', json={'text': '第二版'})
+
+    logs = TrackedKeywordMemoLog.query.filter_by(keyword_id=kid).order_by(
+        TrackedKeywordMemoLog.id).all()
+    assert len(logs) == 2
+    tied = real_datetime(2020, 1, 1, 3, 0, 0)
+    logs[0].changed_at = tied
+    logs[1].changed_at = tied
+    db.session.commit()
+
+    viewer = _mk_user(db, store='B店')
+    _login(client, viewer)
+    html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
+
+    assert u2.username in html, (
+        'changed_at 完全相同時，應該以 id 較大（較後寫入）的那筆 log 為準'
+    )
+    assert u1.username not in html

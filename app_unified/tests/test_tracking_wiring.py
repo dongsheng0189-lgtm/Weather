@@ -131,3 +131,78 @@ def test_index_redirect_path_matches_url_for(app):
     assert 'location.href = _detailUrl' in index_src, (
         '_detailUrl 沒有被 location.href 實際使用'
     )
+
+
+# ─── B3：備註存檔失敗的可見狀態沒有任何測試守著 ───
+#
+# 這次改版把備註存檔失敗的處理，從「每一列各自 forEach + closest('.hit-card')
+# 找 DOM」整個重寫成「單一元素的 IIFE」，CSS class 也全部改名（改版前後長相
+# 完全不同）。但沒有任何既有測試提到 hint 元素、失敗 class、`r.ok`、`.catch`
+# ——若 hint 元素或失敗規則被刪掉，不會有任何測試變紅：使用者看著打好的字
+# 留在畫面上、以為存了，其實沒有（見這支路由 docstring 對這個風險的說明）。
+
+def _memo_save_block():
+    """切出備註存檔的 IIFE（`(function () { ... })();`），用大括號計數而非
+    正規表示式（原因同 test_editor_from_wiring.py 的 `_from_handler_block`：
+    區塊內有巢狀 `{}`）。
+
+    只在這個範圍內找『失敗狀態』的相關程式碼——不跟下面「不相關」／
+    「還原」兩顆按鈕各自的 `r.ok` / `.catch` 混在一起找（那是各自獨立的
+    失敗處理，不是這次要守的行為），也避開「不相關」按鈕註解裡提到的字面
+    字串 `confirm()`（那段註解在解釋『刻意不用 confirm()』，不是真的呼叫
+    它）——不切開範圍找，這裡對『memo 區塊不可以用 alert()/confirm()』的
+    檢查會被這段註解文字污染。
+    """
+    src = DETAIL.read_text(encoding='utf-8')
+    marker = "var ta = document.querySelector('[data-role=\"memo\"]');"
+    marker_idx = src.index(marker)
+    start = src.rindex('(function () {', 0, marker_idx)
+    brace_open = src.index('{', start)
+    depth = 0
+    i = brace_open
+    while i < len(src):
+        if src[i] == '{':
+            depth += 1
+        elif src[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return src[start:i + 1]
+        i += 1
+    raise AssertionError('沒找到備註存檔 IIFE 的結尾大括號，切割邏輯本身壞了')
+
+
+def test_memo_hint_element_is_rendered():
+    """失敗提示的 DOM 掛勾要真的渲染出來，JS 才找得到它去顯示/隱藏。"""
+    detail_src = DETAIL.read_text(encoding='utf-8')
+    assert 'data-role="memo-hint"' in detail_src, (
+        '缺少備註存檔失敗提示的 data-role hook'
+    )
+
+
+def test_memo_save_failure_has_a_css_rule():
+    """失敗狀態要有視覺區別，不能跟成功長得一模一樣（這支路由的 docstring
+    明講了理由：TrackedKeywordMemoLog 只記真的落地的異動，救不了一次沒送
+    出去的請求）。"""
+    detail_src = DETAIL.read_text(encoding='utf-8')
+    assert '.tracking-memo.save-failed' in detail_src, (
+        '缺少備註存檔失敗的 CSS 規則'
+    )
+
+
+def test_memo_save_checks_response_ok_and_has_catch():
+    """`r.json()` 對非 2xx 回應（403/404，或 session 過期被導回登入頁的
+    HTML）可能安靜地 resolve 或 reject，必須先檢查 `r.ok` 才能信任回應；
+    整條 promise chain 也要有 `.catch` 接住網路層本身的失敗（例如斷線讓
+    fetch() 直接 reject）——兩者缺一，使用者都可能誤以為存了、其實沒存。"""
+    block = _memo_save_block()
+    assert 'r.ok' in block, '備註存檔沒有檢查 r.ok'
+    assert '.catch(' in block, '備註存檔的 promise chain 沒有 .catch 接住失敗'
+
+
+def test_memo_save_failure_does_not_use_blocking_dialogs():
+    """失敗提示走的是行內視覺變化（`markFailed` 切 CSS class），不能用
+    `alert()` / `confirm()`——那種瀏覽器原生 modal 會卡住自動化工具，跟這
+    頁面「不相關」按鈕特意避開 `confirm()` 是同一個理由。"""
+    block = _memo_save_block()
+    assert 'alert(' not in block, '備註存檔失敗不該用 alert() 阻斷式對話框'
+    assert 'confirm(' not in block, '備註存檔失敗不該用 confirm() 阻斷式對話框'

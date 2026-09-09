@@ -92,7 +92,13 @@ def test_deleting_tracked_keyword_cascades_hits(db):
 
 def test_tracked_keyword_memo_text_is_encrypted_at_rest(db):
     """備註是使用者對人的評語，同樣屬個資。2026-09-09 改版後掛在
-    TrackedKeyword 本身（整張表一欄），不再是命中列上的欄位。"""
+    TrackedKeyword 本身（整張表一欄），不再是命中列上的欄位。
+
+    B8：光斷言「明文不在密文裡」，若寫入路徑靜默把值存成 NULL（例如
+    EncryptedText 的 process_bind_param 哪天壞掉、悄悄回傳 None），這個
+    斷言一樣通過——`memo not in ''` 恆真，測不出「根本沒存進去」跟「存成
+    密文」的差別。比照 `test_memo_log_columns_are_encrypted_at_rest`（它的
+    姐妹測試）同時驗證兩件事：raw 密文非空、且 ORM 讀回來是明文原文。"""
     from models import TrackedKeyword
     memo = f'已口頭告誡_{uuid.uuid4().hex[:6]}'
     t = _mk_tracked(db)
@@ -102,7 +108,12 @@ def test_tracked_keyword_memo_text_is_encrypted_at_rest(db):
         db.text('SELECT memo_text FROM tracked_keywords WHERE id = :i'),
         {'i': t.id},
     ).scalar()
-    assert memo not in (raw or '')
+    assert raw, '備註的密文不該是空的／NULL —— 那代表寫入根本沒有落地'
+    assert memo not in raw
+    # 明文仍可從 ORM 端讀回
+    db.session.expire_all()
+    got = db.session.get(TrackedKeyword, t.id)
+    assert got.memo_text == memo
 
 
 def test_exclusion_fields_default_null(db):
@@ -150,12 +161,22 @@ def test_memo_log_survives_and_cascades_with_its_table(client, db):
     互相獨立的 cascade，缺一都不對）。
 
     刻意打真正的 `DELETE /notes/api/tracking/<kid>` 路由，而不是直接
-    `db.session.delete(...)`。後者只證明 ORM 的 cascade 設定正確、恰好跟
-    production 今天的路由寫法一致，但若哪天 `delete_tracking` 改成 bulk
-    `query.delete()`，這個測試在本機 SQLite 仍然會綠燈——本機
-    `PRAGMA foreign_keys` 預設是關的，`ondelete='CASCADE'` 在這裡完全不
-    生效（PostgreSQL 才會真的 cascade），命中列與備註 log 會被靜默留下孤兒
-    列，測試卻測不出來。改成打路由，測的才是 production 實際會走的路徑。
+    `db.session.delete(...)`——後者只證明「ORM 的 cascade 設定正確」，這裡
+    改成打路由是為了確保**目前**的 `delete_tracking` 實作（`db.session.
+    delete(t)`）真的觸發那份 cascade，不是巧合測到一個跟路由無關的設定。
+
+    ⚠️ 但這樣做仍然只覆蓋得到一層：production（PostgreSQL）刪除這張表時，
+    有兩個各自獨立的機制都能造成同樣的結果——(1) SQLAlchemy 的 ORM
+    `delete-orphan` cascade（因為 `delete_tracking` 呼叫的是
+    `db.session.delete()`，觸發的正是這個機制，不管是本機 SQLite 還是
+    production 都會跑）；(2) DB 層的 `ondelete='CASCADE'` FK 約束（只有真的
+    交給資料庫執行 DELETE 時才會生效，例如未來 `delete_tracking` 改寫成
+    bulk `query.delete()`，繞過 ORM 逐筆處理）。本機 `PRAGMA foreign_keys`
+    預設是關的，`ondelete='CASCADE'` 在這裡完全不生效——這個測試因此**只**
+    驗證了 (1)，測不到 (2)：即使 FK 上的 `ondelete='CASCADE'` 宣告被誤刪或
+    寫錯，只要 ORM cascade 還在，這個測試依然綠燈。(2) 由
+    `test_memo_log_keyword_id_has_real_fk_with_cascade` 這種直接檢查
+    `ForeignKey.ondelete` 屬性的測試另外守著，兩者互補、缺一不可。
     """
     import json as _json
     from models import User, TrackedKeyword, TrackedKeywordHit, TrackedKeywordMemoLog

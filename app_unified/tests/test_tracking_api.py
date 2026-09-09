@@ -153,6 +153,58 @@ def test_list_tracking_is_store_scoped(client, db):
     assert all('別店' not in n for n in names)
 
 
+def test_list_tracking_does_not_decrypt_memo(client, db):
+    """B5：清單頁從不顯示備註，但改版前 `list_tracking` 撈的是整列
+    `TrackedKeyword`——`EncryptedText.process_result_value` 在**取列當下**
+    就會解密（理由同 notes/tracking.py `_visible_hits` 的 docstring），撈
+    整列會讓 memo_text 在清單頁被白白解密一次，即使頁面根本不顯示它。
+
+    直接驗證：monkeypatch `crypto.decrypt` 記下每次被呼叫的密文，打真正的
+    list_tracking API 之後，memo_text 在資料庫裡的原始密文不該出現在被
+    呼叫過的清單裡——同時反向驗證 keyword 的密文『有』出現過，證明這個
+    spy 真的攔得到呼叫、不是因為某種快取讓 decrypt 整個沒被呼叫而巧合
+    通過。"""
+    import crypto
+    kw = _uniq('王小明')
+    u = _mk_user(db)
+    _login(client, u)
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+    memo = f'不該被清單頁解密的備註_{uuid.uuid4().hex[:6]}'
+    client.put(f'/notes/api/tracking/{kid}/memo', json={'text': memo})
+
+    raw_memo, raw_keyword = db.session.execute(
+        db.text('SELECT memo_text, keyword FROM tracked_keywords WHERE id = :i'),
+        {'i': kid},
+    ).fetchone()
+    assert raw_memo, '備註在資料庫裡應該是非空密文'
+    assert raw_keyword, '關鍵字在資料庫裡應該是非空密文'
+
+    seen = []
+    real_decrypt = crypto.decrypt
+
+    def _spy(ciphertext, *a, **kw2):
+        seen.append(ciphertext)
+        return real_decrypt(ciphertext, *a, **kw2)
+
+    import notes.tracking as _tracking_module  # noqa: F401  确保模組已載入
+    orig = crypto.decrypt
+    crypto.decrypt = _spy
+    try:
+        r = client.get('/notes/api/tracking')
+    finally:
+        crypto.decrypt = orig
+
+    assert r.status_code == 200
+    assert raw_keyword in seen, (
+        '關鍵字的密文應該被解密過（清單頁本來就要顯示它）——若沒出現，'
+        'spy 沒攔到呼叫，下面「memo 沒被解密」的斷言就不能信'
+    )
+    assert raw_memo not in seen, (
+        '清單頁不該解密 memo_text —— 這個欄位在這頁從不顯示，撈整列會讓它'
+        '被白白解密一次'
+    )
+
+
 def test_delete_tracking_removes_hits(client, db):
     from models import TrackedKeywordHit
     kw = _uniq('王小明')

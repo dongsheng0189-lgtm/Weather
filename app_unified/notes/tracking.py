@@ -132,10 +132,16 @@ def _excluded_hits(tracked):
 
 
 def _tracked_to_dict(t, hits=None):
-    """`hits` 可選：detail 頁已經算過一次 `_visible_hits(t, full=True)`，
-    傳進來就不必再算第二次（同一頁面過去曾各自重算一份，見 `_detail_rows`
-    docstring 提到的重複）。清單頁沒有現成的 hits 可傳，維持原本各自算一次
-    ——但走的是 `_visible_hits` 的 count-only 模式，不解密備註。"""
+    """`hits` 可選：detail 頁已經算過一次 `_visible_hits(t)`，傳進來就不必
+    再算第二次（同一頁面過去曾各自重算一份，見 `_detail_rows` docstring
+    提到的重複）。清單頁沒有現成的 hits 可傳，維持原本各自算一次 ——但走的
+    是 `_visible_hits` 的 count-only 模式（`load_only` 只取 id/target_type/
+    target_id，不解密 excluded_by_name）。
+
+    清單頁呼叫這個函式時，`t` 本身也已經用 `load_only` 限制只查
+    id/keyword/created_by_name/created_at（見 list_tracking /
+    tracking_list_page），memo_text 不在其中——列表頁從不顯示備註，不該
+    白白多解密一次這個欄位。"""
     return {
         'id': t.id,
         'keyword': t.keyword,
@@ -192,8 +198,18 @@ def list_tracking():
         # 前者是資料看不到、後者是真的沒資料——這個規格明文禁止的模糊地帶，
         # 與 create_tracking 用同一句錯誤訊息、同樣回 400。
         return jsonify({'error': '找不到店別，請先選擇店別'}), 400
-    rows = TrackedKeyword.query.filter_by(store=store).order_by(
-        TrackedKeyword.created_at.desc()).all()
+    # .options(load_only(...))：清單頁只需要 _tracked_to_dict 用得到的四個
+    # 欄位（id/keyword/created_by_name/created_at），不包含 memo_text —— 那
+    # 是整張表一欄的備註（2026-09-09 改版），只在詳細頁顯示。EncryptedText
+    # 的 process_result_value 在**取列當下**就解密（理由同 `_visible_hits`
+    # docstring），撈整列會讓每一張追蹤表在清單頁多解密一次一個從不顯示
+    # 在這頁的欄位。這裡受影響的數量是「一店的追蹤表張數」（使用者手動建
+    # 的量級），不像 `_visible_hits` 擋的「一店的命中列數」那麼大，但同一
+    # 個模組的其他查詢都用這個 pattern（`_detail_rows` / `_excluded_rows` /
+    # `_visible_hits`），這裡沒有理由破例。
+    rows = TrackedKeyword.query.filter_by(store=store).options(load_only(
+        TrackedKeyword.id, TrackedKeyword.keyword, TrackedKeyword.created_by_name,
+        TrackedKeyword.created_at)).order_by(TrackedKeyword.created_at.desc()).all()
     return jsonify({'tracking': [_tracked_to_dict(t) for t in rows]})
 
 
@@ -295,8 +311,11 @@ def tracking_list_page():
         return render_template('notes/tracking_list.html',
                                tracking=[], current_store=None,
                                store_error='找不到店別，請先選擇店別'), 400
-    rows = TrackedKeyword.query.filter_by(store=store).order_by(
-        TrackedKeyword.created_at.desc()).all()
+    # load_only 理由同 list_tracking（同一份查詢邏輯的頁面版本，只是輸出
+    # 走 render_template 不是 jsonify）：清單頁不顯示備註，不該白白解密它。
+    rows = TrackedKeyword.query.filter_by(store=store).options(load_only(
+        TrackedKeyword.id, TrackedKeyword.keyword, TrackedKeyword.created_by_name,
+        TrackedKeyword.created_at)).order_by(TrackedKeyword.created_at.desc()).all()
     return render_template('notes/tracking_list.html',
                            tracking=[_tracked_to_dict(t) for t in rows],
                            current_store=store)
@@ -448,9 +467,16 @@ def _excluded_rows(tracked):
 def _memo_edit_info(t):
     """這張追蹤表的備註『最後一次是誰、什麼時候改的』，給 detail 頁最上面的
     備註框顯示用（不做完整歷史檢視，只要看得到最新——見 TrackedKeywordMemoLog
-    的 docstring）。從沒被編輯過回 (None, '')。"""
+    的 docstring）。從沒被編輯過回 (None, '')。
+
+    排序以 `id` 做次要鍵（同樣 desc）：只排 `changed_at` 在兩筆 log 剛好落在
+    同一微秒（或 DB 把時間戳截斷到秒，例如某些 MySQL 設定）時結果不確定——
+    id 是嚴格遞增的 auto-increment，同一時間戳的兩筆之間，寫入順序一定跟
+    id 大小一致，用它當 tiebreak 才能保證『最後一次』真的是最後寫入的那筆，
+    不是隨 DB 實作細節而變的巧合。"""
     log = TrackedKeywordMemoLog.query.filter_by(keyword_id=t.id).order_by(
-        TrackedKeywordMemoLog.changed_at.desc()).first()
+        TrackedKeywordMemoLog.changed_at.desc(),
+        TrackedKeywordMemoLog.id.desc()).first()
     if not log:
         return None, ''
     return log.changed_by_name, tw_str(log.changed_at, fmt='%m/%d %H:%M')
