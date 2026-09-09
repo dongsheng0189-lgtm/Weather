@@ -97,27 +97,24 @@ def _live_target_ids(hits):
     return live_note_ids, live_item_ids
 
 
-def _visible_hits(tracked, full=False):
+def _visible_hits(tracked):
     """這張追蹤表目前『看得到』的命中列：未被剔除、且原始資料仍在。
 
-    full=False（預設）只載入判斷「算不算數」與計數用得到的欄位（id /
-    target_type / target_id）。TrackedKeywordHit.note_text /
-    excluded_by_name 是 EncryptedText，process_result_value 在**取列
-    當下**就會解密、不是屬性存取當下才解密——清單頁（`_tracked_to_dict`）
-    只要 `len()`，從來不讀 note_text，撈整列一樣會把這張表累積的每一則備註
-    白白解密一次。這裡用 `load_only` 擋掉，理由同 `_detail_rows` 對
-    Note/ChecklistItem 做的事。
+    只載入判斷「算不算數」與組列用得到的欄位（id / target_type /
+    target_id）。TrackedKeywordHit.excluded_by_name 是 EncryptedText，
+    process_result_value 在**取列當下**就會解密、不是屬性存取當下才解密——
+    清單頁（`_tracked_to_dict`）只要 `len()`，detail 頁的 `_detail_rows`
+    也只讀 id/target_type/target_id（備註已於 2026-09-09 改版搬到
+    TrackedKeyword.memo_text 整張表一欄，不再逐筆命中各自讀 note_text），
+    撈整列會白白解密用不到的欄位。這裡用 `load_only` 擋掉，理由同
+    `_detail_rows` 對 Note/ChecklistItem 做的事。
 
-    full=True 給 `_detail_rows` 用，因為它真的要讀 h.note_text。
-
-    兩種模式共用同一份「這筆命中還算不算數」判斷（下面這段 filter），不因為
-    要省欄位就分裂成兩份可能日後對不上的邏輯——那正是這個函式最初被拆出來
-    要解決的問題（見上面的說明）。
+    只有一份「這筆命中還算不算數」判斷（下面這段 filter），不因為不同呼叫端
+    要不要顯示某些欄位就分裂成兩份可能日後對不上的邏輯——那正是這個函式最初
+    被拆出來要解決的問題（見上面的說明）。
     """
     query = TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).filter(
-        TrackedKeywordHit.excluded_at.is_(None))
-    if not full:
-        query = query.options(load_only(
+        TrackedKeywordHit.excluded_at.is_(None)).options(load_only(
             TrackedKeywordHit.id, TrackedKeywordHit.target_type,
             TrackedKeywordHit.target_id))
     hits = query.all()
@@ -217,10 +214,16 @@ def _get_hit_or_404(hid):
     return h
 
 
-@notes_bp.route('/api/tracking/hits/<int:hid>/note', methods=['PUT'])
+@notes_bp.route('/api/tracking/<int:kid>/memo', methods=['PUT'])
 @login_required
-def set_hit_note(hid):
-    """備註：整店共用，同店的人都能寫、也能覆蓋別人寫的（與剔除同一套規則）。
+def set_tracking_memo(kid):
+    """備註：整張追蹤表共用一欄，顯示在詳細頁最上面，同店的人都能寫、也能
+    覆蓋別人寫的（與剔除同一套規則）。
+
+    2026-09-09 改版：原本掛在每一筆命中列上（PUT /hits/<hid>/note），PO 手動
+    測試後回饋「備註只要有一欄位就可以，在最上面，不用每一個項目就一個
+    備註」，改成整張表一欄，路由也從對應命中列（hid）改成對應追蹤表本身
+    （kid）。
 
     覆蓋不再是無聲的 —— 只要文字真的變了，就在 TrackedKeywordMemoLog 留一筆
     「誰、何時、舊文字 → 新文字」，被覆蓋或清空的內容因此可以回溯（見該
@@ -229,7 +232,7 @@ def set_hit_note(hid):
     把「呼叫端沒打算清空」與「呼叫端真的要清空」分開，不能把呼叫端自己的
     bug（漏帶欄位）悄悄吃成清空操作。
     """
-    h = _get_hit_or_404(hid)
+    t = _get_tracked_or_404(kid)
     data = request.get_json(silent=True) or {}
     if 'text' not in data or data.get('text') is None:
         return jsonify({'error': '缺少 text'}), 400
@@ -239,17 +242,17 @@ def set_hit_note(hid):
     text = text.strip()
     if len(text) > MEMO_MAX_LEN:
         return jsonify({'error': f'備註長度不可超過 {MEMO_MAX_LEN}'}), 400
-    old_text = h.note_text
+    old_text = t.memo_text
     # 只在文字「真的變了」才留 log——重存跟原本一樣的內容不是一次異動，不該
     # 產生噪音列。None（從沒寫過）視同空字串，避免「從沒寫過」到「存空字串」
     # 這種等同於什麼都沒發生的操作也留下一筆。
     if text != (old_text or ''):
         db.session.add(TrackedKeywordMemoLog(
-            hit_id=h.id, old_text=old_text, new_text=text,
+            keyword_id=t.id, old_text=old_text, new_text=text,
             changed_by=current_user.id, changed_by_name=current_user.username))
-    h.note_text = text
+    t.memo_text = text
     db.session.commit()
-    return jsonify({'note_text': h.note_text})
+    return jsonify({'memo_text': t.memo_text})
 
 
 @notes_bp.route('/api/tracking/hits/<int:hid>/exclude', methods=['POST'])
@@ -303,7 +306,7 @@ def _detail_rows(tracked, hits=None):
     """組出詳細頁的每一列。
 
     `hits` 可選：呼叫端（`tracking_detail_page`）若已經算過
-    `_visible_hits(tracked, full=True)` 就直接傳進來，這裡不重算第二次。
+    `_visible_hits(tracked)` 就直接傳進來，這裡不重算第二次。
 
     每一列是**參照**：文字一律即時從原始 Note / ChecklistItem 讀，不是命中當下的
     複本 —— 原文被修正後追蹤表要跟著變，否則會出現「追蹤表寫著遲到 10 分鐘、原始
@@ -319,7 +322,7 @@ def _detail_rows(tracked, hits=None):
     `deleted_at.is_(None)`，那樣寫等於把同一個規則寫兩份，兩份哪天被改得不一致
     就是這次要修的「清單筆數與詳細頁筆數對不上」重演。
     """
-    hits = hits if hits is not None else _visible_hits(tracked, full=True)
+    hits = hits if hits is not None else _visible_hits(tracked)
     note_ids = [h.target_id for h in hits if h.target_type == 'note']
     item_ids = [h.target_id for h in hits if h.target_type == 'item']
 
@@ -360,20 +363,6 @@ def _detail_rows(tracked, hits=None):
                 Note.id.in_(parent_note_ids)).all():
             parent_notes[n.id] = n
 
-    # 每一筆命中「最後一次備註異動」的編輯者／時間，給每列顯示用（不做完整
-    # 歷史檢視，只要看得到最新是誰改的——見 TrackedKeywordMemoLog 的
-    # docstring）。一次批次查完，避免每列各查一次。同一 hit_id 若有多筆
-    # log，`changed_at DESC` 讓每個 hit_id 第一次出現的那筆就是最新一筆，
-    # 之後同一 hit_id 再出現時跳過即可。
-    last_memo_edit = {}
-    hit_ids = [h.id for h in hits]
-    if hit_ids:
-        logs = TrackedKeywordMemoLog.query.filter(
-            TrackedKeywordMemoLog.hit_id.in_(hit_ids)).order_by(
-            TrackedKeywordMemoLog.changed_at.desc()).all()
-        for log in logs:
-            last_memo_edit.setdefault(log.hit_id, log)
-
     rows = []
     for h in hits:
         if h.target_type == 'note':
@@ -393,7 +382,6 @@ def _detail_rows(tracked, hits=None):
             if not n:
                 continue          # 母筆記已軟刪或已硬刪 → 這一列自然消失
             title, text, note_id, when = n.title, i.text, i.note_id, i.updated_at
-        last_edit = last_memo_edit.get(h.id)
         # 用 (when, dict) tuple 排序，不在 dict 裡塞排序用的暫時欄位再事後
         # pop 掉 —— 一次到位，也不會有「忘記 pop」把內部欄位外洩給呼叫端的
         # 風險。
@@ -403,10 +391,7 @@ def _detail_rows(tracked, hits=None):
             'note_id': note_id,
             'title': title or '（未命名）',
             'text': text or '',
-            'memo': h.note_text or '',
             'when': tw_str(when, fmt='%m/%d'),
-            'memo_edited_by': last_edit.changed_by_name if last_edit else None,
-            'memo_edited_at': tw_str(last_edit.changed_at, fmt='%m/%d %H:%M') if last_edit else '',
         }))
     rows.sort(key=lambda pair: pair[0], reverse=True)
     return [row for _, row in rows]
@@ -457,6 +442,17 @@ def _excluded_rows(tracked):
     return rows
 
 
+def _memo_edit_info(t):
+    """這張追蹤表的備註『最後一次是誰、什麼時候改的』，給 detail 頁最上面的
+    備註框顯示用（不做完整歷史檢視，只要看得到最新——見 TrackedKeywordMemoLog
+    的 docstring）。從沒被編輯過回 (None, '')。"""
+    log = TrackedKeywordMemoLog.query.filter_by(keyword_id=t.id).order_by(
+        TrackedKeywordMemoLog.changed_at.desc()).first()
+    if not log:
+        return None, ''
+    return log.changed_by_name, tw_str(log.changed_at, fmt='%m/%d %H:%M')
+
+
 @notes_bp.route('/tracking/<int:kid>')
 @login_required
 def tracking_detail_page(kid):
@@ -467,14 +463,20 @@ def tracking_detail_page(kid):
     # 掃過」的線索。scan_tracked_keyword commit 後這個屬性會過期重讀，這裡讀到
     # 的就是這次掃描寫入的水位，不是掃描前的舊值。
     #
-    # 這裡的 hits 用 full=True 只算一次（detail 頁真的要顯示 note_text），
-    # 同時餵給 _tracked_to_dict（算 hit_count）跟 _detail_rows（組列），
-    # 兩者過去各自呼叫 _visible_hits() 重算一次，是同一頁面的重複查詢。
-    hits = _visible_hits(t, full=True)
+    # 這裡的 hits 只算一次，同時餵給 _tracked_to_dict（算 hit_count）跟
+    # _detail_rows（組列），兩者過去各自呼叫 _visible_hits() 重算一次，是
+    # 同一頁面的重複查詢。
+    hits = _visible_hits(t)
+    memo_edited_by, memo_edited_at = _memo_edit_info(t)
     return render_template('notes/tracking_detail.html',
                            tracked=_tracked_to_dict(t, hits=hits),
                            rows=_detail_rows(t, hits=hits),
                            excluded_rows=_excluded_rows(t),
+                           # 整張表共用的一欄備註（2026-09-09 改版），放在
+                           # 頁面最上面，不是每一列各自一份。
+                           memo_text=t.memo_text or '',
+                           memo_edited_by=memo_edited_by,
+                           memo_edited_at=memo_edited_at,
                            last_updated=tw_str(t.scanned_through, fmt='%m/%d %H:%M'),
                            # 讓模板的 maxlength／提示字直接引用同一個常數，不在
                            # 模板裡另外寫死一份數字——兩份數字哪天改動不同步，

@@ -90,18 +90,17 @@ def test_deleting_tracked_keyword_cascades_hits(db):
     assert TrackedKeywordHit.query.filter_by(keyword_id=kid).count() == 0
 
 
-def test_hit_note_text_is_encrypted_at_rest(db):
-    """備註是使用者對人的評語，同樣屬個資。"""
-    from models import TrackedKeywordHit
-    t = _mk_tracked(db)
+def test_tracked_keyword_memo_text_is_encrypted_at_rest(db):
+    """備註是使用者對人的評語，同樣屬個資。2026-09-09 改版後掛在
+    TrackedKeyword 本身（整張表一欄），不再是命中列上的欄位。"""
+    from models import TrackedKeyword
     memo = f'已口頭告誡_{uuid.uuid4().hex[:6]}'
-    h = TrackedKeywordHit(keyword_id=t.id, target_type='item', target_id=42,
-                          note_text=memo)
-    db.session.add(h)
+    t = _mk_tracked(db)
+    t.memo_text = memo
     db.session.commit()
     raw = db.session.execute(
-        db.text('SELECT note_text FROM tracked_keyword_hits WHERE id = :i'),
-        {'i': h.id},
+        db.text('SELECT memo_text FROM tracked_keywords WHERE id = :i'),
+        {'i': t.id},
     ).scalar()
     assert memo not in (raw or '')
 
@@ -118,23 +117,19 @@ def test_exclusion_fields_default_null(db):
 
 
 # ─── TrackedKeywordMemoLog：備註異動紀錄（append-only） ───
-
-def _mk_hit(db, t=None, target_id=1):
-    from models import TrackedKeywordHit
-    t = t or _mk_tracked(db)
-    h = TrackedKeywordHit(keyword_id=t.id, target_type='item', target_id=target_id)
-    db.session.add(h)
-    db.session.commit()
-    return h
-
+#
+# 2026-09-09 改版：備註從「每一筆命中各自一欄」搬到「整張追蹤表一欄」，log
+# 因此也從掛在 TrackedKeywordHit 上（hit_id）改成直接掛在 TrackedKeyword 上
+# （keyword_id）。下面幾個測試是從舊版遷移過來的，行為不變，只是 identity
+# 換成表本身。
 
 def test_memo_log_columns_are_encrypted_at_rest(db):
     """old_text / new_text 都是對人的書面評語，兩欄都必須是密文。"""
     from models import TrackedKeywordMemoLog
-    h = _mk_hit(db)
+    t = _mk_tracked(db)
     old = f'舊備註_{uuid.uuid4().hex[:6]}'
     new = f'新備註_{uuid.uuid4().hex[:6]}'
-    log = TrackedKeywordMemoLog(hit_id=h.id, old_text=old, new_text=new,
+    log = TrackedKeywordMemoLog(keyword_id=t.id, old_text=old, new_text=new,
                                 changed_by_name='tester')
     db.session.add(log)
     db.session.commit()
@@ -150,8 +145,9 @@ def test_memo_log_columns_are_encrypted_at_rest(db):
     assert got.new_text == new
 
 
-def test_memo_log_survives_and_cascades_with_its_hit(client, db):
-    """刪掉命中列（進而刪掉整張追蹤表）要連帶清掉它的備註異動紀錄。
+def test_memo_log_survives_and_cascades_with_its_table(client, db):
+    """刪掉整張追蹤表要連帶清掉它的備註異動紀錄（也要連帶清掉命中列，兩者
+    互相獨立的 cascade，缺一都不對）。
 
     刻意打真正的 `DELETE /notes/api/tracking/<kid>` 路由，而不是直接
     `db.session.delete(...)`。後者只證明 ORM 的 cascade 設定正確、恰好跟
@@ -165,11 +161,10 @@ def test_memo_log_survives_and_cascades_with_its_hit(client, db):
     from models import User, TrackedKeyword, TrackedKeywordHit, TrackedKeywordMemoLog
 
     t = _mk_tracked(db)
-    h = _mk_hit(db, t=t)
-    db.session.add(TrackedKeywordMemoLog(hit_id=h.id, old_text='a', new_text='b',
+    db.session.add(TrackedKeywordHit(keyword_id=t.id, target_type='item', target_id=1))
+    db.session.add(TrackedKeywordMemoLog(keyword_id=t.id, old_text='a', new_text='b',
                                          changed_by_name='tester'))
     db.session.commit()
-    hid = h.id
     kid = t.id
 
     u = User(username=f'u_{uuid.uuid4().hex[:6]}', role='user', store=t.store,
@@ -186,14 +181,14 @@ def test_memo_log_survives_and_cascades_with_its_hit(client, db):
     assert r.status_code == 200
     assert db.session.get(TrackedKeyword, kid) is None
     assert TrackedKeywordHit.query.filter_by(keyword_id=kid).count() == 0
-    assert TrackedKeywordMemoLog.query.filter_by(hit_id=hid).count() == 0
+    assert TrackedKeywordMemoLog.query.filter_by(keyword_id=kid).count() == 0
 
 
 def test_memo_log_changed_by_name_is_a_snapshot(db):
     """寫入者的帳號快照要跟 excluded_by_name 同一套模式，帳號被刪也留得住名字。"""
     from models import TrackedKeywordMemoLog
-    h = _mk_hit(db)
-    log = TrackedKeywordMemoLog(hit_id=h.id, old_text=None, new_text='x',
+    t = _mk_tracked(db)
+    log = TrackedKeywordMemoLog(keyword_id=t.id, old_text=None, new_text='x',
                                 changed_by_name='snapshot_tester')
     db.session.add(log)
     db.session.commit()
@@ -231,11 +226,11 @@ def test_memo_log_changed_by_has_real_fk_with_set_null(db):
     )
 
 
-def test_memo_log_hit_id_has_real_fk_with_cascade(db):
+def test_memo_log_keyword_id_has_real_fk_with_cascade(db):
     from models import TrackedKeywordMemoLog
-    col = TrackedKeywordMemoLog.__table__.columns['hit_id']
-    assert _fk_ondelete(col, 'tracked_keyword_hits') == 'CASCADE', (
-        'TrackedKeywordMemoLog.hit_id 必須是指向 tracked_keyword_hits.id、'
+    col = TrackedKeywordMemoLog.__table__.columns['keyword_id']
+    assert _fk_ondelete(col, 'tracked_keywords') == 'CASCADE', (
+        'TrackedKeywordMemoLog.keyword_id 必須是指向 tracked_keywords.id、'
         "ondelete='CASCADE' 的真 FK，不可退化成裸 Integer"
     )
 

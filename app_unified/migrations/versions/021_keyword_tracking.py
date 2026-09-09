@@ -28,6 +28,7 @@ def upgrade():
         sa.Column('created_by_name', sa.Text(), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('scanned_through', sa.DateTime(), nullable=True),
+        sa.Column('memo_text', sa.Text(), nullable=True),
         sa.ForeignKeyConstraint(['created_by'], ['users.id'], ondelete='SET NULL'),
     )
     op.create_index('ix_tracked_keywords_store', 'tracked_keywords', ['store'])
@@ -38,7 +39,6 @@ def upgrade():
         sa.Column('keyword_id', sa.Integer(), nullable=False),
         sa.Column('target_type', sa.String(length=8), nullable=False),
         sa.Column('target_id', sa.Integer(), nullable=False),
-        sa.Column('note_text', sa.Text(), nullable=True),
         sa.Column('excluded_at', sa.DateTime(), nullable=True),
         sa.Column('excluded_by', sa.Integer(), nullable=True),
         sa.Column('excluded_by_name', sa.Text(), nullable=True),
@@ -53,20 +53,20 @@ def upgrade():
     op.create_table(
         'tracked_keyword_memo_logs',
         sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('hit_id', sa.Integer(), nullable=False),
+        sa.Column('keyword_id', sa.Integer(), nullable=False),
         sa.Column('old_text', sa.Text(), nullable=True),
         sa.Column('new_text', sa.Text(), nullable=True),
         sa.Column('changed_by', sa.Integer(), nullable=True),
         sa.Column('changed_by_name', sa.Text(), nullable=True),
         sa.Column('changed_at', sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(['hit_id'], ['tracked_keyword_hits.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['keyword_id'], ['tracked_keywords.id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['changed_by'], ['users.id'], ondelete='SET NULL'),
     )
-    op.create_index('ix_tracked_keyword_memo_logs_hit_id', 'tracked_keyword_memo_logs', ['hit_id'])
+    op.create_index('ix_tracked_keyword_memo_logs_keyword_id', 'tracked_keyword_memo_logs', ['keyword_id'])
 
 
 def downgrade():
-    op.drop_index('ix_tracked_keyword_memo_logs_hit_id', 'tracked_keyword_memo_logs')
+    op.drop_index('ix_tracked_keyword_memo_logs_keyword_id', 'tracked_keyword_memo_logs')
     op.drop_table('tracked_keyword_memo_logs')
     op.drop_index('ix_tracked_keyword_hits_keyword_id', 'tracked_keyword_hits')
     op.drop_table('tracked_keyword_hits')

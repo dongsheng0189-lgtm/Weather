@@ -343,3 +343,36 @@ def test_detail_page_memo_textarea_has_maxlength_from_server_constant(client, db
     assert str(MEMO_MAX_LEN) in html.split('placeholder=')[1][:40], (
         '提示文字（placeholder）看不到字數上限'
     )
+
+
+def test_detail_page_memo_fetch_matches_url_for_this_table(client, db):
+    """備註改成整張表一欄後（2026-09-09），fetch 路徑要對到
+    notes.set_tracking_memo 這支以 kid（不是 hid）為參數的路由，而且要用
+    『這一頁自己的』kid——模板是直接用 `{{ url_for(...) }}` 內嵌整條路徑
+    （不像剔除那樣靠 JS 在瀏覽器端拼字串接 data-hit），所以正確性只能靠真的
+    渲染這一頁、比對頁面上實際出現的字面路徑來驗證；靜態掃模板原始碼看不出
+    kid 有沒有被代換對，也看不出這裡是否不小心抄成 notes.set_hit_note 這種
+    已經不存在的舊路由名。
+
+    刻意建兩張表，只驗證『這一頁』的 kid 出現在 fetch 裡、另一張表的 kid
+    不出現——避免『路徑裡剛好有一個數字看起來像 url_for 產生的』這種巧合
+    通過。"""
+    from flask import url_for
+    kw_a = _uniq('王小明')
+    kw_b = _uniq('陳小華')
+    _login(client, _mk_user(db))
+    kid_a = client.post('/notes/api/tracking', json={'keyword': kw_a}).get_json()['id']
+    kid_b = client.post('/notes/api/tracking', json={'keyword': kw_b}).get_json()['id']
+
+    html = client.get(f'/notes/tracking/{kid_a}').get_data(as_text=True)
+
+    with client.application.test_request_context():
+        expected_url = _short(url_for('notes.set_tracking_memo', kid=kid_a))
+        other_url = _short(url_for('notes.set_tracking_memo', kid=kid_b))
+    assert f"fetch('{expected_url}'" in html, (
+        f'備註存檔的 fetch 路徑跟這一頁（kid={kid_a}）對不上：期望片段 '
+        f"fetch('{expected_url}'"
+    )
+    assert other_url not in html, (
+        f'不該出現在另一張表（kid={kid_b}）的路徑，卻出現在這一頁'
+    )

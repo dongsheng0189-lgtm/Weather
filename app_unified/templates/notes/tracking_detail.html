@@ -2,24 +2,29 @@
 {% block title %}{{ tracked.keyword }} 建檔追蹤{% endblock %}
 {% block extra_head %}
 <style>
-/* 備註放在每一列最上面：追蹤的重點是「我對這件事做了什麼」，那比原始文字更需要
-   第一眼看到（規格明確指定）。 */
-.hit-card { background:#fff; border:1px solid #e4e4e4; border-radius:8px;
-  padding:.8rem 1rem; margin-bottom:.6rem; }
-.hit-memo { display:block; width:100%; box-sizing:border-box; border:1px dashed #d7c48a;
-  background:#fffdf3; border-radius:6px; padding:.4rem .6rem; font-size:.88rem;
-  margin-bottom:.15rem; resize:vertical; min-height:2.2rem; }
+/* 備註是整張追蹤表共用的一欄，放在頁面最上面（2026-09-09 改版：PO 手動測試後
+   回饋「備註只要有一欄位就可以，在最上面，不用每一個項目就一個備註」，原本
+   掛在每一列上的備註框已移除）。用有底色＋左側色條的「面板」樣式，跟下面白底
+   的 hit-card 明顯區分開，讓它讀起來是屬於整張表，不是屬於第一列。 */
+.tracking-memo-box { background:#eef5ff; border:1px solid #c9dcf5; border-left:4px solid #4a7fd6;
+  border-radius:8px; padding:.8rem 1rem; margin-bottom:1rem; }
+.tracking-memo-label { font-size:.82rem; font-weight:600; color:#3a5f9e; margin-bottom:.4rem; }
+.tracking-memo { display:block; width:100%; box-sizing:border-box; border:1px solid #c9dcf5;
+  background:#fff; border-radius:6px; padding:.5rem .7rem; font-size:.92rem;
+  margin-bottom:.15rem; resize:vertical; min-height:3rem; }
 /* 存檔失敗要「看得見」，不能跟成功長得一模一樣 —— 失敗代表這次寫入根本沒
    送到伺服器，TrackedKeywordMemoLog 只記真的落地的異動，救不了一次沒送出去
    的請求；一旦誤以為存了、其實沒存，畫面上打好的字關掉分頁就真的沒了
    （見這支路由的 docstring）。 */
-.hit-memo.save-failed { border-color:#d33; background:#fff5f5; }
-.hit-memo-hint { display:none; color:#d33; font-size:.76rem; margin:0 0 .5rem; }
-.hit-memo-hint.show { display:block; }
+.tracking-memo.save-failed { border-color:#d33; background:#fff5f5; }
+.tracking-memo-hint { display:none; color:#d33; font-size:.76rem; margin:.2rem 0 0; }
+.tracking-memo-hint.show { display:block; }
 /* 誰、什麼時候最後改過這則備註——跟頁首「最後更新」同一套不張揚樣式（灰、
    小字），只給看得到、不做完整歷史檢視（那份紀錄本身已經在
    TrackedKeywordMemoLog，需要時再往上蓋 UI）。 */
-.hit-memo-meta { color:#999; font-size:.76rem; margin:0 0 .4rem; }
+.tracking-memo-meta { color:#7a8aa8; font-size:.76rem; margin:.3rem 0 0; }
+.hit-card { background:#fff; border:1px solid #e4e4e4; border-radius:8px;
+  padding:.8rem 1rem; margin-bottom:.6rem; }
 .hit-meta { color:#888; font-size:.8rem; margin-bottom:.25rem; }
 .hit-text-wrap { position:relative; max-height:6.5rem; overflow:hidden; }
 .hit-text-wrap.is-clamped::after { content:''; position:absolute; left:0; right:0;
@@ -50,16 +55,20 @@
 </div>
 <div class="tracking-last-updated">最後更新：{{ last_updated }}</div>
 
+<div class="tracking-memo-box">
+  <div class="tracking-memo-label">備註（整張表共用）</div>
+  <textarea class="tracking-memo" data-role="memo"
+            placeholder="備註…（最多 {{ memo_max_len }} 字）"
+            maxlength="{{ memo_max_len }}">{{ memo_text }}</textarea>
+  <div class="tracking-memo-hint" data-role="memo-hint">未儲存，請重試</div>
+  {% if memo_edited_by %}
+  <div class="tracking-memo-meta">{{ memo_edited_by }} 於 {{ memo_edited_at }} 最後編輯</div>
+  {% endif %}
+</div>
+
 {% if rows %}
 {% for r in rows %}
 <div class="hit-card" data-hit="{{ r.hit_id }}">
-  <textarea class="hit-memo" data-role="memo" data-hit="{{ r.hit_id }}"
-            placeholder="備註…（最多 {{ memo_max_len }} 字）"
-            maxlength="{{ memo_max_len }}">{{ r.memo }}</textarea>
-  <div class="hit-memo-hint" data-role="memo-hint">未儲存，請重試</div>
-  {% if r.memo_edited_by %}
-  <div class="hit-memo-meta">{{ r.memo_edited_by }} 於 {{ r.memo_edited_at }} 最後編輯</div>
-  {% endif %}
   <div class="hit-meta">
     {{ r.when }} · {{ r.title }}{% if r.target_type == 'item' %} · 項目{% endif %}
   </div>
@@ -116,7 +125,8 @@ function applyClampFade() {
 applyClampFade();
 window.addEventListener('load', applyClampFade);
 
-// 備註：失焦才送，避免每打一個字就打一次 API。
+// 備註：整張表共用一欄，放在頁面最上面（2026-09-09 改版，原本是每一列各自
+// 一份）。失焦才送，避免每打一個字就打一次 API。
 //
 // 失敗必須「看得見」，不能什麼都不做 —— r.json() 對非 2xx 回應（403/404，或
 // session 過期被 Flask-Login 導回登入頁的 HTML）一樣會 resolve 或 reject 得
@@ -125,10 +135,11 @@ window.addEventListener('load', applyClampFade);
 // TrackedKeywordMemoLog 留下異動紀錄，但那只保得住「真的送達、真的寫進去」
 // 的版本 —— 一次沒送到伺服器的請求，內容仍然只活在這個文字框裡，一旦誤判成
 // 存了就找不回來。
-document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
+(function () {
+  var ta = document.querySelector('[data-role="memo"]');
+  if (!ta) return;
   var initial = ta.value;
-  var card = ta.closest('.hit-card');
-  var hint = card ? card.querySelector('[data-role="memo-hint"]') : null;
+  var hint = document.querySelector('[data-role="memo-hint"]');
   function markFailed() {
     ta.classList.add('save-failed');
     if (hint) hint.classList.add('show');
@@ -139,7 +150,7 @@ document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
   }
   ta.addEventListener('blur', function () {
     if (ta.value === initial) return;
-    fetch('/notes/api/tracking/hits/' + ta.dataset.hit + '/note', {
+    fetch('{{ url_for("notes.set_tracking_memo", kid=tracked.id) }}', {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({text: ta.value})
@@ -147,13 +158,13 @@ document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
       if (!r.ok) throw new Error('save failed: ' + r.status);
       return r.json();
     }).then(function (d) {
-      initial = d.note_text;
+      initial = d.memo_text;
       markOk();
     }).catch(function () {
       markFailed();
     });
   });
-});
+})();
 
 document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
   var originalLabel = btn.textContent;

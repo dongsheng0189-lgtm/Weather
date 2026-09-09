@@ -54,19 +54,19 @@ def _expected_js_concat(prefix, var_expr, suffix):
     return js
 
 
-def test_memo_and_exclude_paths_match_url_for(app):
-    """tracking_detail.html 裡兩個 fetch 的路徑字面值，要對得上目前的路由。"""
+def test_exclude_path_matches_url_for(app):
+    """tracking_detail.html 的『不相關』fetch 路徑，要對得上目前的路由。
+
+    備註的 fetch 路徑不再走這種「JS 字串串接 + data-hit 佔位」的形狀 ——
+    2026-09-09 改版後備註是整張表一欄，一頁只有一個備註框、kid 在渲染當下就
+    已知，模板直接用 `{{ url_for(...) }}` 內嵌整條路徑，不需要 JS 端拼字串。
+    這種形狀改成用實際渲染出來的頁面驗證，見
+    test_tracking_ui_wiring.py::test_detail_page_memo_fetch_matches_url_for_this_table。
+    """
     with app.test_request_context():
-        note_url = url_for('notes.set_hit_note', hid=999999)
         exclude_url = url_for('notes.toggle_hit_exclude', hid=999999)
 
     detail_src = DETAIL.read_text(encoding='utf-8')
-
-    note_prefix, note_suffix = _split_on_placeholder(note_url, 999999)
-    expected_note_js = _expected_js_concat(note_prefix, 'ta.dataset.hit', note_suffix)
-    assert expected_note_js in detail_src, (
-        f'備註存檔的路徑跟 notes.set_hit_note 的路由對不上：期望片段 {expected_note_js!r}'
-    )
 
     exclude_prefix, exclude_suffix = _split_on_placeholder(exclude_url, 999999)
     expected_exclude_js = _expected_js_concat(exclude_prefix, 'btn.dataset.hit', exclude_suffix)

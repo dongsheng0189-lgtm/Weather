@@ -577,9 +577,17 @@ class TrackedKeyword(db.Model):
     # 這類操作停止更新 updated_at，這裡就會靜默漏掃（見 notes/routes.py 的
     # restore_note / restore_item 與 tests/test_tracking_scan.py 的守門測試）。
     scanned_through = db.Column(db.DateTime, nullable=True)
+    # 整張追蹤表共用的一欄備註，顯示在詳細頁最上面（2026-09-09 改版：原本掛在
+    # 每一筆命中列上，PO 手動測試後回饋「備註只要有一欄位就可以，在最上面，
+    # 不用每一個項目就一個備註」，改成整張表一欄）。同店任何人都能寫、也能
+    # 覆蓋別人寫的 —— TrackedKeywordMemoLog 補上「誰、何時、舊 → 新」的可回溯
+    # 紀錄。含對人的評語 → 加密。
+    memo_text = db.Column(EncryptedText, nullable=True)
 
     hits = db.relationship("TrackedKeywordHit", backref="tracked", lazy="select",
                            cascade="all, delete-orphan")
+    memo_logs = db.relationship("TrackedKeywordMemoLog", backref="tracked", lazy="select",
+                                cascade="all, delete-orphan")
 
 
 class TrackedKeywordHit(db.Model):
@@ -591,8 +599,6 @@ class TrackedKeywordHit(db.Model):
     # 'note' | 'item'。指向兩張不同的表，所以 target_id 不能是真的 FK。
     target_type = db.Column(db.String(8), nullable=False)
     target_id = db.Column(db.Integer, nullable=False)
-    # 使用者對這一筆寫的備註，顯示在該列最上面。含對人的評語 → 加密
-    note_text = db.Column(EncryptedText, nullable=True)
     # 「不相關」的剔除紀錄。用軟刪除而非真刪：真刪的話下一輪增量掃描會再把它抓回來
     excluded_at = db.Column(db.DateTime, nullable=True)
     excluded_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -604,26 +610,25 @@ class TrackedKeywordHit(db.Model):
                             name="uq_tracked_hit_target"),
     )
 
-    memo_logs = db.relationship("TrackedKeywordMemoLog", backref="hit", lazy="select",
-                                cascade="all, delete-orphan")
-
 
 class TrackedKeywordMemoLog(db.Model):
-    """備註（TrackedKeywordHit.note_text）的異動紀錄，append-only。
+    """備註（TrackedKeyword.memo_text）的異動紀錄，append-only。
 
-    備註本身整店共用、任何人都能覆蓋別人寫的，且沒有版本欄位 —— 這張表補的
-    正是這個洞：只要文字**真的變了**就留一筆「誰、何時、舊文字 → 新文字」
-    （見 notes/tracking.py 的 set_hit_note），讓事後被覆蓋／清空的內容可以
-    回溯，而不是真的憑空消失。只記寫入動作，不記渲染／讀取。
+    備註本身整張追蹤表共用（2026-09-09 改版：原本掛在每一筆命中列上，PO
+    手動測試後回饋「備註只要有一欄位就可以，在最上面，不用每一個項目就一個
+    備註」，改成整張表一欄）、任何人都能覆蓋別人寫的，且沒有版本欄位 —— 這張
+    表補的正是這個洞：只要文字**真的變了**就留一筆「誰、何時、舊文字 → 新
+    文字」（見 notes/tracking.py 的 set_tracking_memo），讓事後被覆蓋／清空的
+    內容可以回溯，而不是真的憑空消失。只記寫入動作，不記渲染／讀取。
 
-    獨立成一張表而非在 TrackedKeywordHit 上加欄位：log 是歷史，本來就該
-    append-only、跟它描述的那一列分開放，一列只能存「最新」一份，存不下歷史。
+    獨立成一張表而非在 TrackedKeyword 上加欄位：log 是歷史，本來就該
+    append-only、跟它描述的那張表分開放，一張表只能存「最新」一份，存不下歷史。
     """
     __tablename__ = "tracked_keyword_memo_logs"
 
     id = db.Column(db.Integer, primary_key=True)
-    hit_id = db.Column(db.Integer, db.ForeignKey("tracked_keyword_hits.id", ondelete="CASCADE"),
-                       nullable=False, index=True)
+    keyword_id = db.Column(db.Integer, db.ForeignKey("tracked_keywords.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
     # 異動前後的文字都是對人的書面評語 → 個資，兩欄都要加密
     old_text = db.Column(EncryptedText, nullable=True)
     new_text = db.Column(EncryptedText, nullable=True)

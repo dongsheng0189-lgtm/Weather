@@ -175,7 +175,13 @@ def test_rows_hide_excluded(db):
     assert _detail_rows(t) == []
 
 
-def test_rows_carry_memo_and_link_target(db):
+def test_rows_carry_link_target(db):
+    """每一列要帶上連回母筆記所需的 target 資訊。
+
+    2026-09-09 改版前，這個測試同時驗證備註（`row['memo']`）與連結目標；備註
+    已搬到 TrackedKeyword.memo_text（整張表一欄，見 test_tracking_memo_api.py
+    的 test_detail_page_shows_table_memo_at_top_not_per_row），`_detail_rows`
+    的回傳值不再帶 memo 相關欄位，這裡只保留連結目標的部分。"""
     from notes.tracking import _detail_rows
     from models import TrackedKeywordHit
     kw = f'王小明{uuid.uuid4().hex[:6]}'
@@ -183,53 +189,16 @@ def test_rows_carry_memo_and_link_target(db):
     item = _mk_item(db, n, f'{kw} 遲到')
     t = _mk_tracked_and_scan(db, kw)
     h = TrackedKeywordHit.query.filter_by(keyword_id=t.id).first()
-    h.note_text = '已口頭告誡'
-    db.session.commit()
 
     row = _detail_rows(t)[0]
-    assert row['memo'] == '已口頭告誡'
+    assert 'memo' not in row, (
+        '備註已搬到 TrackedKeyword.memo_text，_detail_rows 不該再帶逐列的 memo 欄位'
+    )
     assert row['note_id'] == n.id       # [→ 原文] 連回母筆記
     assert row['target_type'] == 'item'
     assert row['hit_id'] == h.id
     assert row['title'] == '日報'
     assert item.id
-
-
-def test_rows_carry_last_memo_editor(db):
-    """備註被寫過之後，該列要帶上最後編輯者與時間，供詳細頁顯示。"""
-    from notes.tracking import _detail_rows
-    from models import TrackedKeywordHit, TrackedKeywordMemoLog
-    kw = f'王小明{uuid.uuid4().hex[:6]}'
-    n = _mk_note(db, title='日報')
-    _mk_item(db, n, f'{kw} 遲到')
-    t = _mk_tracked_and_scan(db, kw)
-    h = TrackedKeywordHit.query.filter_by(keyword_id=t.id).first()
-
-    older = datetime.utcnow() - timedelta(days=1)
-    newer = datetime.utcnow()
-    db.session.add(TrackedKeywordMemoLog(hit_id=h.id, old_text=None, new_text='第一版',
-                                         changed_by_name='第一人', changed_at=older))
-    db.session.add(TrackedKeywordMemoLog(hit_id=h.id, old_text='第一版', new_text='第二版',
-                                         changed_by_name='第二人', changed_at=newer))
-    db.session.commit()
-
-    row = _detail_rows(t)[0]
-    assert row['memo_edited_by'] == '第二人', '要顯示最新一次的編輯者，不是最早那次'
-    from tw_time import tw_str
-    assert row['memo_edited_at'] == tw_str(newer, fmt='%m/%d %H:%M')
-
-
-def test_rows_have_no_memo_editor_when_never_edited(db):
-    """從沒被編輯過的備註不該顯示任何編輯者資訊。"""
-    from notes.tracking import _detail_rows
-    kw = f'王小明{uuid.uuid4().hex[:6]}'
-    n = _mk_note(db, title='日報')
-    _mk_item(db, n, f'{kw} 遲到')
-    t = _mk_tracked_and_scan(db, kw)
-
-    row = _detail_rows(t)[0]
-    assert row['memo_edited_by'] is None
-    assert row['memo_edited_at'] == ''
 
 
 def test_rows_sorted_newest_first(db):

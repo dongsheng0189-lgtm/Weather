@@ -91,11 +91,13 @@ def scan_tracked_keyword(tracked):
     #
     # ⚠️ 這裡故意只查 (target_type, target_id) 兩個欄位，不可以改回
     # `TrackedKeywordHit.query.filter_by(...).all()`。那樣會把每一列都建成完整
-    # ORM 物件，SQLAlchemy 在 result processing 階段就要把 note_text /
-    # excluded_by_name（都是 EncryptedText）逐列解密——這正是本檔案開頭警告的
-    # 「一次 .all() 觸發全量解密、卡住 hub」模式，而且是每次掃描都會發生（就算
-    # 這次掃描的新增數是 0）。目前看起來還好只是因為這兩欄目前全部是 NULL；
-    # note_text 一旦被使用者填了內容，這裡就會變成同步解密全部歷史命中。
+    # ORM 物件，SQLAlchemy 在 result processing 階段就要把 excluded_by_name
+    # （EncryptedText）逐列解密——這正是本檔案開頭警告的「一次 .all() 觸發
+    # 全量解密、卡住 hub」模式，而且是每次掃描都會發生（就算這次掃描的新增數
+    # 是 0）。目前看起來還好只是因為這欄目前全部是 NULL；一旦被使用者填了
+    # 剔除理由這類內容，這裡就會變成同步解密全部歷史命中。
+    # （備註已於 2026-09-09 改版搬到 TrackedKeyword.memo_text 整張表一欄，
+    # 不再是掛在每一筆命中列上，這裡不必再為它擔心。）
     seen = set(
         db.session.query(TrackedKeywordHit.target_type, TrackedKeywordHit.target_id)
         .filter_by(keyword_id=tracked.id)
