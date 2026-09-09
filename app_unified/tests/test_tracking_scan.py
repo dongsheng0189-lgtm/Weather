@@ -205,7 +205,15 @@ def test_incremental_scan_picks_up_new_item_without_duplicating(db, monkeypatch)
     到處共用的預設店名 'B店'，其他測試留在同一個 session-scoped DB 裡的資料
     會混進雜訊筆記的計數，讓 `first_total`/`second_total` 不再是可預期的
     常數（見 test_scan_yields_to_hub_between_batches 的說明，這裡是同一個
-    地雷）。"""
+    地雷）。
+
+    ⚠️ item 這一半原本沒有失敗見證：這間店原本只有一筆項目（第二輪才新增的
+    那筆），刪掉 `item_q` 的增量子句（`ChecklistItem.updated_at > since`）之後
+    第二輪的 item 數量還是 1，`second_total <= 1` 照樣過關——「增量」對 item
+    路徑完全沒被驗到。所以另外建一則回填舊時間的雜訊筆記、掛上幾筆不含關鍵字
+    的雜訊項目：第一輪全掃會把它們算進 `first_total`，但第二輪（增量）不該
+    再把它們交回來；砍掉 item 的增量子句會讓第二輪連同這些舊雜訊項目一起被
+    重新撈回，把 `second_total` 推過 `<= 1` 這條線。"""
     import notes.tracking_scan as scan_mod
     from notes.tracking_scan import scan_tracked_keyword, WATERMARK_LOOKBACK_SECONDS
     store = f'測試店_{uuid.uuid4().hex[:6]}'
@@ -220,6 +228,11 @@ def test_incremental_scan_picks_up_new_item_without_duplicating(db, monkeypatch)
     n = _mk_note(db, store=store, title=f'{kw} 的交接', updated_at=old)
     for _ in range(20):
         _mk_note(db, store=store, title='不相關的日報', updated_at=old)  # 雜訊：讓「全掃」的規模明顯大於「增量」
+    noise_note = _mk_note(db, store=store, title='掛雜訊項目用的筆記', updated_at=old)
+    for _ in range(5):
+        # item 路徑的雜訊：不含關鍵字、updated_at 回填到舊時間，讓它們只會在
+        # 第一輪全掃出現，若第二輪的增量子句被拿掉才會被重新撈回。
+        _mk_item(db, noise_note, '不含關鍵字的雜訊項目', updated_at=old)
     t = _mk_tracked(db, kw, store=store)
 
     real_target_ids = scan_mod._target_ids
@@ -349,6 +362,78 @@ def test_excluded_hit_is_not_resurrected_by_rescan(db, monkeypatch):
     )
     assert _hits(db, t) == []                        # 頁面上看不到
     assert len(_hits(db, t, include_excluded=True)) == 1   # 剔除紀錄仍在
+
+
+def test_scan_respects_expunge_contract_for_caller_held_object(db):
+    """守住 scan_tracked_keyword docstring 承諾的 expunge 約定，抓兩個相反方向
+    的退化——兩者目前都能讓其餘 933 個測試維持全綠：
+
+    (1) 改回無條件 `db.session.expunge(row)`（原始缺陷）：呼叫端自己持有的
+        物件也會被一併踢出 session，之後對它賦值、commit 會被靜默丟掉、不會
+        有任何例外——這是本功能唯一不能接受的失敗模式之一，卻沒有測試守著。
+    (2) 把 `preexisting` 快照搬到批次查詢**之後**：這樣批次剛載入的列一定已
+        經在快照裡，`not in preexisting` 永遠不成立，沒有任何東西會被
+        expunge，模組註解裡「避免解密物件留一路到 request 結束」的理由就悄悄
+        失效，卻不會讓任何既有斷言變紅。
+
+    做法比照真實呼叫端的順序：像呼叫端一樣先建立並 commit 一筆 Note（此時它
+    已有 PK、也已經在 session 的 identity map 裡），再呼叫
+    scan_tracked_keyword——不用任何技巧繞過 `_target_ids`/`seen` 查詢在第一
+    批次前的 autoflush，這就是呼叫端物件在快照時刻已有 identity-map entry的
+    真實情境。
+
+    (a) 呼叫端持有的物件：掃描後應仍 attached；賦值＋commit 後重新從 DB
+        讀回要看得到這次賦值。這一半抓退化 (1)。
+    (b) 掃描自己載入、呼叫端從沒碰過的物件：掃描後應該 detached。這一半抓
+        退化 (2)。用 SQLAlchemy 的 `load` event 側錄掃描內部實際建構出來的
+        那個物件實例——不能事後用 id 重新查一次，那樣拿到的是全新實例，測
+        不到「原本那個實例有沒有被 expunge」。
+    """
+    from notes.tracking_scan import scan_tracked_keyword
+    from sqlalchemy import event, inspect as sa_inspect
+    from models import Note
+
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    caller_note = _mk_note(db, title=f'{kw} 呼叫端持有的筆記')
+    untouched_note = _mk_note(db, title=f'{kw} 呼叫端沒碰過的筆記')
+    untouched_note_id = untouched_note.id  # commit 後屬性會過期，expunge 前先存好 id
+    # _mk_note 內部也會 add+commit，建立當下就已經在這個測試 session 的
+    # identity map 裡——這不是我們要的「呼叫端沒碰過」情境。真實情境是：這筆
+    # 資料已經 commit 在 DB 裡，但呼叫端這次請求根本沒載入過它，是掃描批次
+    # 查詢自己第一次把它撈進 session。expunge 掉，讓它符合這個情境。
+    db.session.expunge(untouched_note)
+    t = _mk_tracked(db, kw)
+
+    loaded = []
+
+    def _on_load(obj, ctx):
+        loaded.append(obj)
+
+    event.listen(Note, 'load', _on_load)
+    try:
+        scan_tracked_keyword(t)
+    finally:
+        event.remove(Note, 'load', _on_load)
+
+    # (a) 呼叫端持有的物件：維持 attached，賦值＋commit 之後要真的生效。
+    assert caller_note in db.session, (
+        '呼叫端持有的物件被掃描 expunge 掉了——之後對它賦值、commit 會被'
+        '靜默丟掉，不會有任何錯誤（見 scan_tracked_keyword 的 docstring）'
+    )
+    caller_note.title = f'{kw} 已被呼叫端修改'
+    db.session.commit()
+    db.session.expire_all()  # 強制下一次讀取真的打 DB，不是回傳 Python 端快取值
+    reread = Note.query.get(caller_note.id)
+    assert reread.title == f'{kw} 已被呼叫端修改', (
+        '呼叫端持有的物件被靜默 detach，賦值在 commit 時被丟掉了'
+    )
+
+    # (b) 掃描自己載入、呼叫端沒碰過的物件：掃描完應該被 expunge。
+    scanned_instance = next(o for o in loaded if o.id == untouched_note_id)
+    assert sa_inspect(scanned_instance).detached, (
+        '掃描自己載入的物件沒有被 expunge——模組註解裡「避免解密物件留一路到'
+        ' request 結束」的記憶體理由已經失效'
+    )
 
 
 def test_scan_yields_to_hub_between_batches(db, monkeypatch):

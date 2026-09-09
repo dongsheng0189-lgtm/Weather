@@ -165,9 +165,12 @@ def _persist(tracked, records, seen):
             #
             # 記 e.orig（DBAPI 層的原始訊息）、不記整個 exception：
             # StatementError.__str__ 會把 `[SQL: ...] [parameters: ...]` 一併
-            # 印出來，今天綁定參數只有 id/NULL 還好，但 TrackedKeywordHit 的
-            # note_text / excluded_by_name 是 EncryptedText，未來若有 insert
-            # 路徑帶著這兩欄的值撞進來，完整 exception 就會把明文寫進 log。
+            # 印出來。這裡要擋的不是明文——EncryptedText.process_bind_param
+            # （crypto.py）在 bind 當下就已加密，SQLAlchemy 拿到、放進
+            # `[parameters: ...]` 的值本來就是密文，從來不是明文——而是避免
+            # 把 SQL 與綁定參數（密文）這些跟這次失敗無關的雜訊寫進 log。
+            # PostgreSQL 底下 e.orig 裡的 `DETAIL: Failing row contains
+            # (...)` 同理，顯示的也只會是存進 DB 的密文，一樣安全。
             current_app.logger.warning(
                 "[tracking-scan] skip 重複命中：keyword_id=%s target=%s:%s -> %s: %s",
                 tracked.id, target_type, target_id, type(e).__name__, e.orig,
