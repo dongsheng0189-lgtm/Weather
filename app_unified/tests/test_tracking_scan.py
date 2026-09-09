@@ -595,3 +595,121 @@ def test_note_update_route_bumps_updated_at(client, db_session):
     assert updated_note.updated_at > original_updated_at, (
         '編輯筆記沒有 bump updated_at —— 建檔追蹤的增量掃描會從此看不到這類編輯'
     )
+
+
+def test_restore_note_route_bumps_updated_at_and_is_rescanned(client, db_session):
+    """CRITICAL 守門測試：一筆 note 被軟刪、掃描跑過一輪（水位已推進到刪除
+    之後）、再被還原 —— 下一輪增量掃描必須重新掃到它。
+
+    這條路徑完全無聲：restore_note 若沒有 bump updated_at，這筆資料就永遠落
+    在 `updated_at > scanned_through` 的窗口之外，對追蹤表而言跟這件事從未
+    發生過沒有分別，而且不會有任何錯誤訊息或測試失敗——直到有人翻出 prod DB
+    才會發現。刻意走 admin 的還原路由（/admin/api/restore/note/<id>），不是
+    直接呼叫 restore_note()——要守住的是使用者實際會走的路徑；restore_note()
+    本身「有沒有清掉 deleted_at」已經由 test_soft_delete.py 的
+    test_restore_note_clears_deleted_at 守住，這裡守的是它對建檔追蹤這條下游
+    的副作用。
+    """
+    from models import User, Note, TrackedKeyword
+    from notes.tracking_scan import scan_tracked_keyword
+
+    admin = User(username=f'tk_admin_{uuid.uuid4().hex[:6]}', store='B店', role='admin')
+    admin.set_password('0000')
+    db_session.add(admin)
+    db_session.commit()
+
+    # 在建表／第一次掃描「之前」就已經是刪除狀態 —— 重現審查點原文重現步驟：
+    # 完整掃描 added=0（正確，本來就是刪的）、還原後 rescan 仍是 0。若改成
+    # 「先掃到、再刪、再掃」，這筆命中列在第一次掃描時就已經寫進
+    # tracked_keyword_hits（只是顯示層濾掉），還原後不需要 updated_at 被 bump
+    # 也不會漏 —— 測不到這個缺陷（那條命中列從一開始就在，不是「消失後回不
+    # 來」）。必須是「在資料還沒被掃過一次之前就已經死掉」，才會踩中
+    # `updated_at > scanned_through` 這個窗口判斷。
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    n = Note(store='B店', title=f'{kw} 的交接', content='', note_type='note')
+    db_session.add(n)
+    db_session.commit()
+    note_id = n.id
+    n.deleted_at = datetime.utcnow()
+    db_session.commit()
+
+    t = TrackedKeyword(store='B店', keyword=kw, created_by_name='tester')
+    db_session.add(t)
+    db_session.commit()
+    assert scan_tracked_keyword(t) == 0   # 完整掃描：已刪，正確地掃不到
+
+    original_updated_at = Note.query.get(note_id).updated_at
+
+    with client.session_transaction() as sess:
+        sess['_user_id'] = str(admin.id)
+        sess['_fresh'] = True
+        sess['_last_request_at'] = int(time.time())
+
+    time.sleep(0.01)  # 確保 updated_at 若真的被 bump，時間戳會可觀測地往後
+    resp = client.post(f'/admin/api/restore/note/{note_id}')
+    assert resp.status_code == 200
+
+    restored = Note.query.get(note_id)
+    assert restored.deleted_at is None
+    assert restored.updated_at > original_updated_at, (
+        '還原筆記沒有 bump updated_at —— 建檔追蹤的增量掃描會從此永久看不到這筆資料'
+    )
+
+    added_after_restore = scan_tracked_keyword(t)
+    assert added_after_restore == 1, (
+        '還原後的增量掃描沒有重新找到這筆資料 —— 這筆命中對追蹤表永久消失，'
+        '且不會有任何錯誤訊息'
+    )
+
+
+def test_restore_item_route_bumps_updated_at_and_is_rescanned(client, db_session):
+    """同上，守的是 item 那一半（/admin/api/restore/item/<id>）。"""
+    from models import User, Note, ChecklistItem, TrackedKeyword
+    from notes.tracking_scan import scan_tracked_keyword
+
+    admin = User(username=f'tk_admin_{uuid.uuid4().hex[:6]}', store='B店', role='admin')
+    admin.set_password('0000')
+    db_session.add(admin)
+    db_session.commit()
+
+    # 同上一個測試的理由：item 必須在第一次掃描之前就已經是刪除狀態，才踩得中
+    # 「這筆命中從沒進過 tracked_keyword_hits，只能靠 updated_at 被 bump 才有
+    # 機會進得去」這個窗口。
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    n = Note(store='B店', title='日報', content='', note_type='note')
+    db_session.add(n)
+    db_session.commit()
+    item = ChecklistItem(note_id=n.id, text=f'{kw} 遲到')
+    db_session.add(item)
+    db_session.commit()
+    item_id = item.id
+    item.deleted_at = datetime.utcnow()
+    db_session.commit()
+
+    t = TrackedKeyword(store='B店', keyword=kw, created_by_name='tester')
+    db_session.add(t)
+    db_session.commit()
+    assert scan_tracked_keyword(t) == 0   # 完整掃描：已刪，正確地掃不到
+
+    original_updated_at = ChecklistItem.query.get(item_id).updated_at
+
+    with client.session_transaction() as sess:
+        sess['_user_id'] = str(admin.id)
+        sess['_fresh'] = True
+        sess['_last_request_at'] = int(time.time())
+
+    time.sleep(0.01)
+    resp = client.post(f'/admin/api/restore/item/{item_id}')
+    assert resp.status_code == 200
+
+    restored = ChecklistItem.query.get(item_id)
+    assert restored.deleted_at is None
+    assert restored.updated_at > original_updated_at, (
+        '還原項目沒有 bump updated_at —— 建檔追蹤的增量掃描會從此永久看不到這筆資料'
+    )
+
+    added_after_restore = scan_tracked_keyword(t)
+    assert added_after_restore == 1, (
+        '還原後的增量掃描沒有重新找到這筆資料 —— 這筆命中對追蹤表永久消失，'
+        '且不會有任何錯誤訊息'
+    )

@@ -566,8 +566,11 @@ class TrackedKeyword(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     # 增量水位：上次掃描「開始」的時刻。下次只掃 updated_at > scanned_through 的資料。
     # 存的是掃描開始而非結束的時間，這樣掃描期間被改動的資料下一輪還會再掃到。
-    # ⚠️ 這條路徑依賴「內容有變 → updated_at 會被 bump」。日後若有人讓某個會改
-    # 文字的操作停止更新 updated_at，這裡就會靜默漏掃。
+    # ⚠️ 這條路徑依賴的完整規則是「任何會改變一筆資料是否落在掃描範圍內的操作，
+    # 都要 bump updated_at」——不只是文字被改，也包含 deleted_at 被清空（還原）
+    # 這種讓一筆資料從「被排除」變回「該被掃到」的狀態改變。日後若有人讓某個
+    # 這類操作停止更新 updated_at，這裡就會靜默漏掃（見 notes/routes.py 的
+    # restore_note / restore_item 與 tests/test_tracking_scan.py 的守門測試）。
     scanned_through = db.Column(db.DateTime, nullable=True)
 
     hits = db.relationship("TrackedKeywordHit", backref="tracked", lazy="select",
