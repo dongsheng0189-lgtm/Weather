@@ -26,7 +26,7 @@ webapp/
 
 ## app_unified — 整合版（本地 port 5000，prod 8080）
 
-- 技術棧：Flask 3 + Flask-Login + Flask-SQLAlchemy + Flask-Migrate + Flask-Limiter
+- 技術棧：Flask 3 + Flask-Login + Flask-SQLAlchemy + Flask-Limiter
   + Flask-SocketIO（gevent async）+ SQLAlchemy
 - 資料庫：**prod = PostgreSQL（Zeabur）**，**本地開發 = SQLite**
 - 檔案儲存：Cloudflare R2（S3 相容，走 boto3）— 存人臉照與附件
@@ -40,7 +40,7 @@ webapp/
 
 | 檔案 | 說明 |
 |------|------|
-| `app.py` | `create_app()` 工廠、藍圖註冊、開機 schema 修復（跨 worker advisory lock 序列化）|
+| `app.py` | `create_app()` 工廠、藍圖註冊、開機 schema 修復（跨 worker advisory lock 序列化）。**schema 的真實來源就是這裡**：`db.create_all()` 建缺少的表（本機與 prod 都跑），加欄位的 `ADD COLUMN IF NOT EXISTS` 只在 PG 跑（本機 SQLite 跳過）。`migrations/` 是保留但未接線的 Alembic 檔案，不會被執行。|
 | `wsgi.py` / `wsgi_lazy.py` | gunicorn 進入點（`wsgi:app`）；含 `pkg_resources` shim 供 face_recognition |
 | `config.py` | `Config`；`FLASK_DEV_MODE=1` 時硬性要求 sqlite（防手滑連到 prod PG）|
 | `extensions.py` | `db` / `login_manager` / `limiter` / `socketio` 單例 |
@@ -55,7 +55,7 @@ webapp/
 |------|-----|------|
 | `auth` | `/` | 帳號註冊/登入、4 位數 PIN、trusted device |
 | `face` | | 人臉登錄（enroll）與驗證 |
-| `notes` | `/notes/` | 店務筆記 CRUD、checklist、附件、標籤、AI 摘要、公告 |
+| `notes` | `/notes/` | 店務筆記 CRUD、checklist、附件、標籤、快速標籤鍵、建檔追蹤、AI 摘要、公告 |
 | `mynotes` | `/mynotes/` | 私人筆記（只有建立者本人看得到）|
 | `vetting` | `/vetting/` | 人員背景查詢（多來源比對、判決書站內檢視、白名單電話）|
 | `icinfo` | | 證件資訊 chip / 居留證卡 |
@@ -63,6 +63,11 @@ webapp/
 | `device` | | 信任裝置管理 |
 | `admin` | `/admin/` | 管理後台（使用者/角色/白名單/刪除）|
 | `dev` | `/dev` | **僅開發模式註冊**：免密登入選擇器，一鍵切換身分 |
+
+`notes` 藍圖底下的「同店」授權規則（誰能看到／操作哪個 store 的資料）集中在
+`notes/store_scope.py`（`effective_store()` + `require_same_store()`），標籤
+（`notes/tags.py`）與建檔追蹤（`notes/tracking.py`）共用同一份，特意抽出是因為
+兩邊各自抄一份同樣的邏輯最容易悄悄分岔。
 
 ### 權限模型（`features.py`）
 
@@ -76,7 +81,7 @@ webapp/
 `LoginToken` · `WeatherCache` · `TrustedDevice` · `PrivateNote` · `PrivateChecklistItem` ·
 `PrivateAttachment` · `IcinfoQueryLog`（表名 `v_aux_logs`）· `VettingQueryLog` ·
 `VettingWhitelistPhone` · `Announcement` · `AnnouncementAttachment` · `AiTask` ·
-`Tag` · `NoteTag` · `ChecklistItemTag`
+`Tag` · `NoteTag` · `ChecklistItemTag` · `TrackedKeyword` · `TrackedKeywordHit`
 
 ---
 
@@ -145,7 +150,7 @@ cd app_unified
 - prod 環境變數在 Zeabur dashboard 設定：`DATABASE_URL`（PG）、`SECRET_KEY`、`DB_ENCRYPTION_KEY`、
   R2 憑證、AI keys、`RATELIMIT_STORAGE_URL`（Redis）、`ALLOWED_ORIGINS`、`SESSION_COOKIE_SECURE=true`。
 - 日誌：容器內另寫一份 `/tmp/app.log`（10MB rotate ×2），因 Zeabur log viewer 對此 service 曾卡 stale。
-- 遷移工具：`migrate_sqlite_to_postgres.py`、`migrate_encrypt_fields.py`、`migrations/`（Flask-Migrate）。
+- 遷移工具：`migrate_sqlite_to_postgres.py`、`migrate_encrypt_fields.py`；`migrations/`（Alembic）未接線、不會被執行，見上方 `app.py` 說明。
 
 ---
 
