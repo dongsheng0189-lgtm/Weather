@@ -9,12 +9,17 @@
 .hit-memo { display:block; width:100%; box-sizing:border-box; border:1px dashed #d7c48a;
   background:#fffdf3; border-radius:6px; padding:.4rem .6rem; font-size:.88rem;
   margin-bottom:.15rem; resize:vertical; min-height:2.2rem; }
-/* 存檔失敗要「看得見」，不能跟成功長得一模一樣 —— 這欄位加密存放、沒有版本
-   紀錄也沒有 log，一旦誤以為存了、其實沒存，內容就永久遺失（見這支路由的
-   docstring）。 */
+/* 存檔失敗要「看得見」，不能跟成功長得一模一樣 —— 失敗代表這次寫入根本沒
+   送到伺服器，TrackedKeywordMemoLog 只記真的落地的異動，救不了一次沒送出去
+   的請求；一旦誤以為存了、其實沒存，畫面上打好的字關掉分頁就真的沒了
+   （見這支路由的 docstring）。 */
 .hit-memo.save-failed { border-color:#d33; background:#fff5f5; }
 .hit-memo-hint { display:none; color:#d33; font-size:.76rem; margin:0 0 .5rem; }
 .hit-memo-hint.show { display:block; }
+/* 誰、什麼時候最後改過這則備註——跟頁首「最後更新」同一套不張揚樣式（灰、
+   小字），只給看得到、不做完整歷史檢視（那份紀錄本身已經在
+   TrackedKeywordMemoLog，需要時再往上蓋 UI）。 */
+.hit-memo-meta { color:#999; font-size:.76rem; margin:0 0 .4rem; }
 .hit-meta { color:#888; font-size:.8rem; margin-bottom:.25rem; }
 .hit-text-wrap { position:relative; max-height:6.5rem; overflow:hidden; }
 .hit-text-wrap.is-clamped::after { content:''; position:absolute; left:0; right:0;
@@ -51,6 +56,9 @@
   <textarea class="hit-memo" data-role="memo" data-hit="{{ r.hit_id }}"
             placeholder="備註…">{{ r.memo }}</textarea>
   <div class="hit-memo-hint" data-role="memo-hint">未儲存，請重試</div>
+  {% if r.memo_edited_by %}
+  <div class="hit-memo-meta">{{ r.memo_edited_by }} 於 {{ r.memo_edited_at }} 最後編輯</div>
+  {% endif %}
   <div class="hit-meta">
     {{ r.when }} · {{ r.title }}{% if r.target_type == 'item' %} · 項目{% endif %}
   </div>
@@ -112,8 +120,10 @@ window.addEventListener('load', applyClampFade);
 // 失敗必須「看得見」，不能什麼都不做 —— r.json() 對非 2xx 回應（403/404，或
 // session 過期被 Flask-Login 導回登入頁的 HTML）一樣會 resolve 或 reject 得
 // 很安靜，.then 要嘛拿到垃圾資料、要嘛整條 promise chain 沒有 .catch 接住，
-// 使用者看著打好的字留在畫面上，以為存了，其實沒有。這欄位加密存放、沒有
-// 版本紀錄也沒有 log，一旦這樣誤判就找不回來。
+// 使用者看著打好的字留在畫面上，以為存了，其實沒有。伺服器端現在雖然有
+// TrackedKeywordMemoLog 留下異動紀錄，但那只保得住「真的送達、真的寫進去」
+// 的版本 —— 一次沒送到伺服器的請求，內容仍然只活在這個文字框裡，一旦誤判成
+// 存了就找不回來。
 document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
   var initial = ta.value;
   var card = ta.closest('.hit-card');

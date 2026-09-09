@@ -13,7 +13,7 @@ from flask_login import login_required, current_user
 from sqlalchemy.orm import load_only
 
 from extensions import db
-from models import TrackedKeyword, TrackedKeywordHit, Note, ChecklistItem
+from models import TrackedKeyword, TrackedKeywordHit, TrackedKeywordMemoLog, Note, ChecklistItem
 from notes.routes import notes_bp
 from notes.store_scope import effective_store, require_same_store
 from notes.tracking_match import normalize
@@ -196,14 +196,17 @@ def _get_hit_or_404(hid):
 @notes_bp.route('/api/tracking/hits/<int:hid>/note', methods=['PUT'])
 @login_required
 def set_hit_note(hid):
-    """備註：整店共用，同店的人都能寫、也能覆蓋別人寫的（與剔除同一套規則）。"""
+    """備註：整店共用，同店的人都能寫、也能覆蓋別人寫的（與剔除同一套規則）。
+
+    覆蓋不再是無聲的 —— 只要文字真的變了，就在 TrackedKeywordMemoLog 留一筆
+    「誰、何時、舊文字 → 新文字」，被覆蓋或清空的內容因此可以回溯（見該
+    model 的 docstring）。這裡仍然要求「明確傳空字串」才算清空、缺欄位/null
+    一律 400——那個規則跟有沒有 log 無關，理由是 PUT 的整份取代語意本來就該
+    把「呼叫端沒打算清空」與「呼叫端真的要清空」分開，不能把呼叫端自己的
+    bug（漏帶欄位）悄悄吃成清空操作。
+    """
     h = _get_hit_or_404(hid)
     data = request.get_json(silent=True) or {}
-    # PUT 是整份取代語意，所以「明確傳空字串」＝清空備註是合法操作；但「根本沒帶
-    # text 欄位」或「text: null」是另一回事 —— 備註是對人的書面評語，加密存放、
-    # 沒有版本紀錄也沒有 log，一旦被誤清空就找不回來，所以這兩種情況一律擋在
-    # 400，不當成清空處理。同理，數字之類的非字串也直接拒絕，不做隱性轉型
-    # （那是呼叫端自己的 bug，應該讓它出錯而不是被吃掉）。
     if 'text' not in data or data.get('text') is None:
         return jsonify({'error': '缺少 text'}), 400
     text = data.get('text')
@@ -212,6 +215,14 @@ def set_hit_note(hid):
     text = text.strip()
     if len(text) > MEMO_MAX_LEN:
         return jsonify({'error': f'備註長度不可超過 {MEMO_MAX_LEN}'}), 400
+    old_text = h.note_text
+    # 只在文字「真的變了」才留 log——重存跟原本一樣的內容不是一次異動，不該
+    # 產生噪音列。None（從沒寫過）視同空字串，避免「從沒寫過」到「存空字串」
+    # 這種等同於什麼都沒發生的操作也留下一筆。
+    if text != (old_text or ''):
+        db.session.add(TrackedKeywordMemoLog(
+            hit_id=h.id, old_text=old_text, new_text=text,
+            changed_by=current_user.id, changed_by_name=current_user.username))
     h.note_text = text
     db.session.commit()
     return jsonify({'note_text': h.note_text})
@@ -322,6 +333,20 @@ def _detail_rows(tracked):
                 Note.id.in_(parent_note_ids)).all():
             parent_notes[n.id] = n
 
+    # 每一筆命中「最後一次備註異動」的編輯者／時間，給每列顯示用（不做完整
+    # 歷史檢視，只要看得到最新是誰改的——見 TrackedKeywordMemoLog 的
+    # docstring）。一次批次查完，避免每列各查一次。同一 hit_id 若有多筆
+    # log，`changed_at DESC` 讓每個 hit_id 第一次出現的那筆就是最新一筆，
+    # 之後同一 hit_id 再出現時跳過即可。
+    last_memo_edit = {}
+    hit_ids = [h.id for h in hits]
+    if hit_ids:
+        logs = TrackedKeywordMemoLog.query.filter(
+            TrackedKeywordMemoLog.hit_id.in_(hit_ids)).order_by(
+            TrackedKeywordMemoLog.changed_at.desc()).all()
+        for log in logs:
+            last_memo_edit.setdefault(log.hit_id, log)
+
     rows = []
     for h in hits:
         if h.target_type == 'note':
@@ -341,6 +366,7 @@ def _detail_rows(tracked):
             if not n:
                 continue          # 母筆記已軟刪或已硬刪 → 這一列自然消失
             title, text, note_id, when = n.title, i.text, i.note_id, i.updated_at
+        last_edit = last_memo_edit.get(h.id)
         # 用 (when, dict) tuple 排序，不在 dict 裡塞排序用的暫時欄位再事後
         # pop 掉 —— 一次到位，也不會有「忘記 pop」把內部欄位外洩給呼叫端的
         # 風險。
@@ -352,6 +378,8 @@ def _detail_rows(tracked):
             'text': text or '',
             'memo': h.note_text or '',
             'when': tw_str(when, fmt='%m/%d'),
+            'memo_edited_by': last_edit.changed_by_name if last_edit else None,
+            'memo_edited_at': tw_str(last_edit.changed_at, fmt='%m/%d %H:%M') if last_edit else '',
         }))
     rows.sort(key=lambda pair: pair[0], reverse=True)
     return [row for _, row in rows]

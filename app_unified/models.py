@@ -603,3 +603,32 @@ class TrackedKeywordHit(db.Model):
         db.UniqueConstraint("keyword_id", "target_type", "target_id",
                             name="uq_tracked_hit_target"),
     )
+
+    memo_logs = db.relationship("TrackedKeywordMemoLog", backref="hit", lazy="select",
+                                cascade="all, delete-orphan")
+
+
+class TrackedKeywordMemoLog(db.Model):
+    """備註（TrackedKeywordHit.note_text）的異動紀錄，append-only。
+
+    備註本身整店共用、任何人都能覆蓋別人寫的，且沒有版本欄位 —— 這張表補的
+    正是這個洞：只要文字**真的變了**就留一筆「誰、何時、舊文字 → 新文字」
+    （見 notes/tracking.py 的 set_hit_note），讓事後被覆蓋／清空的內容可以
+    回溯，而不是真的憑空消失。只記寫入動作，不記渲染／讀取。
+
+    獨立成一張表而非在 TrackedKeywordHit 上加欄位：log 是歷史，本來就該
+    append-only、跟它描述的那一列分開放，一列只能存「最新」一份，存不下歷史。
+    """
+    __tablename__ = "tracked_keyword_memo_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    hit_id = db.Column(db.Integer, db.ForeignKey("tracked_keyword_hits.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    # 異動前後的文字都是對人的書面評語 → 個資，兩欄都要加密
+    old_text = db.Column(EncryptedText, nullable=True)
+    new_text = db.Column(EncryptedText, nullable=True)
+    changed_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    changed_by_name = db.Column(EncryptedText, nullable=True)  # 快照，帳號被刪也留得住是誰改的
+    changed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    changer = db.relationship("User", foreign_keys=[changed_by])

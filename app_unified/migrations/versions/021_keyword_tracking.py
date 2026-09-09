@@ -1,4 +1,4 @@
-"""keyword tracking: 建檔追蹤的兩張表
+"""keyword tracking: 建檔追蹤的三張表
 
 Revision ID: 021
 Revises: 020
@@ -50,8 +50,24 @@ def upgrade():
     )
     op.create_index('ix_tracked_keyword_hits_keyword_id', 'tracked_keyword_hits', ['keyword_id'])
 
+    op.create_table(
+        'tracked_keyword_memo_logs',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('hit_id', sa.Integer(), nullable=False),
+        sa.Column('old_text', sa.Text(), nullable=True),
+        sa.Column('new_text', sa.Text(), nullable=True),
+        sa.Column('changed_by', sa.Integer(), nullable=True),
+        sa.Column('changed_by_name', sa.Text(), nullable=True),
+        sa.Column('changed_at', sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(['hit_id'], ['tracked_keyword_hits.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['changed_by'], ['users.id'], ondelete='SET NULL'),
+    )
+    op.create_index('ix_tracked_keyword_memo_logs_hit_id', 'tracked_keyword_memo_logs', ['hit_id'])
+
 
 def downgrade():
+    op.drop_index('ix_tracked_keyword_memo_logs_hit_id', 'tracked_keyword_memo_logs')
+    op.drop_table('tracked_keyword_memo_logs')
     op.drop_index('ix_tracked_keyword_hits_keyword_id', 'tracked_keyword_hits')
     op.drop_table('tracked_keyword_hits')
     op.drop_index('ix_tracked_keywords_store', 'tracked_keywords')

@@ -115,3 +115,68 @@ def test_exclusion_fields_default_null(db):
     assert h.excluded_at is None
     assert h.excluded_by_name is None
     assert isinstance(h.matched_at, datetime)
+
+
+# ─── TrackedKeywordMemoLog：備註異動紀錄（append-only） ───
+
+def _mk_hit(db, t=None, target_id=1):
+    from models import TrackedKeywordHit
+    t = t or _mk_tracked(db)
+    h = TrackedKeywordHit(keyword_id=t.id, target_type='item', target_id=target_id)
+    db.session.add(h)
+    db.session.commit()
+    return h
+
+
+def test_memo_log_columns_are_encrypted_at_rest(db):
+    """old_text / new_text 都是對人的書面評語，兩欄都必須是密文。"""
+    from models import TrackedKeywordMemoLog
+    h = _mk_hit(db)
+    old = f'舊備註_{uuid.uuid4().hex[:6]}'
+    new = f'新備註_{uuid.uuid4().hex[:6]}'
+    log = TrackedKeywordMemoLog(hit_id=h.id, old_text=old, new_text=new,
+                                changed_by_name='tester')
+    db.session.add(log)
+    db.session.commit()
+    raw_old, raw_new = db.session.execute(
+        db.text('SELECT old_text, new_text FROM tracked_keyword_memo_logs WHERE id = :i'),
+        {'i': log.id},
+    ).fetchone()
+    assert old not in (raw_old or '')
+    assert new not in (raw_new or '')
+    # 明文仍可從 ORM 端讀回
+    got = db.session.get(TrackedKeywordMemoLog, log.id)
+    assert got.old_text == old
+    assert got.new_text == new
+
+
+def test_memo_log_survives_and_cascades_with_its_hit(db):
+    """刪掉命中列（進而刪掉整張追蹤表）要連帶清掉它的備註異動紀錄。"""
+    from models import TrackedKeyword, TrackedKeywordHit, TrackedKeywordMemoLog
+    t = _mk_tracked(db)
+    h = _mk_hit(db, t=t)
+    db.session.add(TrackedKeywordMemoLog(hit_id=h.id, old_text='a', new_text='b',
+                                         changed_by_name='tester'))
+    db.session.commit()
+    hid = h.id
+    kid = t.id
+
+    db.session.delete(db.session.get(TrackedKeyword, kid))
+    db.session.commit()
+
+    assert TrackedKeywordHit.query.filter_by(keyword_id=kid).count() == 0
+    assert TrackedKeywordMemoLog.query.filter_by(hit_id=hid).count() == 0
+
+
+def test_memo_log_changed_by_name_is_a_snapshot(db):
+    """寫入者的帳號快照要跟 excluded_by_name 同一套模式，帳號被刪也留得住名字。"""
+    from models import TrackedKeywordMemoLog
+    h = _mk_hit(db)
+    log = TrackedKeywordMemoLog(hit_id=h.id, old_text=None, new_text='x',
+                                changed_by_name='snapshot_tester')
+    db.session.add(log)
+    db.session.commit()
+    got = db.session.get(TrackedKeywordMemoLog, log.id)
+    assert got.changed_by_name == 'snapshot_tester'
+    assert got.changed_by is None
+    assert isinstance(got.changed_at, datetime)

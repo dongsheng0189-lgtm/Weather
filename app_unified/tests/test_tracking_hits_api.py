@@ -137,6 +137,82 @@ def test_note_text_accepts_memo_at_max_len(client, db):
     assert r.status_code == 200
 
 
+# ─── 備註異動 log：只有 set_hit_note 寫，且只在文字真的變了才寫 ───
+
+def test_saving_memo_creates_one_log_row_with_old_and_new_text(client, db):
+    _u, _kid, hit = _setup_one_hit(client, db)
+    from models import TrackedKeywordMemoLog
+    first = f'第一版_{uuid.uuid4().hex[:4]}'
+    second = f'第二版_{uuid.uuid4().hex[:4]}'
+
+    client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': first})
+    r = client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': second})
+    assert r.status_code == 200
+
+    logs = TrackedKeywordMemoLog.query.filter_by(hit_id=hit.id).order_by(
+        TrackedKeywordMemoLog.id).all()
+    assert len(logs) == 2, '兩次不同文字的寫入應各留一筆 log'
+    assert logs[0].old_text is None
+    assert logs[0].new_text == first
+    assert logs[1].old_text == first
+    assert logs[1].new_text == second
+
+
+def test_resaving_identical_text_creates_no_log(client, db):
+    """重存同樣的文字不算一次異動，不該留下噪音列。"""
+    _u, _kid, hit = _setup_one_hit(client, db)
+    from models import TrackedKeywordMemoLog
+    memo = f'不變的備註_{uuid.uuid4().hex[:4]}'
+
+    client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': memo})
+    count_after_first = TrackedKeywordMemoLog.query.filter_by(hit_id=hit.id).count()
+    r = client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': memo})
+
+    assert r.status_code == 200
+    count_after_second = TrackedKeywordMemoLog.query.filter_by(hit_id=hit.id).count()
+    assert count_after_second == count_after_first == 1, (
+        '重存相同文字不應該再新增一筆 log'
+    )
+
+
+def test_clearing_memo_logs_the_old_text(client, db):
+    """清空是這個功能存在的理由：舊文字必須被留在 log 裡，不能真的消失。"""
+    _u, _kid, hit = _setup_one_hit(client, db)
+    from models import TrackedKeywordMemoLog
+    memo = f'要被清掉的評語_{uuid.uuid4().hex[:4]}'
+    client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': memo})
+
+    r = client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': ''})
+    assert r.status_code == 200
+
+    logs = TrackedKeywordMemoLog.query.filter_by(hit_id=hit.id).order_by(
+        TrackedKeywordMemoLog.id).all()
+    assert len(logs) == 2
+    clear_log = logs[-1]
+    assert clear_log.old_text == memo, '清空前的舊文字必須完整留在 log 裡'
+    assert clear_log.new_text == ''
+
+
+def test_first_save_from_empty_to_empty_creates_no_log(client, db):
+    """從沒寫過（None）存一個空字串：等同於什麼都沒發生，不該產生 log。"""
+    _u, _kid, hit = _setup_one_hit(client, db)
+    from models import TrackedKeywordMemoLog
+    r = client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': ''})
+    assert r.status_code == 200
+    assert TrackedKeywordMemoLog.query.filter_by(hit_id=hit.id).count() == 0
+
+
+def test_memo_log_records_writer_identity(client, db):
+    """log 要記下是誰寫的，帳號 id 與快照名稱都要對。"""
+    u, _kid, hit = _setup_one_hit(client, db)
+    from models import TrackedKeywordMemoLog
+    client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': '評語內容'})
+
+    log = TrackedKeywordMemoLog.query.filter_by(hit_id=hit.id).first()
+    assert log.changed_by == u.id
+    assert log.changed_by_name == u.username
+
+
 def test_exclude_and_restore(client, db):
     u, _kid, hit = _setup_one_hit(client, db)
     from models import TrackedKeywordHit
@@ -242,6 +318,45 @@ def test_restore_via_ui_endpoint_returns_hit_to_visible_rows(client, db):
     assert r.status_code == 200
     assert len(_detail_rows(t)) == 1, '還原後這筆命中應該重新出現在主清單'
     assert _excluded_rows(t) == [], '還原後不該再留在已剔除清單裡'
+
+
+def test_detail_page_shows_last_memo_editor(client, db):
+    """備註被寫過之後，該筆命中卡片內要看得到是誰、什麼時候最後編輯的 ——
+    跟「最後更新」同一種不張揚的呈現方式，不是額外一個大區塊。
+
+    刻意把 log 的 changed_at 改成很久以前、跟畫面上其他時間戳（scanned_through
+    算出來的「最後更新」）明顯錯開，並且只在這張 hit-card 的區塊內找 ——
+    整頁比對 `username in html` 會被 nav bar 的「登出 (username)」矇混過關
+    （base.html 一定會印出目前登入者的帳號），比對時間也可能剛好跟同一分鐘
+    渲染出的「最後更新」重疊而巧合通過。"""
+    u, kid, hit = _setup_one_hit(client, db)
+    client.put(f'/notes/api/tracking/hits/{hit.id}/note', json={'text': '已口頭告誡'})
+    from models import TrackedKeywordMemoLog
+    from datetime import datetime as real_datetime
+    log = TrackedKeywordMemoLog.query.filter_by(hit_id=hit.id).first()
+    fixed = real_datetime(2020, 1, 1, 3, 0, 0)
+    log.changed_at = fixed
+    db.session.commit()
+
+    html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
+
+    idx = html.find(f'data-hit="{hit.id}"')
+    assert idx != -1, f'找不到 hit {hit.id} 的卡片'
+    card_html = html[idx:idx + 1500]
+    from tw_time import tw_str
+    expected_time = tw_str(fixed, fmt='%m/%d %H:%M')
+    assert u.username in card_html, '卡片內沒看到編輯者帳號'
+    assert expected_time in card_html, f'卡片內沒看到編輯時間 {expected_time!r}'
+    assert '最後編輯' in card_html
+
+
+def test_detail_page_shows_no_editor_hint_before_first_edit(client, db):
+    """從沒被編輯過的備註不該冒出「XXX 於 -- 編輯」這種空白資訊。"""
+    _u, kid, _hit = _setup_one_hit(client, db)
+
+    html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
+
+    assert '最後編輯' not in html
 
 
 def test_detail_page_renders_excluded_section(client, db):
