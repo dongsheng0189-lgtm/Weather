@@ -6,40 +6,29 @@ UI 上必須維持這個分界。
 
 權限沿用標籤管理：同店的人都可以建立／刪除／剔除／寫備註，不新增權限概念。
 """
-from datetime import datetime
-
 from flask import request, jsonify, abort, render_template
 from flask_login import login_required, current_user
 
 from extensions import db
 from models import TrackedKeyword, TrackedKeywordHit
 from notes.routes import notes_bp
+from notes.store_scope import effective_store, require_same_store
 from notes.tracking_match import normalize
 from notes.tracking_scan import scan_tracked_keyword
 from tw_time import tw_str
 
-
-def _tracking_store():
-    """追蹤表綁單一店別。super_admin 可用 ?store= 指定，其他人鎖在自己的店。
-
-    與 notes/tags.py 的 _effective_store() 同一套規則 —— 規格原文說「與
-    _scope_notes 一致」，但 _scope_notes 對 super_admin 會撈「所有未隱藏的店」，
-    與「不做跨店」相矛盾，且一張追蹤表只有一個 store 欄位可填。
-    """
-    if current_user.role == 'super_admin':
-        s = request.args.get('store')
-        if s:
-            return s
-    return current_user.store
+# 店別解析／同店授權規則本體在 notes/store_scope.py（與 notes/tags.py 共用，
+# 理由見該檔 docstring）。這裡沿用規格原文說的「與 _scope_notes 一致」，但
+# _scope_notes 對 super_admin 會撈「所有未隱藏的店」，與「不做跨店」相矛盾，
+# 且一張追蹤表只有一個 store 欄位可填，所以實際採用的是 store_scope 這套
+# 「super_admin 可用 ?store= 指定、其他人鎖在自己店」的規則。
 
 
 def _get_tracked_or_404(kid):
     t = db.session.get(TrackedKeyword, kid)
     if not t:
         abort(404)
-    store = _tracking_store()
-    if not store or t.store != store:
-        abort(403)
+    require_same_store(t)
     return t
 
 
@@ -53,7 +42,7 @@ def find_tracking_for_keyword(keyword):
     needle = normalize(keyword)
     if not needle:
         return None
-    store = _tracking_store()
+    store = effective_store()
     if not store:
         return None
     for t in TrackedKeyword.query.filter_by(store=store).all():
@@ -76,7 +65,7 @@ def _tracked_to_dict(t):
 @notes_bp.route('/api/tracking', methods=['POST'])
 @login_required
 def create_tracking():
-    store = _tracking_store()
+    store = effective_store()
     if not store:
         return jsonify({'error': '找不到店別，請先選擇店別'}), 400
     data = request.get_json(silent=True) or {}
@@ -104,7 +93,7 @@ def create_tracking():
 @notes_bp.route('/api/tracking', methods=['GET'])
 @login_required
 def list_tracking():
-    store = _tracking_store()
+    store = effective_store()
     if not store:
         return jsonify({'tracking': []})
     rows = TrackedKeyword.query.filter_by(store=store).order_by(
@@ -124,7 +113,7 @@ def delete_tracking(kid):
 @notes_bp.route('/tracking/')
 @login_required
 def tracking_list_page():
-    store = _tracking_store()
+    store = effective_store()
     rows = TrackedKeyword.query.filter_by(store=store).order_by(
         TrackedKeyword.created_at.desc()).all() if store else []
     return render_template('notes/tracking_list.html',

@@ -6,6 +6,7 @@ from flask_login import login_required, current_user
 from extensions import db
 from models import Tag, NoteTag, ChecklistItemTag, Note, ChecklistItem
 from notes.routes import notes_bp
+from notes.store_scope import effective_store, require_same_store
 from notes.tag_palette import is_valid_color, pick_fg
 from tw_time import tw_iso
 
@@ -41,25 +42,10 @@ def _tag_to_dict(tag, include_usage=False):
     return d
 
 
-def _effective_store():
-    """super_admin 可帶 ?store=、其他 user 鎖在自己 store"""
-    if current_user.role == 'super_admin':
-        s = request.args.get('store')
-        if s:
-            return s
-    return current_user.store
-
-
-def _require_same_store(tag):
-    eff = _effective_store()
-    if not eff or tag.store != eff:
-        abort(403)
-
-
 @notes_bp.route('/api/tags', methods=['GET'])
 @login_required
 def list_tags():
-    store = _effective_store()
+    store = effective_store()
     if not store:
         return jsonify({'tags': []})
     tags = Tag.query.filter_by(store=store).order_by(Tag.pinned.desc(), Tag.name).all()
@@ -72,7 +58,7 @@ def create_tag():
     data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
     color = (data.get('color') or '').strip()
-    store = _effective_store()
+    store = effective_store()
     if not store:
         return jsonify({'error': '無 store'}), 400
     if not (1 <= len(name) <= 20):
@@ -94,7 +80,7 @@ def update_tag(tag_id):
     t = db.session.get(Tag, tag_id)
     if not t:
         abort(404)
-    _require_same_store(t)
+    require_same_store(t)
     data = request.get_json(silent=True) or {}
     if 'name' in data:
         new_name = (data['name'] or '').strip()
@@ -119,7 +105,7 @@ def pin_tag(tag_id):
     t = db.session.get(Tag, tag_id)
     if not t:
         abort(404)
-    _require_same_store(t)
+    require_same_store(t)
     if t.pinned:
         return jsonify({'tag': _tag_to_dict(t, include_usage=True)})
     pinned_count = Tag.query.filter_by(store=t.store, pinned=True).count()
@@ -136,7 +122,7 @@ def unpin_tag(tag_id):
     t = db.session.get(Tag, tag_id)
     if not t:
         abort(404)
-    _require_same_store(t)
+    require_same_store(t)
     t.pinned = False
     db.session.commit()
     return jsonify({'tag': _tag_to_dict(t, include_usage=True)})
@@ -148,7 +134,7 @@ def delete_tag(tag_id):
     t = db.session.get(Tag, tag_id)
     if not t:
         abort(404)
-    _require_same_store(t)
+    require_same_store(t)
     n_count = NoteTag.query.filter_by(tag_id=t.id).count()
     i_count = ChecklistItemTag.query.filter_by(tag_id=t.id).count()
     db.session.delete(t)  # cascade clears m2m
