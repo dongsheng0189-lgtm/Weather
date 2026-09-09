@@ -116,6 +116,27 @@ def test_note_text_non_string_is_rejected(client, db):
     assert db.session.get(TrackedKeywordHit, hit.id).note_text is None
 
 
+def test_note_text_rejects_overlong_memo(client, db):
+    """備註同樣落在 EncryptedText，DB 端沒有長度限制。比照關鍵字的上限，給一句
+    話到幾句話的合理空間（500 字），超過就 400，不悄悄截斷、也不讓它無界成長。"""
+    _u, _kid, hit = _setup_one_hit(client, db)
+    r = client.put(f'/notes/api/tracking/hits/{hit.id}/note',
+                   json={'text': 'x' * 501})
+    assert r.status_code == 400
+    assert '備註' in r.get_json()['error']
+    from models import TrackedKeywordHit
+    db.session.expire_all()
+    assert db.session.get(TrackedKeywordHit, hit.id).note_text is None
+
+
+def test_note_text_accepts_memo_at_max_len(client, db):
+    """邊界值：剛好 500 字要放行。"""
+    _u, _kid, hit = _setup_one_hit(client, db)
+    r = client.put(f'/notes/api/tracking/hits/{hit.id}/note',
+                   json={'text': 'x' * 500})
+    assert r.status_code == 200
+
+
 def test_exclude_and_restore(client, db):
     u, _kid, hit = _setup_one_hit(client, db)
     from models import TrackedKeywordHit

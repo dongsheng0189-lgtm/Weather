@@ -86,6 +86,35 @@ def test_create_tracking_rejects_blank_keyword(client, db):
     assert '關鍵字' in r.get_json()['error']
 
 
+def test_create_tracking_rejects_overlong_keyword(client, db):
+    """關鍵字落在 EncryptedText，DB 端沒有長度限制，不擋的話使用者想送多長都
+    插得進去。比照 notes/tags.py 的 create_tag（標籤名稱上限 20）：關鍵字通常
+    是人名或短短幾個字的描述，20 字綽綽有餘。
+
+    這裡不能用 TrackedKeyword.query.count() == 0 當「沒有建成」的證據——本檔
+    測試共用同一個 db_session、不做 per-test rollback（同專案慣例），跑在這條
+    測試前面的其他測試早就留下別的資料列，全域計數不會是 0。改成比對這個
+    使用者所在店別的筆數，請求前後不變，才是這裡真正要守的事。"""
+    from models import TrackedKeyword
+    u = _mk_user(db)
+    _login(client, u)
+    before = TrackedKeyword.query.filter_by(store=u.store).count()
+
+    r = client.post('/notes/api/tracking', json={'keyword': 'x' * 21})
+
+    assert r.status_code == 400
+    assert '關鍵字' in r.get_json()['error']
+    assert TrackedKeyword.query.filter_by(store=u.store).count() == before
+
+
+def test_create_tracking_accepts_keyword_at_max_len(client, db):
+    """邊界值：剛好 20 字要放行，不可以連合法輸入都被擋。"""
+    u = _mk_user(db)
+    _login(client, u)
+    r = client.post('/notes/api/tracking', json={'keyword': 'x' * 20})
+    assert r.status_code == 200
+
+
 def test_create_tracking_returns_existing_when_duplicate(client, db):
     """同店同關鍵字不重複建表 —— 直接把既有那張回給前端。
 

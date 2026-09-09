@@ -26,6 +26,13 @@ from tw_time import tw_str
 # 且一張追蹤表只有一個 store 欄位可填，所以實際採用的是 store_scope 這套
 # 「super_admin 可用 ?store= 指定、其他人鎖在自己店」的規則。
 
+# 關鍵字通常是人名或短短幾個字的描述（比照 notes/tags.py 的 create_tag 對
+# 標籤名稱的限制，同樣是 1-20），備註則是一句話到幾句話的評語，給比關鍵字寬鬆
+# 但仍有界的上限。兩者都落在 EncryptedText，DB 端本身沒有長度限制，不擋的話
+# 使用者想送多長都插得進去。
+KEYWORD_MAX_LEN = 20
+MEMO_MAX_LEN = 500
+
 
 def _get_tracked_or_404(kid):
     t = db.session.get(TrackedKeyword, kid)
@@ -127,6 +134,8 @@ def create_tracking():
     keyword = (data.get('keyword') or '').strip()
     if not keyword:
         return jsonify({'error': '關鍵字不可為空'}), 400
+    if len(keyword) > KEYWORD_MAX_LEN:
+        return jsonify({'error': f'關鍵字長度不可超過 {KEYWORD_MAX_LEN}'}), 400
 
     # check-then-insert、無原子性：keyword 是 EncryptedText，DB 端無法對密文
     # 建唯一約束，所以擋不住「兩個人同時對同一關鍵字按下建檔追蹤」——兩邊都
@@ -200,7 +209,10 @@ def set_hit_note(hid):
     text = data.get('text')
     if not isinstance(text, str):
         return jsonify({'error': 'text 必須是字串'}), 400
-    h.note_text = text.strip()
+    text = text.strip()
+    if len(text) > MEMO_MAX_LEN:
+        return jsonify({'error': f'備註長度不可超過 {MEMO_MAX_LEN}'}), 400
+    h.note_text = text
     db.session.commit()
     return jsonify({'note_text': h.note_text})
 
