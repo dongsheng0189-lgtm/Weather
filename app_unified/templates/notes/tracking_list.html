@@ -1,14 +1,65 @@
 {% extends "base.html" %}
 {% block title %}建檔追蹤{% endblock %}
+{% block extra_head %}
+<style>
+.tracking-card { display:flex; align-items:center; gap:.6rem; padding:.8rem 1rem;
+  background:#fff; border:1px solid #e4e4e4; border-radius:8px; margin-bottom:.6rem; }
+.tracking-card h3 { margin:0; font-size:1rem; }
+.tracking-meta { color:#888; font-size:.8rem; }
+.tracking-empty { color:#888; padding:1.2rem; text-align:center; }
+</style>
+{% endblock %}
 {% block content %}
-<div class="toolbar"><h2>建檔追蹤</h2></div>
+<div class="toolbar">
+  <h2>🔎 建檔追蹤</h2>
+  <div style="margin-left:auto;">
+    <a href="{{ url_for('notes.index') }}" class="btn btn-secondary"
+       style="text-decoration:none;">← 回筆記</a>
+  </div>
+</div>
+
 {% if store_error %}
 <p class="error">{{ store_error }}</p>
 {% else %}
-<div class="notes-grid">
-  {% for t in tracking %}
-  <div class="note-card"><h3>{{ t.keyword }}</h3></div>
-  {% endfor %}
+{% if tracking %}
+{% for t in tracking %}
+<div class="tracking-card">
+  <div style="flex:1;">
+    <h3><a href="{{ url_for('notes.tracking_detail_page', kid=t.id) }}"
+           style="text-decoration:none;color:inherit;">{{ t.keyword }}</a></h3>
+    <div class="tracking-meta">
+      {{ t.hit_count }} 筆 · {{ t.created_by_name or '—' }} 於 {{ t.created_at }} 建立
+    </div>
+  </div>
+  <button type="button" class="btn btn-secondary" data-role="del-tracking"
+          data-id="{{ t.id }}" data-keyword="{{ t.keyword }}"
+          style="font-size:.8rem;padding:.3rem .7rem;">刪除</button>
+</div>
+{% endfor %}
+{% else %}
+<div class="tracking-empty">
+  還沒有任何追蹤表。到筆記頁搜尋一個關鍵字，在結果上方按「建檔追蹤」即可建立。
 </div>
 {% endif %}
+{% endif %}
+
+<script>
+document.querySelectorAll('[data-role="del-tracking"]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    // 刻意不用 confirm() —— 瀏覽器 modal 會卡住自動化工具；改用行內二次確認
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = '再按一次確認刪除';
+      setTimeout(function () {
+        btn.dataset.armed = '0';
+        btn.textContent = '刪除';
+      }, 4000);
+      return;
+    }
+    fetch('/notes/api/tracking/' + btn.dataset.id, {method: 'DELETE'})
+      .then(function (r) { return r.json(); })
+      .then(function () { location.reload(); });
+  });
+});
+</script>
 {% endblock %}

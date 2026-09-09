@@ -12,7 +12,7 @@ from flask import request, jsonify, abort, render_template
 from flask_login import login_required, current_user
 
 from extensions import db
-from models import TrackedKeyword, TrackedKeywordHit
+from models import TrackedKeyword, TrackedKeywordHit, Note, ChecklistItem
 from notes.routes import notes_bp
 from notes.store_scope import effective_store, require_same_store
 from notes.tracking_match import normalize
@@ -204,11 +204,66 @@ def tracking_list_page():
                            current_store=store)
 
 
+def _detail_rows(tracked):
+    """組出詳細頁的每一列。
+
+    每一列是**參照**：文字一律即時從原始 Note / ChecklistItem 讀，不是命中當下的
+    複本 —— 原文被修正後追蹤表要跟著變，否則會出現「追蹤表寫著遲到 10 分鐘、原始
+    項目已更正成 5 分鐘」的落差。
+
+    過濾兩層：已剔除的（excluded_at 有值）、以及原始資料已軟刪的。後者必須在
+    顯示時再檢查一次 —— 命中列是掃描當下寫的，資料可能之後才被刪；而命中列刻意
+    不主動清除（原始資料可能只是暫時被刪、24 小時內可還原）。
+    """
+    hits = TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).filter(
+        TrackedKeywordHit.excluded_at.is_(None)).all()
+    note_ids = [h.target_id for h in hits if h.target_type == 'note']
+    item_ids = [h.target_id for h in hits if h.target_type == 'item']
+
+    notes = {n.id: n for n in Note.query.filter(
+        Note.id.in_(note_ids), Note.deleted_at.is_(None)).all()} if note_ids else {}
+    items = {i.id: i for i in ChecklistItem.query.filter(
+        ChecklistItem.id.in_(item_ids),
+        ChecklistItem.deleted_at.is_(None)).all()} if item_ids else {}
+
+    rows = []
+    for h in hits:
+        if h.target_type == 'note':
+            n = notes.get(h.target_id)
+            if not n:
+                continue          # 原文已軟刪或已硬刪 → 這一列自然消失
+            title, text, note_id, when = n.title, n.content, n.id, n.updated_at
+        else:
+            i = items.get(h.target_id)
+            if not i or not i.note or i.note.deleted_at is not None:
+                continue
+            title, text, note_id, when = i.note.title, i.text, i.note_id, i.updated_at
+        rows.append({
+            'hit_id': h.id,
+            'target_type': h.target_type,
+            'note_id': note_id,
+            'title': title or '（未命名）',
+            'text': text or '',
+            'memo': h.note_text or '',
+            'when': tw_str(when, fmt='%m/%d'),
+            'sort_key': when,
+        })
+    rows.sort(key=lambda r: r['sort_key'], reverse=True)
+    for r in rows:
+        r.pop('sort_key')
+    return rows
+
+
 @notes_bp.route('/tracking/<int:kid>')
 @login_required
 def tracking_detail_page(kid):
     t = _get_tracked_or_404(kid)
     scan_tracked_keyword(t)   # 每次開啟跑一次增量
+    # scanned_through 要在掃描跑完之後才讀 —— 增量掃描完全無聲，使用者看不出
+    # 系統剛剛有沒有檢查過新命中，「最後更新」就是唯一能證明「這次開頁確實
+    # 掃過」的線索。scan_tracked_keyword commit 後這個屬性會過期重讀，這裡讀到
+    # 的就是這次掃描寫入的水位，不是掃描前的舊值。
     return render_template('notes/tracking_detail.html',
                            tracked=_tracked_to_dict(t),
-                           rows=[])
+                           rows=_detail_rows(t),
+                           last_updated=tw_str(t.scanned_through, fmt='%m/%d %H:%M'))

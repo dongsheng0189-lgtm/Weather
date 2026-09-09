@@ -1,5 +1,80 @@
 {% extends "base.html" %}
 {% block title %}{{ tracked.keyword }} 建檔追蹤{% endblock %}
+{% block extra_head %}
+<style>
+/* 備註放在每一列最上面：追蹤的重點是「我對這件事做了什麼」，那比原始文字更需要
+   第一眼看到（規格明確指定）。 */
+.hit-card { background:#fff; border:1px solid #e4e4e4; border-radius:8px;
+  padding:.8rem 1rem; margin-bottom:.6rem; }
+.hit-memo { display:block; width:100%; box-sizing:border-box; border:1px dashed #d7c48a;
+  background:#fffdf3; border-radius:6px; padding:.4rem .6rem; font-size:.88rem;
+  margin-bottom:.5rem; resize:vertical; min-height:2.2rem; }
+.hit-meta { color:#888; font-size:.8rem; margin-bottom:.25rem; }
+.hit-text { font-size:.95rem; white-space:pre-wrap; word-break:break-word; }
+.hit-actions { display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem; }
+.tracking-empty { color:#888; padding:1.2rem; text-align:center; }
+.tracking-last-updated { color:#999; font-size:.78rem; margin:-.4rem 0 .8rem; }
+</style>
+{% endblock %}
 {% block content %}
-<div class="toolbar"><h2>{{ tracked.keyword }} 建檔追蹤</h2></div>
+<div class="toolbar">
+  <h2>{{ tracked.keyword }} 建檔追蹤</h2>
+  <div style="margin-left:auto;">
+    <a href="{{ url_for('notes.tracking_list_page') }}" class="btn btn-secondary"
+       style="text-decoration:none;">← 所有追蹤表</a>
+  </div>
+</div>
+<div class="tracking-last-updated">最後更新：{{ last_updated }}</div>
+
+{% if rows %}
+{% for r in rows %}
+<div class="hit-card" data-hit="{{ r.hit_id }}">
+  <textarea class="hit-memo" data-role="memo" data-hit="{{ r.hit_id }}"
+            placeholder="備註…">{{ r.memo }}</textarea>
+  <div class="hit-meta">
+    {{ r.when }} · {{ r.title }}{% if r.target_type == 'item' %} · 項目{% endif %}
+  </div>
+  <div class="hit-text">{{ r.text }}</div>
+  <div class="hit-actions">
+    <button type="button" class="btn btn-secondary" data-role="exclude"
+            data-hit="{{ r.hit_id }}"
+            style="font-size:.8rem;padding:.3rem .7rem;">不相關</button>
+    <a class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;text-decoration:none;"
+       href="{{ url_for('notes.edit_note', note_id=r.note_id) }}">→ 原文</a>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="tracking-empty">目前沒有命中的資料。</div>
+{% endif %}
+
+<script>
+// 備註：失焦才送，避免每打一個字就打一次 API
+document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
+  var initial = ta.value;
+  ta.addEventListener('blur', function () {
+    if (ta.value === initial) return;
+    fetch('/notes/api/tracking/hits/' + ta.dataset.hit + '/note', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: ta.value})
+    }).then(function (r) { return r.json(); })
+      .then(function (d) { initial = d.note_text; });
+  });
+});
+
+document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({excluded: true})
+    }).then(function (r) { return r.json(); })
+      .then(function () {
+        var card = document.querySelector('.hit-card[data-hit="' + btn.dataset.hit + '"]');
+        if (card) card.remove();
+      });
+  });
+});
+</script>
 {% endblock %}
