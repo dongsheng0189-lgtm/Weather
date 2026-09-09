@@ -543,3 +543,90 @@ class ChecklistItemTag(db.Model):
     tagged_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     tagged_by_name = db.Column(EncryptedText, nullable=True)
     tagged_at = db.Column(db.DateTime, nullable=True)
+
+
+# ─────────────────────────────────────────────────────────────
+# 建檔追蹤（2026-09-09）
+#
+# 一張 TrackedKeyword = 一個持續累積的關鍵字追蹤表；TrackedKeywordHit = 一筆命中。
+# 命中列存的是**指向原始資料的參照**（target_type + target_id），不是複本 ——
+# 複本會與原文脫節（原始項目改成「遲到 5 分鐘」，追蹤表還寫著 10 分鐘），對一個
+# 要當依據的表來說是致命的。
+# ─────────────────────────────────────────────────────────────
+
+class TrackedKeyword(db.Model):
+    __tablename__ = "tracked_keywords"
+
+    id = db.Column(db.Integer, primary_key=True)
+    # Text 而非 String(8)：要跟它比對的 Note.store 就是 Text，沒有長度上限。
+    # Tag.store 也是 String(8)（是這裡的既有前例，早就存在、先不動），但這張表
+    # 尚未部署到 prod，改起來沒有遷移成本 —— 用 String(8) 的話，admin/routes.py
+    # 建店時沒做長度驗證，一個 9 個字的店名在本機 SQLite 插得進去，到 prod
+    # PostgreSQL 會直接是 StringDataRightTruncation（500）。
+    store = db.Column(db.Text, nullable=False, index=True)
+    # 追蹤的關鍵字通常是員工姓名 → 個資，必須加密
+    keyword = db.Column(EncryptedText, nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_name = db.Column(EncryptedText, nullable=True)  # 快照，比照 ChecklistItem.checked_by_name
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    # 增量水位：上次掃描「開始」的時刻。下次只掃 updated_at > scanned_through 的資料。
+    # 存的是掃描開始而非結束的時間，這樣掃描期間被改動的資料下一輪還會再掃到。
+    # ⚠️ 這條路徑依賴的完整規則是「任何會改變一筆資料是否落在掃描範圍內的操作，
+    # 都要 bump updated_at」——不只是文字被改，也包含 deleted_at 被清空（還原）
+    # 這種讓一筆資料從「被排除」變回「該被掃到」的狀態改變。日後若有人讓某個
+    # 這類操作停止更新 updated_at，這裡就會靜默漏掃（見 notes/routes.py 的
+    # restore_note / restore_item 與 tests/test_tracking_scan.py 的守門測試）。
+    scanned_through = db.Column(db.DateTime, nullable=True)
+
+    hits = db.relationship("TrackedKeywordHit", backref="tracked", lazy="select",
+                           cascade="all, delete-orphan")
+
+
+class TrackedKeywordHit(db.Model):
+    __tablename__ = "tracked_keyword_hits"
+
+    id = db.Column(db.Integer, primary_key=True)
+    keyword_id = db.Column(db.Integer, db.ForeignKey("tracked_keywords.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    # 'note' | 'item'。指向兩張不同的表，所以 target_id 不能是真的 FK。
+    target_type = db.Column(db.String(8), nullable=False)
+    target_id = db.Column(db.Integer, nullable=False)
+    # 使用者對這一筆寫的備註，顯示在該列最上面。含對人的評語 → 加密
+    note_text = db.Column(EncryptedText, nullable=True)
+    # 「不相關」的剔除紀錄。用軟刪除而非真刪：真刪的話下一輪增量掃描會再把它抓回來
+    excluded_at = db.Column(db.DateTime, nullable=True)
+    excluded_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    excluded_by_name = db.Column(EncryptedText, nullable=True)
+    matched_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("keyword_id", "target_type", "target_id",
+                            name="uq_tracked_hit_target"),
+    )
+
+    memo_logs = db.relationship("TrackedKeywordMemoLog", backref="hit", lazy="select",
+                                cascade="all, delete-orphan")
+
+
+class TrackedKeywordMemoLog(db.Model):
+    """備註（TrackedKeywordHit.note_text）的異動紀錄，append-only。
+
+    備註本身整店共用、任何人都能覆蓋別人寫的，且沒有版本欄位 —— 這張表補的
+    正是這個洞：只要文字**真的變了**就留一筆「誰、何時、舊文字 → 新文字」
+    （見 notes/tracking.py 的 set_hit_note），讓事後被覆蓋／清空的內容可以
+    回溯，而不是真的憑空消失。只記寫入動作，不記渲染／讀取。
+
+    獨立成一張表而非在 TrackedKeywordHit 上加欄位：log 是歷史，本來就該
+    append-only、跟它描述的那一列分開放，一列只能存「最新」一份，存不下歷史。
+    """
+    __tablename__ = "tracked_keyword_memo_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    hit_id = db.Column(db.Integer, db.ForeignKey("tracked_keyword_hits.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    # 異動前後的文字都是對人的書面評語 → 個資，兩欄都要加密
+    old_text = db.Column(EncryptedText, nullable=True)
+    new_text = db.Column(EncryptedText, nullable=True)
+    changed_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    changed_by_name = db.Column(EncryptedText, nullable=True)  # 快照，帳號被刪也留得住是誰改的
+    changed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)

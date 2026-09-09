@@ -104,6 +104,8 @@
     <a href="{{ url_for('notes.announcement_new_page') }}" class="btn btn-primary"
        style="background:#f39c12;text-decoration:none;display:inline-block;">📢 新增公告</a>
     {% endif %}
+    <a href="{{ url_for('notes.tracking_list_page') }}" class="btn btn-secondary"
+       style="text-decoration:none;display:inline-block;">🔎 建檔追蹤</a>
   </div>
 </div>
 
@@ -280,6 +282,131 @@
     {% endif %}
   </div>
 </section>
+
+{# 建檔追蹤入口：只在關鍵字搜尋時出現。搜尋是暫時的、按下這顆才建立持續累積的表 —— #}
+{# 這個分界是刻意的，兩者都是「輸入關鍵字、列出命中」，很容易被混為一談。 #}
+{% if current_keyword %}
+{# tracking_scoped 要跟 routes.py index() 真正的店別範圍條件一致，不能只看
+   current_store 是不是空字串。index() 對 super_admin 的規則是：
+   store_filter in stores（stores = _visible_stores()）才精確過濾單一店，
+   否則（沒帶 / 帶到隱藏店 / 帶到根本不存在的店名）一律落到「全部未隱藏店」
+   的多店檢視。所以「畫面是不是真的限定在單一店」要用同一個 in stores 判斷，
+   不能只測 current_store 有沒有值 —— 光有值不代表那個店名真的被拿來過濾，
+   ?store=<隱藏店或亂打的店名> 一樣會落到多店檢視，卻仍然「看起來」像有指定
+   店別。用錯的話，create_tracking 會用那個查無此店的名字建表，畫面上找不到
+   任何一筆對得上的結果，是同一種靜默建錯店，只是從另一個門進來。
+   非 super_admin（含一般 admin）一律鎖在自己店 —— effective_store() 完全
+   忽略 query string —— 所以永遠視為「已限定單一店別」，跟改動前的行為一致。 #}
+{% set tracking_scoped = (not current_user.is_super_admin()) or (current_store in stores) %}
+<div style="display:flex;align-items:center;gap:.6rem;margin:.6rem 0;padding:.6rem .8rem;
+            background:#f6f9ff;border:1px solid #d6e4ff;border-radius:8px;flex-wrap:wrap;">
+  <span style="font-size:.85rem;color:#555;">「{{ current_keyword }}」</span>
+  {% if not tracking_scoped %}
+  {# 沒限定單一店別：不管 tracking_existing_id 是什麼都不能信任。
+     find_tracking_for_keyword() 內部一律呼叫 effective_store()，沒帶 ?store=
+     的 super_admin 會撞上它文件明講、不可混為一談的兩種結果之一：
+     (a) current_user.store 有值 → effective_store() 悄悄落到那個店，
+         find_tracking_for_keyword 用它去查，查出來的 id 跟畫面上橫跨多店的
+         搜尋結果完全對不上，是靜默的建/開錯店；
+     (b) current_user.store 是 None → effective_store() 回 None，
+         find_tracking_for_keyword 直接回 None（docstring 的「根本解析不出
+         店別」那個 None，不是「本店沒這個關鍵字的表」那個 None）——這裡
+         如果誤把它當「還沒追蹤過」，就會在使用者按下建立時才收到伺服器的
+         400，而不是一開始就講清楚「先選店」。
+     兩種結果都不能拿來決定要顯示開啟還是建立，所以這個分支排第一，直接
+     略過 tracking_existing_id、只給提示，逼使用者先選店。這個分支必須排
+     在最前面：先判斷「這個檢視有沒有限定店別」，再判斷「該開還是該建」，
+     兩件事不能顛倒順序（顛倒就是這次要修的原始缺陷）。 #}
+  <span style="font-size:.82rem;color:#c0392b;">這個檢視橫跨多間店，請先在上方選一間店別，才能建立追蹤表</span>
+  {% elif tracking_existing_id %}
+  {# 已限定單一店別、且該店已有這個關鍵字的追蹤表：tracking_existing_id 是
+     find_tracking_for_keyword() 用跟這個頁面同一個 effective_store() 查出
+     來的，帶上 current_store 只是讓 super_admin 落地時 detail 頁的
+     effective_store() 算出同一個店，不會因為少了 ?store= 而 403。 #}
+  <a href="{{ url_for('notes.tracking_detail_page', kid=tracking_existing_id, store=current_store or None) }}"
+     class="btn btn-primary" style="font-size:.82rem;padding:.3rem .8rem;text-decoration:none;">
+    開啟追蹤表
+  </a>
+  {% else %}
+  <button type="button" class="btn btn-primary" data-role="create-tracking"
+          data-keyword="{{ current_keyword }}"
+          style="font-size:.82rem;padding:.3rem .8rem;">建檔追蹤</button>
+  <span style="font-size:.78rem;color:#888;">建立後會持續累積，可寫備註、剔除不相關的</span>
+  {# 這段 <script> 刻意放在同一個分支裡（跟按鈕同一個條件），不是放在
+     {% if current_keyword %} 外層之後 —— 按鈕不存在的兩種情況（已追蹤 /
+     未限定店別）若腳本仍整段輸出，document.querySelector 選到的
+     [data-role="create-tracking"] 這串「JS 原始碼字面值」會被誤判成「頁面上
+     真的有這顆按鈕」（純文字比對分不出這是程式碼還是 DOM），讓「不該有建立
+     按鈕」的守門測試偽陽性失效。放進同一個分支也順便滿足腳本要在它查詢的
+     元素之後才執行的要求 —— 兩者本來就在同一段輸出裡，順序自然成立。 #}
+  <script>
+  (function () {
+    var btn = document.querySelector('[data-role="create-tracking"]');
+    if (!btn) return;
+    // 刻意不叫 CURRENT_STORE —— 這個檔案後面 scripts 區塊還有一個
+    // window.CURRENT_STORE（給標籤 API 用，沒有值時 fallback current_user.store）。
+    // 這裡是同名不同義的區域變數：只代表「這個檢視有沒有限定到單一店」，沒有
+    // fallback。兩者目前互不干擾是因為這段被包在 IIFE 裡、作用域不外洩，但
+    // 同名很容易在日後搬動程式碼時被誤合併，所以另外取名。
+    var SCOPED_STORE = {{ (current_store or '')|tojson }};
+    var _createUrl = '/notes/api/tracking';
+    if (SCOPED_STORE) _createUrl += '?store=' + encodeURIComponent(SCOPED_STORE);
+    // 失敗訊息的計時器 id 存在閉包變數裡：使用者常在訊息顯示的當下就重按一次
+    // （訊息本身就是在邀請「再試一次」）。若不取消，上一次留下的計時器會在
+    // 全歷史掃描還跑著的幾秒鐘內把 disabled 按鈕的文字從「建立中…」蓋回
+    // 「建檔追蹤」—— 按鈕仍是 disabled、實際上仍在等 fetch，但看起來像一顆
+    // 完全沒反應過的閒置按鈕，正是規格明文禁止的「看起來像死掉」。
+    // 同一套防呆見 tracking_list.html 的 del-tracking 按鈕（armTimer）。
+    var failTimer = null;
+    btn.addEventListener('click', function () {
+      clearTimeout(failTimer);
+      btn.disabled = true;
+      btn.textContent = '建立中…';   // 第一次是完整掃描，會花幾秒
+      fetch(_createUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({keyword: btn.dataset.keyword})
+      }).then(function (r) {
+        // 失敗必須「看得見」——r.json() 對非 2xx 回應一樣可能安靜地 resolve，
+        // 使用者按下去以為在建立，其實什麼都沒發生。理由與 tracking_detail.html /
+        // tracking_list.html 的 fetch 一致，這裡沿用同一套模式，不用 alert()
+        // （瀏覽器 modal 會卡住自動化工具）。
+        if (r.ok) return r.json();
+        // 4xx（例如店別解析不出來）是使用者可以馬上處理的明確原因，retry
+        // 不會自己好——把伺服器訊息秀出來取代空泛的「再試一次」。5xx / 網路
+        // 錯誤沒有這種明確原因，仍走下面 catch 的通用重試訊息。r.json() 對
+        // 非 JSON 回應（例如 500 的 HTML 錯誤頁）可能丟例外，用 catch 接住
+        // fallback 成 {}，不讓這裡自己再拋一次沒處理的例外。
+        var isClientError = r.status >= 400 && r.status < 500;
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          var err = new Error('create failed: ' + r.status);
+          if (isClientError && d && d.error) err.userMessage = d.error;
+          throw err;
+        });
+      }).then(function (d) {
+        var _detailUrl = '/notes/tracking/' + d.id;
+        if (SCOPED_STORE) _detailUrl += '?store=' + encodeURIComponent(SCOPED_STORE);
+        location.href = _detailUrl;
+      }).catch(function (e) {
+        btn.disabled = false;
+        var serverMsg = e && e.userMessage;
+        btn.textContent = serverMsg || '建立失敗，再試一次';
+        // 4xx 的伺服器訊息（例如「找不到店別，請先選擇店別」）是明確、可行動
+        // 的原因 —— retry 不會自己好，重按只會再收到同一個 400。2.5 秒後把
+        // 文字蓋回「建檔追蹤」會讓這個訊息看起來只是曇花一現的雜訊，使用者
+        // 沒看清楚就消失、又變回一顆正常按鈕，反而像是「已經處理好了」。
+        // 只有泛用重試訊息（5xx / 網路錯誤，沒有 userMessage）才需要在使用者
+        // 沒動作時自動回復，因為那種情況「再試一次」本身就是唯一可行動作。
+        if (!serverMsg) {
+          failTimer = setTimeout(function () { btn.textContent = '建檔追蹤'; }, 2500);
+        }
+      });
+    });
+  })();
+  </script>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if notes %}
 <div class="notes-grid">

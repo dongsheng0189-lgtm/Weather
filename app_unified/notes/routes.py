@@ -247,14 +247,24 @@ def soft_delete_item(item, user_id):
 
 
 def restore_note(note):
-    """還原 note。子 item 自動跟著恢復 (沒個別 mark)。"""
+    """還原 note。子 item 自動跟著恢復 (沒個別 mark)。
+
+    必須同時 bump updated_at —— 建檔追蹤的增量掃描只看 `updated_at >
+    scanned_through`。還原只改了 deleted_at，若 updated_at 沒跟著動，這筆資料
+    在被刪掉的當下若已經跑過一次掃描，就永遠不會再落進下一輪的掃描窗口：
+    對追蹤表來說跟這筆資料從未存在一樣，而且是靜默發生，找不到任何錯誤訊息。
+    """
     note.deleted_at = None
     note.deleted_by = None
+    note.updated_at = datetime.utcnow()
 
 
 def restore_item(item):
+    """還原 item。同 restore_note，必須 bump updated_at 才能被建檔追蹤的增量
+    掃描重新看見——理由見 restore_note 的 docstring。"""
     item.deleted_at = None
     item.deleted_by = None
+    item.updated_at = datetime.utcnow()
 
 
 def _get_business_day_range(offset_days=0):
@@ -434,6 +444,7 @@ def index():
     # 三互斥模式：keyword > tag > combined
     keyword_mode = False
     active_filter = None
+    tracking_existing_id = None
     if keyword:
         active_filter = 'keyword'
         keyword_mode = True
@@ -469,6 +480,11 @@ def index():
         kl = keyword.lower()
         filtered = [n for n in all_rows if _note_matches(n, kl)]
         pagination = _PyPagination(filtered, page=page, per_page=per_page)
+        # 本店是否已有這個關鍵字的追蹤表 → 決定按鈕顯示「建檔追蹤」還是「開啟追蹤表」。
+        # 函式內 import：notes.tracking 會 import notes.routes 的 notes_bp，模組層級
+        # import 會形成循環（與本檔其他 deferred import 同一個理由）。
+        from notes.tracking import find_tracking_for_keyword
+        tracking_existing_id = find_tracking_for_keyword(keyword)
     else:
         pagination = query.order_by(sort_order).paginate(page=page, per_page=per_page, error_out=False)
 
@@ -523,6 +539,7 @@ def index():
                            current_category=category_filter,
                            current_shift=shift_filter,
                            current_keyword=keyword,
+                           tracking_existing_id=tracking_existing_id,
                            current_tag=tag_id,
                            current_sort=current_sort,
                            active_filter=active_filter,

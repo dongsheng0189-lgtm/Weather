@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}建檔追蹤{% endblock %}
+{% block extra_head %}
+<style>
+.tracking-card { display:flex; align-items:center; gap:.6rem; padding:.8rem 1rem;
+  background:#fff; border:1px solid #e4e4e4; border-radius:8px; margin-bottom:.6rem; }
+.tracking-card h3 { margin:0; font-size:1rem; }
+.tracking-meta { color:#888; font-size:.8rem; }
+.tracking-empty { color:#888; padding:1.2rem; text-align:center; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h2>🔎 建檔追蹤</h2>
+  <div style="margin-left:auto;">
+    <a href="{{ url_for('notes.index') }}" class="btn btn-secondary"
+       style="text-decoration:none;">← 回筆記</a>
+  </div>
+</div>
+
+{% if store_error %}
+<p class="error">{{ store_error }}</p>
+{% else %}
+{% if tracking %}
+{% for t in tracking %}
+<div class="tracking-card">
+  <div style="flex:1;">
+    <h3><a href="{{ url_for('notes.tracking_detail_page', kid=t.id, store=current_store or None) }}"
+           style="text-decoration:none;color:inherit;">{{ t.keyword }}</a></h3>
+    <div class="tracking-meta">
+      {{ t.hit_count }} 筆 · {{ t.created_by_name or '—' }} 於 {{ t.created_at }} 建立
+    </div>
+  </div>
+  <button type="button" class="btn btn-secondary" data-role="del-tracking"
+          data-id="{{ t.id }}"
+          style="font-size:.8rem;padding:.3rem .7rem;">刪除</button>
+</div>
+{% endfor %}
+{% else %}
+<div class="tracking-empty">
+  還沒有任何追蹤表。到筆記頁搜尋一個關鍵字，在結果上方按「建檔追蹤」即可建立。
+</div>
+{% endif %}
+{% endif %}
+
+<script>
+// super_admin 的 effective_store() 只看 ?store=，不會自動 fallback 成畫面上
+// 這張表實際所在的店（那正是 create/detail 分別各自修過一次的同一個坑，見
+// index.html 的 SCOPED_STORE 與 tracking_detail_page 連結的說明）。這裡是
+// 頁級的單一 store 範圍（不像 index.html 一頁橫跨多店），所以只需要一個
+// 全域常數，不必逐列各自帶。
+var SCOPED_STORE = {{ (current_store or '')|tojson }};
+document.querySelectorAll('[data-role="del-tracking"]').forEach(function (btn) {
+  var armTimer = null;
+  btn.addEventListener('click', function () {
+    // 刻意不用 confirm() —— 瀏覽器 modal 會卡住自動化工具；改用行內二次確認
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = '再按一次確認刪除';
+      // 計時器 id 存在閉包變數裡，失敗訊息要顯示時得先取消它 —— 否則若
+      // fetch 恰好在這 4 秒內失敗，這個「恢復成『刪除』」的計時器會緊接著
+      // 把失敗訊息蓋掉，使用者幾乎看不到就消失了。
+      armTimer = setTimeout(function () {
+        btn.dataset.armed = '0';
+        btn.textContent = '刪除';
+      }, 4000);
+      return;
+    }
+    var delUrl = '/notes/api/tracking/' + btn.dataset.id;
+    if (SCOPED_STORE) delUrl += '?store=' + encodeURIComponent(SCOPED_STORE);
+    fetch(delUrl, {method: 'DELETE'})
+      .then(function (r) {
+        if (!r.ok) throw new Error('delete failed: ' + r.status);
+        return r.json();
+      })
+      .then(function () { location.reload(); })
+      .catch(function () {
+        // 沒有遺失資料（這張表還在），輕量提示即可：解除已按一次的確認狀態、
+        // 換字提醒失敗，不留持久標記。先清掉「再按一次確認刪除」那個尚未
+        // 觸發的計時器，不然它幾乎立刻就會把這句失敗訊息蓋回「刪除」。
+        clearTimeout(armTimer);
+        btn.dataset.armed = '0';
+        btn.textContent = '刪除失敗，再試一次';
+        setTimeout(function () { btn.textContent = '刪除'; }, 2500);
+      });
+  });
+});
+</script>
+{% endblock %}

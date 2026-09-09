@@ -83,21 +83,30 @@
 
   var FILTER_KEY = 'notes_filter_panel_open';
 
+  /* 進階篩選面板要不要展開。抽成純函式是為了能被測試實際執行 ——
+     這裡壞掉的是「判斷順序」，原始碼字串比對驗不到。
+
+     ⚠️ 使用者明確收起來的選擇（stored === '0'）優先於 activeCount。
+     舊版把 activeCount 排在第一順位，結果：只要 localStorage 存過
+     notes_sort='created'，頁首那段 redirect script 每次載入都會把 ?sort=created
+     補回 URL，active count 就永遠 >= 1、永遠強制展開，使用者收起來的動作每次
+     都被蓋掉。2026-09-09 現場回報「關起來後滑掉重開還是打開的」就是這條。
+
+     訊號沒有因此消失：橫幅標題仍然顯示 (n) 告訴你有幾個篩選在作用中，
+     只是不再硬把面板撐開。 */
+  function decideFilterExpanded(activeCount, stored) {
+    if (stored === '0') return false;   // 明確收起來 → 尊重，即使有 active filter
+    if (activeCount > 0) return true;   // 沒表達過意見 + 有篩選在作用 → 展開
+    return stored === '1';              // '1' → 展開；沒設過 → 摺疊
+  }
+
   function initFilterSection() {
     var section = document.querySelector('.collapsible[data-section="filters"]');
     if (!section) return;
     var activeCount = parseInt(section.getAttribute('data-active-count') || '0', 10);
     var stored;
     try { stored = localStorage.getItem(FILTER_KEY); } catch (e) { stored = null; }
-    var shouldExpand;
-    if (activeCount > 0) {
-      shouldExpand = true;  // URL 有 active filter → 強制展開
-    } else if (stored === '1') {
-      shouldExpand = true;
-    } else {
-      shouldExpand = false;  // '0' 或沒設過 → 摺疊
-    }
-    setSectionExpanded(section, shouldExpand);
+    setSectionExpanded(section, decideFilterExpanded(activeCount, stored));
     var bar = section.querySelector('.collapsible-bar[data-role="section-bar"]');
     if (bar) {
       bar.addEventListener('click', function() {

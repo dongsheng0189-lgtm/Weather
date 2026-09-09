@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}{{ tracked.keyword }} 建檔追蹤{% endblock %}
+{% block extra_head %}
+<style>
+/* 備註放在每一列最上面：追蹤的重點是「我對這件事做了什麼」，那比原始文字更需要
+   第一眼看到（規格明確指定）。 */
+.hit-card { background:#fff; border:1px solid #e4e4e4; border-radius:8px;
+  padding:.8rem 1rem; margin-bottom:.6rem; }
+.hit-memo { display:block; width:100%; box-sizing:border-box; border:1px dashed #d7c48a;
+  background:#fffdf3; border-radius:6px; padding:.4rem .6rem; font-size:.88rem;
+  margin-bottom:.15rem; resize:vertical; min-height:2.2rem; }
+/* 存檔失敗要「看得見」，不能跟成功長得一模一樣 —— 失敗代表這次寫入根本沒
+   送到伺服器，TrackedKeywordMemoLog 只記真的落地的異動，救不了一次沒送出去
+   的請求；一旦誤以為存了、其實沒存，畫面上打好的字關掉分頁就真的沒了
+   （見這支路由的 docstring）。 */
+.hit-memo.save-failed { border-color:#d33; background:#fff5f5; }
+.hit-memo-hint { display:none; color:#d33; font-size:.76rem; margin:0 0 .5rem; }
+.hit-memo-hint.show { display:block; }
+/* 誰、什麼時候最後改過這則備註——跟頁首「最後更新」同一套不張揚樣式（灰、
+   小字），只給看得到、不做完整歷史檢視（那份紀錄本身已經在
+   TrackedKeywordMemoLog，需要時再往上蓋 UI）。 */
+.hit-memo-meta { color:#999; font-size:.76rem; margin:0 0 .4rem; }
+.hit-meta { color:#888; font-size:.8rem; margin-bottom:.25rem; }
+.hit-text-wrap { position:relative; max-height:6.5rem; overflow:hidden; }
+.hit-text-wrap.is-clamped::after { content:''; position:absolute; left:0; right:0;
+  bottom:0; height:1.8rem; pointer-events:none;
+  background:linear-gradient(rgba(255,255,255,0), #fff); }
+.hit-text { font-size:.95rem; white-space:pre-wrap; word-break:break-word; }
+.hit-actions { display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem; }
+.tracking-empty { color:#888; padding:1.2rem; text-align:center; }
+.tracking-last-updated { color:#999; font-size:.78rem; margin:-.4rem 0 .8rem; }
+/* 已剔除區塊：預設收合，跟主清單明顯區分開（灰底、無白卡片陰影），
+   避免使用者把「已經判定不相關」的東西誤認成還在追蹤中的資料。 */
+.tracking-excluded { margin-top:1.2rem; }
+.tracking-excluded summary { cursor:pointer; font-size:.85rem; color:#666;
+  padding:.4rem 0; }
+.excluded-card { display:flex; align-items:center; gap:.6rem;
+  background:#f4f4f4; border:1px solid #e0e0e0; border-radius:8px;
+  padding:.6rem .8rem; margin-bottom:.5rem; }
+.excluded-meta { flex:1; font-size:.82rem; color:#777; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h2>{{ tracked.keyword }} 建檔追蹤</h2>
+  <div style="margin-left:auto;">
+    <a href="{{ url_for('notes.tracking_list_page') }}" class="btn btn-secondary"
+       style="text-decoration:none;">← 所有追蹤表</a>
+  </div>
+</div>
+<div class="tracking-last-updated">最後更新：{{ last_updated }}</div>
+
+{% if rows %}
+{% for r in rows %}
+<div class="hit-card" data-hit="{{ r.hit_id }}">
+  <textarea class="hit-memo" data-role="memo" data-hit="{{ r.hit_id }}"
+            placeholder="備註…（最多 {{ memo_max_len }} 字）"
+            maxlength="{{ memo_max_len }}">{{ r.memo }}</textarea>
+  <div class="hit-memo-hint" data-role="memo-hint">未儲存，請重試</div>
+  {% if r.memo_edited_by %}
+  <div class="hit-memo-meta">{{ r.memo_edited_by }} 於 {{ r.memo_edited_at }} 最後編輯</div>
+  {% endif %}
+  <div class="hit-meta">
+    {{ r.when }} · {{ r.title }}{% if r.target_type == 'item' %} · 項目{% endif %}
+  </div>
+  <div class="hit-text-wrap"><div class="hit-text">{{ r.text }}</div></div>
+  <div class="hit-actions">
+    <button type="button" class="btn btn-secondary" data-role="exclude"
+            data-hit="{{ r.hit_id }}"
+            style="font-size:.8rem;padding:.3rem .7rem;">不相關</button>
+    <a class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;text-decoration:none;"
+       href="{{ url_for('notes.edit_note', note_id=r.note_id) }}">→ 原文</a>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="tracking-empty">目前沒有命中的資料。</div>
+{% endif %}
+
+{% if excluded_rows %}
+{# 這個標籤原生就有收合行為，不需要另外寫展開/收合的 JS —— 「不相關」是
+   一鍵、整店共用、事後不主動提示的動作，這個區塊預設收合是刻意的：平常
+   不該佔用版面，但一旦有人要核對「這筆是誰、什麼時候判定不相關的」，
+   點開就在，不必離開這一頁去別的地方找。 #}
+<details class="tracking-excluded">
+  <summary>已剔除 ({{ excluded_rows|length }})</summary>
+  {% for r in excluded_rows %}
+  <div class="excluded-card" data-hit="{{ r.hit_id }}">
+    <div class="excluded-meta">
+      {{ r.title }}{% if r.target_type == 'item' %} · 項目{% endif %} ·
+      {{ r.excluded_by_name }} 於 {{ r.excluded_at }} 剔除
+    </div>
+    <button type="button" class="btn btn-secondary" data-role="restore-exclude"
+            data-hit="{{ r.hit_id }}"
+            style="font-size:.8rem;padding:.3rem .7rem;">還原</button>
+  </div>
+  {% endfor %}
+</details>
+{% endif %}
+
+<script>
+// 撐開超長原文超過一定高度時才加淡出遮罩，短文不加（避免短文也被裁到看起來
+// 怪怪的）。
+//
+// 量兩次：inline（parse 當下）跟 window 的 load 事件都跑一次。網頁字型在
+// parse 當下多半還沒套用完成，用系統預設字型量出來的 scrollHeight 可能比
+// 字型套用後還矮——原文因此被 CSS 裁切、卻沒被判定成 is-clamped，看起來
+// 像文字就是恰好在那裡結束，而不是被裁掉。load 事件保證字型已經套用完成，
+// 在那時候補量一次可以抓到這種因 reflow 而變高的情形。已經是 is-clamped
+// 的不會被拿掉——這裡只加不減，字型套用後變矮的極端情形不值得為此拆分。
+function applyClampFade() {
+  document.querySelectorAll('.hit-text-wrap').forEach(function (wrap) {
+    if (wrap.scrollHeight > wrap.clientHeight + 1) wrap.classList.add('is-clamped');
+  });
+}
+applyClampFade();
+window.addEventListener('load', applyClampFade);
+
+// 備註：失焦才送，避免每打一個字就打一次 API。
+//
+// 失敗必須「看得見」，不能什麼都不做 —— r.json() 對非 2xx 回應（403/404，或
+// session 過期被 Flask-Login 導回登入頁的 HTML）一樣會 resolve 或 reject 得
+// 很安靜，.then 要嘛拿到垃圾資料、要嘛整條 promise chain 沒有 .catch 接住，
+// 使用者看著打好的字留在畫面上，以為存了，其實沒有。伺服器端現在雖然有
+// TrackedKeywordMemoLog 留下異動紀錄，但那只保得住「真的送達、真的寫進去」
+// 的版本 —— 一次沒送到伺服器的請求，內容仍然只活在這個文字框裡，一旦誤判成
+// 存了就找不回來。
+document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
+  var initial = ta.value;
+  var card = ta.closest('.hit-card');
+  var hint = card ? card.querySelector('[data-role="memo-hint"]') : null;
+  function markFailed() {
+    ta.classList.add('save-failed');
+    if (hint) hint.classList.add('show');
+  }
+  function markOk() {
+    ta.classList.remove('save-failed');
+    if (hint) hint.classList.remove('show');
+  }
+  ta.addEventListener('blur', function () {
+    if (ta.value === initial) return;
+    fetch('/notes/api/tracking/hits/' + ta.dataset.hit + '/note', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: ta.value})
+    }).then(function (r) {
+      if (!r.ok) throw new Error('save failed: ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      initial = d.note_text;
+      markOk();
+    }).catch(function () {
+      markFailed();
+    });
+  });
+});
+
+document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
+  var originalLabel = btn.textContent;
+  var armTimer = null;
+  btn.addEventListener('click', function () {
+    // 「不相關」一按就整店共用地消失、不會自動再出現在主清單，只有翻開下面
+    // 「已剔除」區塊才找得回來 —— 跟一般的顯示切換不同，值得比照
+    // tracking_list.html 的刪除按鈕，加一次行內二次確認再送出。刻意不用
+    // confirm()（瀏覽器 modal 會卡住自動化工具）。
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = '再按一次確認不相關';
+      // 計時器 id 存在閉包變數裡，理由同 tracking_list.html 的 armTimer：
+      // 若 fetch 恰好在這 4 秒內失敗，得先取消這個「恢復原字」的計時器，
+      // 不然它會緊接著把失敗訊息蓋掉。
+      armTimer = setTimeout(function () {
+        btn.dataset.armed = '0';
+        btn.textContent = originalLabel;
+      }, 4000);
+      return;
+    }
+    fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({excluded: true})
+    }).then(function (r) {
+      if (!r.ok) throw new Error('exclude failed: ' + r.status);
+      return r.json();
+    }).then(function () {
+      var card = document.querySelector('.hit-card[data-hit="' + btn.dataset.hit + '"]');
+      if (card) card.remove();
+      // 不即時插入「已剔除」區塊 —— 那裡的內容（標題、剔除者）是伺服器端
+      // 組好的，這裡不重複那份查詢邏輯；下次重新整理／重進這頁就看得到，
+      // 這筆資料本身不會遺失（軟刪，API 已保證）。
+    }).catch(function () {
+      // 這個動作不遺失資料（頂多這一列該消失卻沒消失），輕量提示即可：
+      // 短暫換字提醒使用者再按一次，不做記憶體級的持久標記。
+      clearTimeout(armTimer);
+      btn.dataset.armed = '0';
+      btn.textContent = '失敗，再試一次';
+      setTimeout(function () { btn.textContent = originalLabel; }, 2500);
+    });
+  });
+});
+
+document.querySelectorAll('[data-role="restore-exclude"]').forEach(function (btn) {
+  var originalLabel = btn.textContent;
+  btn.addEventListener('click', function () {
+    // 還原是「把一筆已經被判定不相關的東西放回追蹤表」，方向跟剔除相反、
+    // 後果比較輕（頂多這筆命中重新出現在主清單，不會遺失任何資料），所以
+    // 不比照剔除加二次確認 —— 使用者本來就是刻意點開「已剔除」區塊才看得到
+    // 這顆按鈕，這一步本身已經是有意的操作。
+    fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({excluded: false})
+    }).then(function (r) {
+      // 失敗必須「看得見」——理由同上面備註／剔除的 fetch：r.json() 對非
+      // 2xx 回應可能安靜地 resolve，使用者以為還原成功了，其實這筆命中
+      // 還卡在已剔除狀態。
+      if (!r.ok) throw new Error('restore failed: ' + r.status);
+      return r.json();
+    }).then(function () {
+      var card = document.querySelector('.excluded-card[data-hit="' + btn.dataset.hit + '"]');
+      if (card) card.remove();
+    }).catch(function () {
+      btn.textContent = '還原失敗，再試一次';
+      setTimeout(function () { btn.textContent = originalLabel; }, 2500);
+    });
+  });
+});
+</script>
+{% endblock %}
