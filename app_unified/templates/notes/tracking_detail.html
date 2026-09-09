@@ -57,7 +57,15 @@
    store 一律帶上（即使一般使用者不需要也無妨，比照 tracking_list.html 的
    SCOPED_STORE 同一套慣例）：這張表『真正』的店別用 current_store（route
    端就是 t.store，已經過同店驗證），不是重讀 request.args，兩邊才不會對
-   不上。 #}
+   不上。
+
+   ⚠️ 耦合的修改點（跟上面 _shorten_urls 那個坑是同一類、但另一個方向）：
+   editor.html 收到這個 from 之後，會用白名單 regex
+   `/^\/n\/tracking\/\d+(\?store=[^\/#]+)?$/` 驗證才放行——目前只認得
+   「路徑 + 最多一個 query 參數、且名字一定是 store」這個形狀。日後若要在
+   from_url 上多加一個參數，這條 regex 也要跟著放寬，不然新參數會讓整個
+   `from` 值被那個白名單擋下、靜默 fallback 回 notes 首頁（症狀跟 A1 那個
+   店名帶空格的迴歸一樣不張揚）。 #}
 {% set from_url = '/n/tracking/' ~ tracked.id ~
                    (('?store=' ~ current_store) if current_store else '') %}
 <div class="toolbar">

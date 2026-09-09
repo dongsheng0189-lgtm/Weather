@@ -575,12 +575,19 @@ document.addEventListener('DOMContentLoaded', function() {
   // 不再直接 history.back()：那只在「剛好是從上一頁點進來」時碰巧正確，
   // 換分頁 / 重新整理 / 從別的入口進來都會失效或走錯地方（例如建檔追蹤表的
   // item 型命中，需要的是回到那張追蹤表，不是瀏覽器歷史記錄裡隨便的上一
-  // 筆）。改成觸發 #btn-back 自己的 click handler——它已經處理好
-  // `?from=` 覆蓋（見上面 DOMContentLoaded 那段）跟導航前釋放編輯鎖，兩顆
-  // 返回鈕從此走同一套邏輯，不是各管各的。
+  // 筆）。改成優先觸發 #float-back-widget 自己的 click handler——真正涵蓋
+  // 「dirty 時先儲存再返回」（`doSave()` + `waitForInflightWrites()`）那套
+  // 邏輯的是它，不是 #btn-back：#btn-back 自己的 click handler 只處理
+  // `?from=` 覆蓋跟導航前釋放編輯鎖，並不會存檔——若直接鏡像 #btn-back，
+  // checklist 筆記的標題若在按下這顆鈕前被改過，那筆修改會連提示都沒有就
+  // 消失（跟這個專案過去發生過的靜默漏存事故是同一類）。#float-back-widget
+  // 一定存在於 DOM（只是可能 display:none），找不到才退回 #btn-back，
+  // 再退回瀏覽器原生 history.back()。
   var backBtn = document.getElementById('search-hit-back');
   if (backBtn) {
     backBtn.addEventListener('click', function() {
+      var fb = document.getElementById('float-back-widget');
+      if (fb) { fb.click(); return; }
       var bb = document.getElementById('btn-back');
       if (bb) { bb.click(); return; }
       window.history.back();
@@ -846,7 +853,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var from = new URLSearchParams(location.search).get('from');
   if (!from) return;
   var isSummary = /^\/n\/\d+(#b-\d+)?$/.test(from);
-  var isTracking = !isSummary && /^\/n\/tracking\/\d+(\?store=[^\/#\s]+)?$/.test(from);
+  var isTracking = !isSummary && /^\/n\/tracking\/\d+(\?store=[^\/#]+)?$/.test(from);
   if (!isSummary && !isTracking) return;
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.setAttribute('href', from);

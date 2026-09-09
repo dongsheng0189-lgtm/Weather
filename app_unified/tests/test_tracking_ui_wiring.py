@@ -404,16 +404,94 @@ def test_super_admin_detail_exclude_fetch_carries_store(client, db):
 # 這張表，給 editor.html 的返回鈕）、item 型命中另外帶 #item-<id> 錨點
 # （直接跳到那個項目，不只是整篇文字裡有 mark）。
 
-def test_original_link_note_hit_carries_keyword_and_from(client, db):
+def _tracking_from_url(client, kid, store):
+    """組出『從追蹤表點進原文』那個 `from` query 值的期望值，跟
+    tracking_detail.html 的 `from_url` 用同一套組法（見該模板對 `from_url`
+    的註解）：**路徑那一段**透過 `url_for` 現算——route 改名的話這裡會跟著
+    改，才抓得到「模板忘了跟著改」這種兩邊一起壞掉、卻仍然彼此相等而繼續
+    綠燈的情況（這正是本次要修的：改版前這裡是整串 f-string 手抄字面值，
+    跟模板一樣寫死，路由改名兩邊會一起錯、一起通過）。
+
+    `?store=` 這一段刻意**不**透過 `url_for`：模板本身也不是靠 `url_for`
+    組這段——`_shorten_urls` 抓不到嵌在另一個連結 query string 裡的
+    `/notes` 開頭字串，短路徑在模板裡是手寫出來的，不是事後改寫的結果，
+    `current_store` 也是原始未編碼的店名。若這裡改用 `url_for` 組出整個
+    `?store=`，店名會被 percent-encode（例如「B店」變成
+    `B%E5%BA%97`），跟模板實際吐出來的原始字元對不上，反而讓測試本身壞掉。
+    """
     from flask import url_for
+    with client.application.test_request_context():
+        path = _short(url_for('notes.tracking_detail_page', kid=kid))
+    return f'{path}?store={store}' if store else path
+
+
+def _extract_original_link_from_value(html):
+    """從『→ 原文』連結的 href 屬性裡，解出 `from` 這個 query 參數『解碼後』
+    的值——模擬瀏覽器 `new URLSearchParams(location.search).get('from')` 的
+    解碼行為（`+` 當空白、percent-decode），而不是直接在 raw HTML 裡找字面
+    字串。href 屬性裡的原始文字是 `url_for` 產生的、已經 percent-encode 過
+    （空白甚至被編成 `+` 而不是 `%20`——見 A1 那個店名帶空格的案例），跟
+    JS 端實際拿到的『解碼後』字串長相完全不同，比對原始字面值會找不到，或
+    更糟：巧合湊出一個看似正確但其實沒驗證到解碼行為的字串。"""
+    import html as _html_mod
+    from urllib.parse import parse_qs, urlsplit
+    m = re.search(r'href="([^"]+)">→ 原文', html)
+    assert m, '頁面上找不到「→ 原文」連結'
+    href = _html_mod.unescape(m.group(1))
+    qs = parse_qs(urlsplit(href).query)
+    values = qs.get('from')
+    assert values, f'「→ 原文」連結沒有 from 參數：{href!r}'
+    return values[0]
+
+
+def test_original_link_admits_store_name_with_space(client, db):
+    """A1 迴歸守門：店名含空格時，返回鈕不可以悄悄退回筆記列表。
+
+    admin/routes.py 的 create_store 只做 `strip()` 加非空檢查，店名內部的
+    空格／`/`／`#` 全部放得進去（例如「台北 信義」）。這個空格被 url_for
+    percent-encode 成 `+`，`URLSearchParams.get('from')` 解回來又是一個
+    literal 空格——editor.html 的白名單若還排除 `\\s`（改版前的形狀），這個
+    空格就會讓整條 regex 不匹配，`isTracking` 判為 false，返回鈕退回伺服器
+    端組的 href（筆記列表），PO 最初抱怨的那個「按返回卻跑到主畫面」的問題
+    會對這種店名的所有人靜默重演。
+
+    直接渲染 tracking_detail.html、真的建一間帶空格的店，抓頁面上『→ 原文』
+    連結真正輸出的 from 值（解碼後），餵給 editor.html 目前實際生效的那條
+    regex（現讀，不是另抄一份），確認它會通過——這是端到端驗證，不只是
+    像 test_editor_from_wiring.py 那樣單獨測 regex 本身。
+    """
+    from tests._tracking_from_regex import tracking_from_pattern
     kw = _uniq('王小明')
-    n = _mk_note(db, title=f'{kw} 的交接')
-    _login(client, _mk_user(db))
+    store = '台北 信義'
+    _mk_store(db, store)
+    _mk_note(db, store=store, title=f'{kw} 的交接')
+    _login(client, _mk_user(db, store=store))
     kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
 
     html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
 
-    from_url = f'/n/tracking/{kid}?store=B店'
+    from_value = _extract_original_link_from_value(html)
+    assert from_value == f'/n/tracking/{kid}?store={store}', (
+        f'解碼後的 from 值跟預期不符：{from_value!r}'
+    )
+    pattern = tracking_from_pattern()
+    assert pattern.match(from_value), (
+        f'editor.html 的白名單擋掉了帶空格的合法 from 值：{from_value!r}——'
+        '這正是 A1 要修的迴歸：regex 若還排除 \\s，返回鈕會悄悄退回列表頁'
+    )
+
+
+def test_original_link_note_hit_carries_keyword_and_from(client, db):
+    from flask import url_for
+    kw = _uniq('王小明')
+    n = _mk_note(db, title=f'{kw} 的交接')
+    user = _mk_user(db)
+    _login(client, user)
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
+
+    from_url = _tracking_from_url(client, kid, user.store)
     with client.application.test_request_context():
         expected = _short(url_for('notes.edit_note', note_id=n.id, q=kw,
                                    **{'from': from_url}))
@@ -430,18 +508,19 @@ def test_original_link_item_hit_carries_item_anchor(client, db):
     from flask import url_for
     from models import Note, ChecklistItem
     kw = _uniq('王小明')
-    n = Note(store='B店', title='日報', content='', note_type='checklist')
+    user = _mk_user(db)
+    n = Note(store=user.store, title='日報', content='', note_type='checklist')
     db.session.add(n)
     db.session.commit()
     item = ChecklistItem(note_id=n.id, text=f'{kw} 遲到')
     db.session.add(item)
     db.session.commit()
-    _login(client, _mk_user(db))
+    _login(client, user)
     kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
 
     html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
 
-    from_url = f'/n/tracking/{kid}?store=B店'
+    from_url = _tracking_from_url(client, kid, user.store)
     with client.application.test_request_context():
         expected = _short(url_for('notes.edit_note', note_id=n.id, q=kw,
                                    _anchor=f'item-{item.id}',
@@ -493,18 +572,20 @@ def test_detail_page_memo_fetch_matches_url_for_this_table(client, db):
     from flask import url_for
     kw_a = _uniq('王小明')
     kw_b = _uniq('陳小華')
-    _login(client, _mk_user(db))
+    user = _mk_user(db)
+    _login(client, user)
     kid_a = client.post('/notes/api/tracking', json={'keyword': kw_a}).get_json()['id']
     kid_b = client.post('/notes/api/tracking', json={'keyword': kw_b}).get_json()['id']
 
     html = client.get(f'/notes/tracking/{kid_a}').get_data(as_text=True)
 
     with client.application.test_request_context():
-        # Fix（本次修正）：這張表所在的店別（預設 _mk_user 的 'B店'）一律帶上
-        # ?store=，理由見下面的 Fix 4 測試群組 —— super_admin 看別店的詳細頁時
-        # 若漏帶，備註／剔除都會 403。
-        expected_url = _short(url_for('notes.set_tracking_memo', kid=kid_a, store='B店'))
-        other_url = _short(url_for('notes.set_tracking_memo', kid=kid_b, store='B店'))
+        # Fix（本次修正）：這張表所在的店別（來自 user.store，不是另抄一份
+        # `_mk_user` 預設值的字面文字——兩者哪天各自改掉預設值就會對不上）
+        # 一律帶上 ?store=，理由見下面的 Fix 4 測試群組 —— super_admin 看
+        # 別店的詳細頁時若漏帶，備註／剔除都會 403。
+        expected_url = _short(url_for('notes.set_tracking_memo', kid=kid_a, store=user.store))
+        other_url = _short(url_for('notes.set_tracking_memo', kid=kid_b, store=user.store))
     assert f"fetch('{expected_url}'" in html, (
         f'備註存檔的 fetch 路徑跟這一頁（kid={kid_a}）對不上：期望片段 '
         f"fetch('{expected_url}'"
