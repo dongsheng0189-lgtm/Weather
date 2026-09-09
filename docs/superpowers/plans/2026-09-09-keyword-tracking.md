@@ -38,6 +38,9 @@
 
 **2. 規格說 super_admin「依所在店別，與現有 `_scope_notes` 一致」—— `_scope_notes` 實際上會撈「所有未隱藏的店」，與「不做跨店」矛盾。**
 追蹤表只有一個 `store` 欄位，必須是單一具體店別。**本計畫採 `notes/tags.py:_effective_store()` 的規則**（super_admin 可帶 `?store=`，否則用自己的 `current_user.store`），與標籤管理一致；解析不出店別就回 400。
+**實作時這條規則已抽成 `app_unified/notes/store_scope.py`**（`effective_store()` /
+`require_same_store()`），`notes/tags.py` 與 `notes/tracking.py` 共用同一份 ——
+重複的授權規則是最容易悄悄分岔的那種 bug。
 
 ### 為什麼不需要改 `app.py` 的 schema 修復 DDL
 
@@ -855,8 +858,20 @@ git commit -m "feat(tracking): 完整/增量掃描引擎（分批解密、批間
 **Interfaces:**
 - Consumes: Task 2 的模型、Task 3 的 `scan_tracked_keyword`。
 - Produces（給 Task 5 / 6 / 7 用）：
-  - `_tracking_store() -> str | None` —— super_admin 可帶 `?store=`，否則 `current_user.store`。
-  - `_get_tracked_or_404(kid) -> TrackedKeyword` —— 同時做同店權限檢查（不同店 403）。
+  - ⚠️ **實作時已修正**：`_tracking_store()` 沒有留下來。審查指出它與
+    `notes/tags.py:_effective_store()` 是逐字重複的**授權規則**，兩份必然分岔，
+    已抽成共用模組 `app_unified/notes/store_scope.py`，兩邊都改用它。
+    下游 task 一律 `from notes.store_scope import effective_store, require_same_store`，
+    **不要**再寫 `_tracking_store()`。
+  - `effective_store() -> str | None`（在 `notes/store_scope.py`）—— super_admin 可帶
+    `?store=`，否則 `current_user.store`。⚠️ 回傳 None 時呼叫端**必須回 400**，
+    不可靜默當成空結果（本 task 的 list/page 兩條路原本就犯了這個錯，已修）。
+  - `require_same_store(row)`（在 `notes/store_scope.py`）—— `row.store` 與有效店別
+    不符就 `abort(403)`。
+  - `_get_tracked_or_404(kid) -> TrackedKeyword`（仍在 `notes/tracking.py`）——
+    取不到 404、跨店 403（內部改呼叫 `require_same_store`）。
+  - `find_tracking_for_keyword(keyword) -> int | None` —— ⚠️ None 有兩種含意
+    （沒有追蹤表／解析不出店別），呼叫端要先自己確認店別。
   - `find_tracking_for_keyword(keyword) -> int | None` —— 本店是否已有這個關鍵字的追蹤表，回傳 id。
   - 路由：`POST /notes/api/tracking`、`GET /notes/api/tracking`、`DELETE /notes/api/tracking/<int:kid>`
 
@@ -1236,7 +1251,8 @@ git commit -m "feat(tracking): 追蹤表建立/列表/刪除 API 與頁面骨架
 - Test: `app_unified/tests/test_tracking_hits_api.py`
 
 **Interfaces:**
-- Consumes: Task 4 的 `_get_tracked_or_404`。
+- Consumes: Task 4 的 `_get_tracked_or_404`（仍在 `notes/tracking.py`）。
+  ⚠️ 店別解析改用 `from notes.store_scope import effective_store`，`_tracking_store()` 已不存在。
 - Produces:
   - `_get_hit_or_404(hid) -> TrackedKeywordHit` —— 經由所屬追蹤表做同店檢查。
   - `PUT /notes/api/tracking/hits/<int:hid>/note`，body `{"text": "..."}` → `{"note_text": "..."}`
