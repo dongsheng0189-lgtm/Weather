@@ -14,6 +14,7 @@ primary key（不觸發解密），再一批一批載入物件，批與批之間
 from datetime import datetime, timedelta
 
 import gevent
+from flask import current_app
 from sqlalchemy.exc import IntegrityError
 
 from extensions import db
@@ -95,12 +96,20 @@ def scan_tracked_keyword(tracked):
         rows = Note.query.filter(Note.id.in_(batch)).all()
         records = [("note", n.id, [n.title, n.content]) for n in rows]
         added += _persist(tracked, records, seen)
+        # 這批已經處理完，把解密後的物件從 identity map 放掉——不然掃完整個
+        # 大店，這些帶著明文的物件會一路留在 session 裡到整個 request 結束。
+        # 只 expunge 這批自己的物件，不可用 expunge_all()：那會連 `tracked`
+        # 自己也踢出去，水位就寫不進去了。
+        for row in rows:
+            db.session.expunge(row)
         gevent.sleep(0)
 
     for batch in _batches(item_ids):
         rows = ChecklistItem.query.filter(ChecklistItem.id.in_(batch)).all()
         records = [("item", i.id, [i.text]) for i in rows]
         added += _persist(tracked, records, seen)
+        for row in rows:
+            db.session.expunge(row)
         gevent.sleep(0)
 
     tracked.scanned_through = started - timedelta(seconds=WATERMARK_LOOKBACK_SECONDS)
@@ -129,7 +138,15 @@ def _persist(tracked, records, seen):
                     target_type=target_type,
                     target_id=target_id,
                 ))
-        except IntegrityError:
+        except IntegrityError as e:
+            # 比照 app.py 的 _safe_ddl：吞掉例外不能連痕跡都不留。這裡預期
+            # 只會因為 uq_tracked_hit_target 的競速而觸發（見上方註解），但
+            # 若是別的原因撞到 IntegrityError，這行 warning 是唯一留下的證據
+            # ——不然這筆資料會永遠、靜默地被跳過（水位之後照樣推進）。
+            current_app.logger.warning(
+                "[tracking-scan] skip 重複命中：keyword_id=%s target=%s:%s -> %s: %s",
+                tracked.id, target_type, target_id, type(e).__name__, e,
+            )
             continue
         seen.add((target_type, target_id))
         added += 1

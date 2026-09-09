@@ -12,20 +12,30 @@ def db(db_session):
 
 
 def _mk_note(db, store='B店', title='日報', content='', note_type='note',
-             is_ai_summary=False, deleted=False):
+             is_ai_summary=False, deleted=False, updated_at=None):
+    """updated_at 給定時，created_at 與 updated_at 一起回填成該時刻——用來讓
+    測試資料「看起來是很久以前建立、也很久沒動過」，藉此避開
+    WATERMARK_LOOKBACK_SECONDS 造成的假陽性（見 tracking_scan.py 模組註解與
+    test_incremental_scan_catches_edited_item 的說明）。"""
     from models import Note
     n = Note(store=store, title=title, content=content, note_type=note_type,
              is_ai_summary=is_ai_summary,
              deleted_at=datetime.utcnow() if deleted else None)
+    if updated_at is not None:
+        n.created_at = updated_at
+        n.updated_at = updated_at
     db.session.add(n)
     db.session.commit()
     return n
 
 
-def _mk_item(db, note, text, deleted=False):
+def _mk_item(db, note, text, deleted=False, updated_at=None):
     from models import ChecklistItem
     i = ChecklistItem(note_id=note.id, text=text,
                       deleted_at=datetime.utcnow() if deleted else None)
+    if updated_at is not None:
+        i.created_at = updated_at
+        i.updated_at = updated_at
     db.session.add(i)
     db.session.commit()
     return i
@@ -91,7 +101,7 @@ def test_full_scan_sets_watermark(db, monkeypatch):
     assert t.scanned_through is None
 
     real_target_ids = scan_mod._target_ids
-    SLEEP = 0.3
+    SLEEP = 0.6
 
     def _slow_target_ids(*a, **kw):
         time.sleep(SLEEP)
@@ -108,7 +118,11 @@ def test_full_scan_sets_watermark(db, monkeypatch):
 
     start_based = before - timedelta(seconds=WATERMARK_LOOKBACK_SECONDS)
     end_based = after - timedelta(seconds=WATERMARK_LOOKBACK_SECONDS)
-    margin = timedelta(seconds=0.1)
+    # 容差取 SLEEP 的固定比例（而非寫死的絕對秒數）：原本硬編 0.1s 對 0.3s 的
+    # sleep 只有 3 倍緩衝，吃重的 CI runner 排程抖動就可能超過，測試就會 flaky。
+    # 用比例維持同樣的判別力——start_based 與 end_based 永遠相差整個 SLEEP，
+    # 只要 margin 明顯小於 SLEEP，兩種實作（記開始 vs 記結束）就分得開。
+    margin = timedelta(seconds=SLEEP / 3)
 
     # 正確實作：水位貼著「開始」，落在 before-lookback 附近的小容差內。
     assert abs(t.scanned_through - start_based) < margin, (
@@ -125,6 +139,7 @@ def test_full_scan_sets_watermark(db, monkeypatch):
 
 def test_scan_skips_soft_deleted(db):
     from notes.tracking_scan import scan_tracked_keyword
+    from models import Note
     kw = f'王小明{uuid.uuid4().hex[:6]}'
     dn = _mk_note(db, title=f'{kw} 已刪筆記', deleted=True)
     parent_of_deleted_item = _mk_note(db, title='存活的筆記')  # 只是用來掛已刪項目，本身不該被斷言
@@ -134,7 +149,9 @@ def test_scan_skips_soft_deleted(db):
     scan_tracked_keyword(t)
 
     assert _hits(db, t) == []
-    assert dn.id  # 資料還在，只是不該被掃到
+    # `assert dn.id` 對一筆已 commit 的 row 永遠成立，驗證不到「資料還在」；
+    # 改成真的重新查一次，證明軟刪除沒有真的把資料弄丟。
+    assert Note.query.get(dn.id) is not None, '資料還在，只是不該被掃到'
 
 
 def test_scan_skips_ai_summary_notes(db):
@@ -150,9 +167,12 @@ def test_scan_skips_ai_summary_notes(db):
 
 
 def test_scan_is_store_scoped(db):
+    """跨店隔離要連項目一起測——只測 note 的話，`_target_ids` 裡 item 查詢那段
+    `Note.store == tracked.store` 被砍掉也不會有任何測試失敗。"""
     from notes.tracking_scan import scan_tracked_keyword
     kw = f'王小明{uuid.uuid4().hex[:6]}'
-    _mk_note(db, store='A店', title=f'{kw} 在 A 店')
+    a_note = _mk_note(db, store='A店', title=f'{kw} 在 A 店')
+    _mk_item(db, a_note, f'{kw} 項目也在 A 店')
     t = _mk_tracked(db, kw, store='B店')
 
     scan_tracked_keyword(t)
@@ -175,27 +195,68 @@ def test_incremental_scan_picks_up_new_item_without_duplicating(db):
 
 
 def test_incremental_scan_catches_edited_item(db):
-    """既有項目被編輯後才開始含關鍵字 —— 水位用 updated_at（而非最大 id）的理由。"""
-    from notes.tracking_scan import scan_tracked_keyword
+    """既有項目被編輯後才開始含關鍵字 —— 水位用 updated_at（而非 created_at／
+    最大 id）的理由。
+
+    項目的初始 created_at/updated_at 刻意回填到一小時前，遠遠超出
+    WATERMARK_LOOKBACK_SECONDS（預設 5 秒）的回退範圍；不這樣做的話，剛
+    建立、還沒編輯過的資料本來就落在第一次掃描水位的 lookback 窗口內，這裡
+    要測的「位移」就變成無意義的雜訊——一個誤植成
+    `ChecklistItem.created_at > since` 的實作，會因為 created_at 本身就在
+    窗口內而照樣通過這個測試，等於完全沒測到「用 updated_at 過濾」這件事。
+
+    編輯時只推進 updated_at、created_at 維持在一小時前不動，且位移量刻意
+    超過 lookback 一秒以上（而非只有 1 秒）：這樣「落進第二輪掃描範圍」是真
+    的跨過水位，不是恰好被 lookback 蓋住的巧合。用 created_at 過濾的誤植
+    版本，created_at 從頭到尾都停在一小時前，不會落進第二輪的範圍，這個
+    測試就會如預期失敗。
+    """
+    from notes.tracking_scan import scan_tracked_keyword, WATERMARK_LOOKBACK_SECONDS
+    from models import ChecklistItem
     kw = f'王小明{uuid.uuid4().hex[:6]}'
-    n = _mk_note(db, title='一般日報')
-    item = _mk_item(db, n, '某人遲到')
+    old = datetime.utcnow() - timedelta(hours=1)
+    n = _mk_note(db, title='一般日報', updated_at=old)
+    item = _mk_item(db, n, '某人遲到', updated_at=old)
     t = _mk_tracked(db, kw)
     assert scan_tracked_keyword(t) == 0
 
+    # Fix 5（scan 會 expunge 掃過的物件）之後，item 已經是 detached 狀態，
+    # 直接改它、commit 不會有任何效果——必須重新取得一個 attached 的實例。
+    item = ChecklistItem.query.get(item.id)
     item.text = f'{kw} 遲到'
-    item.updated_at = datetime.utcnow() + timedelta(seconds=1)
+    item.updated_at = datetime.utcnow() + timedelta(seconds=WATERMARK_LOOKBACK_SECONDS + 1)
     db.session.commit()
 
     assert scan_tracked_keyword(t) == 1
     assert [(h.target_type, h.target_id) for h in _hits(db, t)] == [('item', item.id)]
 
 
-def test_excluded_hit_is_not_resurrected_by_rescan(db):
-    """剔除用軟刪除的唯一理由：真刪的話下一輪會再抓回來。"""
-    from notes.tracking_scan import scan_tracked_keyword
+def test_excluded_hit_is_not_resurrected_by_rescan(db, monkeypatch):
+    """剔除用軟刪除的唯一理由：真刪的話下一輪會再抓回來。
+
+    初始 created_at/updated_at 回填到一小時前（理由同
+    test_incremental_scan_catches_edited_item），之後把 updated_at 往前推
+    超過 lookback 一秒以上，確保它是真的重新跨過水位，不是本來就落在
+    lookback 窗口內的巧合。
+
+    只比對最終結果（DB 有沒有多一筆）不夠：唯一約束 uq_tracked_hit_target
+    在「seen 集合根本沒擋到」的情況下，靠 IntegrityError 事後補救，讓下面
+    兩種退化都能矇混過關而不被任何測試發現：
+    (a) seen 查詢加了 `.filter(excluded_at.is_(None))`——復活是被 DB 擋下，
+        不是被程式擋下；
+    (b) seen 查詢退回 `TrackedKeywordHit.query.filter_by(...).all()`（整列
+        ORM 物件）——`(target_type, target_id) in seen` 的 tuple 比對永遠不
+        成立，seen 形同虛設，每次重掃都會嘗試重新插入、每次都被
+        IntegrityError 悄悄吞掉。
+    所以額外監看「有沒有嘗試建構要插入的 TrackedKeywordHit」，確保復活是被
+    程式的 seen 集合擋下、根本沒走到插入那段，而不是被資料庫的唯一約束事後
+    擋下。
+    """
+    from notes.tracking_scan import scan_tracked_keyword, WATERMARK_LOOKBACK_SECONDS
+    from models import TrackedKeywordHit, Note
     kw = f'王小明{uuid.uuid4().hex[:6]}'
-    n = _mk_note(db, title=f'{kw} 的交接')
+    old = datetime.utcnow() - timedelta(hours=1)
+    n = _mk_note(db, title=f'{kw} 的交接', updated_at=old)
     t = _mk_tracked(db, kw)
     scan_tracked_keyword(t)
 
@@ -204,11 +265,26 @@ def test_excluded_hit_is_not_resurrected_by_rescan(db):
     h.excluded_by_name = 'tester'
     db.session.commit()
 
-    # 讓原始資料重新落入水位範圍，模擬它又被編輯過
-    n.updated_at = datetime.utcnow() + timedelta(seconds=1)
+    # 讓原始資料重新落入水位範圍，模擬它又被編輯過（位移量超過 lookback）。
+    # Fix 5 之後 n 已被上一輪掃描 expunge，須重新取得 attached 實例。
+    n = Note.query.get(n.id)
+    n.updated_at = datetime.utcnow() + timedelta(seconds=WATERMARK_LOOKBACK_SECONDS + 1)
     db.session.commit()
 
+    original_init = TrackedKeywordHit.__init__
+    attempts = []
+
+    def counting_init(self, *args, **kwargs):
+        attempts.append((args, kwargs))
+        return original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(TrackedKeywordHit, '__init__', counting_init)
+
     assert scan_tracked_keyword(t) == 0
+    assert attempts == [], (
+        '不應該嘗試建構任何 TrackedKeywordHit —— 復活必須被 seen 集合擋下，'
+        '不能只靠唯一約束的 IntegrityError 事後補救'
+    )
     assert _hits(db, t) == []                        # 頁面上看不到
     assert len(_hits(db, t, include_excluded=True)) == 1   # 剔除紀錄仍在
 
@@ -290,7 +366,7 @@ def test_persist_survives_duplicate_insert_race(db):
     db.session.query(TrackedKeywordHit).count()
 
 
-def test_checklist_edit_route_bumps_updated_at(app, client, db_session):
+def test_checklist_edit_route_bumps_updated_at(client, db_session):
     """守門測試：保護建檔追蹤（notes/tracking_scan.py）增量掃描依賴的假設——
     「項目文字被改 ⇒ ChecklistItem.updated_at 會被 bump」。
 
@@ -331,4 +407,44 @@ def test_checklist_edit_route_bumps_updated_at(app, client, db_session):
     assert updated_item.text == '改過的文字'
     assert updated_item.updated_at > original_updated_at, (
         '編輯項目文字沒有 bump updated_at —— 建檔追蹤的增量掃描會從此看不到這類編輯'
+    )
+
+
+def test_note_update_route_bumps_updated_at(client, db_session):
+    """守門測試：保護建檔追蹤增量掃描依賴的另一半假設——「筆記標題/內容被改
+    ⇒ Note.updated_at 會被 bump」。
+
+    上面的 `test_checklist_edit_route_bumps_updated_at` 只守住了項目那一半，
+    `Note.updated_at` 對 `_target_ids` 的 note 增量查詢同樣是必要條件、卻一直
+    沒人守：`update_note`（notes/routes.py）目前是無條件
+    `note.updated_at = datetime.utcnow()`，如果日後路由被改動、漏掉這行，
+    建檔追蹤會開始「靜默」漏看被編輯過的筆記，且沒有其他測試會抓到。
+    """
+    from models import User, Note
+
+    uname = f'tracker_{uuid.uuid4().hex[:6]}'
+    u = User(username=uname, store='B店')
+    u.set_password('1234')
+    db_session.add(u)
+    db_session.commit()
+
+    n = Note(store='B店', title='日報', content='', note_type='note')
+    db_session.add(n)
+    db_session.commit()
+    note_id = n.id
+    original_updated_at = n.updated_at
+
+    with client.session_transaction() as sess:
+        sess['_user_id'] = str(u.id)
+        sess['_fresh'] = True
+        sess['_last_request_at'] = int(time.time())
+
+    time.sleep(0.01)  # 確保 updated_at 若真的被 bump，時間戳會可觀測地往後
+    resp = client.put(f'/notes/api/{note_id}', json={'title': '改過的標題'})
+    assert resp.status_code == 200
+
+    updated_note = Note.query.get(note_id)
+    assert updated_note.title == '改過的標題'
+    assert updated_note.updated_at > original_updated_at, (
+        '編輯筆記沒有 bump updated_at —— 建檔追蹤的增量掃描會從此看不到這類編輯'
     )
