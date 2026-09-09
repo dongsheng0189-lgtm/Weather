@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 import gevent
 from flask import current_app
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError
 
 from extensions import db
@@ -68,6 +69,15 @@ def scan_tracked_keyword(tracked):
     """掃描並寫入新命中，推進水位，commit。回傳本次新增的命中數。
 
     tracked.scanned_through 是 None 時自動走完整掃描。
+
+    ⚠️ 呼叫端注意：本函式共用呼叫端的 db.session（不開自己的 session）。它會在
+    批次處理完後把「自己這批載入進 session 的」Note／ChecklistItem 物件
+    expunge 掉，藉此避免整店掃完後這些解密物件一路留到 request 結束（見模組
+    註解）。但如果呼叫端在呼叫本函式前後也持有同一批物件裡的某個參照（例如
+    呼叫端自己也在編輯的那筆 Note），本函式**不會**動到它——只有呼叫前這個
+    物件還不在 session 的 identity map 裡（也就是本函式批次查詢載入的）才會
+    被 expunge。呼叫端原本就持有、已在 session 裡的物件維持 attached，之後
+    照常賦值＋commit 有效。
     """
     # 水位取「掃描開始」而非結束的時刻：掃描期間被改動的資料下一輪還會再掃到，
     # 寧可重掃一次（有唯一約束擋著、不會重複），也不要漏。再扣掉
@@ -93,23 +103,32 @@ def scan_tracked_keyword(tracked):
 
     added = 0
     for batch in _batches(note_ids):
+        # 載入前先記下 identity map 裡已經有哪些 key——呼叫端可能早就把某些
+        # Note 載進了同一個 session（例如它自己正在編輯的那筆）。只有「載入前
+        # 不存在」的 key 才是這批查詢自己拉進來的，才可以在批次結束後 expunge；
+        # 呼叫端原本就持有的物件絕對不能碰，否則呼叫端之後對它賦值、commit 時
+        # 會被靜默丟掉、不會有任何錯誤（見本函式 docstring）。
+        preexisting = set(db.session.identity_map.keys())
         rows = Note.query.filter(Note.id.in_(batch)).all()
         records = [("note", n.id, [n.title, n.content]) for n in rows]
         added += _persist(tracked, records, seen)
-        # 這批已經處理完，把解密後的物件從 identity map 放掉——不然掃完整個
-        # 大店，這些帶著明文的物件會一路留在 session 裡到整個 request 結束。
-        # 只 expunge 這批自己的物件，不可用 expunge_all()：那會連 `tracked`
-        # 自己也踢出去，水位就寫不進去了。
+        # 這批已經處理完，把「這批自己載入的」解密物件從 identity map 放掉——
+        # 不然掃完整個大店，這些帶著明文的物件會一路留在 session 裡到整個
+        # request 結束。不可用 expunge_all()：那會連 `tracked` 自己也踢出去，
+        # 水位就寫不進去了。
         for row in rows:
-            db.session.expunge(row)
+            if sa_inspect(row).key not in preexisting:
+                db.session.expunge(row)
         gevent.sleep(0)
 
     for batch in _batches(item_ids):
+        preexisting = set(db.session.identity_map.keys())
         rows = ChecklistItem.query.filter(ChecklistItem.id.in_(batch)).all()
         records = [("item", i.id, [i.text]) for i in rows]
         added += _persist(tracked, records, seen)
         for row in rows:
-            db.session.expunge(row)
+            if sa_inspect(row).key not in preexisting:
+                db.session.expunge(row)
         gevent.sleep(0)
 
     tracked.scanned_through = started - timedelta(seconds=WATERMARK_LOOKBACK_SECONDS)
@@ -143,10 +162,21 @@ def _persist(tracked, records, seen):
             # 只會因為 uq_tracked_hit_target 的競速而觸發（見上方註解），但
             # 若是別的原因撞到 IntegrityError，這行 warning 是唯一留下的證據
             # ——不然這筆資料會永遠、靜默地被跳過（水位之後照樣推進）。
+            #
+            # 記 e.orig（DBAPI 層的原始訊息）、不記整個 exception：
+            # StatementError.__str__ 會把 `[SQL: ...] [parameters: ...]` 一併
+            # 印出來，今天綁定參數只有 id/NULL 還好，但 TrackedKeywordHit 的
+            # note_text / excluded_by_name 是 EncryptedText，未來若有 insert
+            # 路徑帶著這兩欄的值撞進來，完整 exception 就會把明文寫進 log。
             current_app.logger.warning(
                 "[tracking-scan] skip 重複命中：keyword_id=%s target=%s:%s -> %s: %s",
-                tracked.id, target_type, target_id, type(e).__name__, e,
+                tracked.id, target_type, target_id, type(e).__name__, e.orig,
             )
+            # 這筆確實存在（輸掉競速，是別的 process 贏了），跟成功路徑一樣
+            # 記進 seen——目前一次掃描內 target id 不會重複出現，加了也不影響
+            # 行為，純粹避免日後有人重複呼叫 _persist 時，把明明已存在的目標
+            # 誤判成「還沒處理過」而重複嘗試插入。
+            seen.add((target_type, target_id))
             continue
         seen.add((target_type, target_id))
         added += 1

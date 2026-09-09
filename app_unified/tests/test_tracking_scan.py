@@ -138,10 +138,15 @@ def test_full_scan_sets_watermark(db, monkeypatch):
 
 
 def test_scan_skips_soft_deleted(db):
+    """軟刪除要連項目一起測——只靠已刪除筆記本身、或掛在存活筆記下的已刪項目，
+    都測不到 `item_q` 的 `Note.deleted_at.is_(None)` 那個 join 條件：後者砍掉
+    的話，掛在「筆記本身已刪、項目本身沒刪」下的項目就會被漏抓進來，除非有
+    一筆這樣的資料存在。"""
     from notes.tracking_scan import scan_tracked_keyword
     from models import Note
     kw = f'王小明{uuid.uuid4().hex[:6]}'
     dn = _mk_note(db, title=f'{kw} 已刪筆記', deleted=True)
+    _mk_item(db, dn, f'{kw} 掛在已刪筆記下的項目')  # 項目本身沒刪，靠 join 的 Note.deleted_at 擋
     parent_of_deleted_item = _mk_note(db, title='存活的筆記')  # 只是用來掛已刪項目，本身不該被斷言
     _mk_item(db, parent_of_deleted_item, f'{kw} 已刪項目', deleted=True)
     t = _mk_tracked(db, kw)
@@ -155,10 +160,15 @@ def test_scan_skips_soft_deleted(db):
 
 
 def test_scan_skips_ai_summary_notes(db):
-    """AI 摘要是其他 note 的彙整，會與原 note 重複命中（與搜尋的處理一致）。"""
+    """AI 摘要是其他 note 的彙整，會與原 note 重複命中（與搜尋的處理一致）。
+
+    連項目一起測：只在摘要筆記本身放關鍵字，測不到 `item_q` 的
+    `Note.is_ai_summary.isnot(True)` 那個 join 條件——摘要筆記底下若掛著項目
+    （砍掉這個條件也不會讓任何既有測試失敗），項目一樣不該被抓進來。"""
     from notes.tracking_scan import scan_tracked_keyword
     kw = f'王小明{uuid.uuid4().hex[:6]}'
-    _mk_note(db, title=f'{kw} 的摘要', is_ai_summary=True)
+    sn = _mk_note(db, title=f'{kw} 的摘要', is_ai_summary=True)
+    _mk_item(db, sn, f'{kw} 項目也在摘要筆記下')
     t = _mk_tracked(db, kw)
 
     scan_tracked_keyword(t)
@@ -180,18 +190,70 @@ def test_scan_is_store_scoped(db):
     assert _hits(db, t) == []
 
 
-def test_incremental_scan_picks_up_new_item_without_duplicating(db):
-    from notes.tracking_scan import scan_tracked_keyword
+def test_incremental_scan_picks_up_new_item_without_duplicating(db, monkeypatch):
+    """`without_duplicating` 那一半原本就有斷言（`added`／`_hits` 數量），但
+    `incremental` 那一半沒有：一個完全忽略 `scanned_through`、每次都全掃整間
+    店的實作，一樣會讓 `added == 1`（新命中）、`len(_hits) == 2`（`seen`
+    集合擋掉重複計數）——名字承諾的「增量」根本沒被驗到。
+
+    做法：monkeypatch `_target_ids` 側錄它每次回傳的 id 數量。多建一些不含
+    關鍵字、但存在於同一間店的「雜訊」筆記，讓「全掃 vs 增量」的規模差異可被
+    觀察到；第二輪掃描若真的有用上水位，應該只被交付「水位之後」異動的那 1
+    筆項目，而不是像第一輪一樣把整間店的 note 都重新撈一次。
+
+    用專屬店名隔離：`_target_ids` 撈的是整間店的 note/item id，若沿用本檔案
+    到處共用的預設店名 'B店'，其他測試留在同一個 session-scoped DB 裡的資料
+    會混進雜訊筆記的計數，讓 `first_total`/`second_total` 不再是可預期的
+    常數（見 test_scan_yields_to_hub_between_batches 的說明，這裡是同一個
+    地雷）。"""
+    import notes.tracking_scan as scan_mod
+    from notes.tracking_scan import scan_tracked_keyword, WATERMARK_LOOKBACK_SECONDS
+    store = f'測試店_{uuid.uuid4().hex[:6]}'
     kw = f'王小明{uuid.uuid4().hex[:6]}'
-    n = _mk_note(db, title=f'{kw} 的交接')
-    t = _mk_tracked(db, kw)
+    # 所有初始資料的 updated_at 都回填到一小時前，遠遠超出
+    # WATERMARK_LOOKBACK_SECONDS——不這樣做的話，剛建立、還沒編輯過的資料本來
+    # 就落在第一次掃描水位的 lookback 窗口內，第二輪（增量）掃描時這些「雜訊」
+    # 筆記還是會被 `_target_ids` 重新撈出來，讓「增量遠小於全掃」這個斷言失真
+    # （這正是本檔案其他測試已踩過的坑，見模組內 test_incremental_scan_
+    # catches_edited_item 的說明）。
+    old = datetime.utcnow() - timedelta(hours=1)
+    n = _mk_note(db, store=store, title=f'{kw} 的交接', updated_at=old)
+    for _ in range(20):
+        _mk_note(db, store=store, title='不相關的日報', updated_at=old)  # 雜訊：讓「全掃」的規模明顯大於「增量」
+    t = _mk_tracked(db, kw, store=store)
+
+    real_target_ids = scan_mod._target_ids
+    calls = []
+
+    def _recording_target_ids(*a, **kw_):
+        note_ids, item_ids = real_target_ids(*a, **kw_)
+        calls.append((len(note_ids), len(item_ids)))
+        return note_ids, item_ids
+
+    monkeypatch.setattr(scan_mod, '_target_ids', _recording_target_ids)
+
     assert scan_tracked_keyword(t) == 1
+    first_total = sum(calls[0])
 
     _mk_item(db, n, f'{kw} 又遲到')
     added = scan_tracked_keyword(t)
 
     assert added == 1                     # 只新增了那一筆
     assert len(_hits(db, t)) == 2         # 舊的沒有被重複插入
+
+    second_total = sum(calls[1])
+    # 真正的增量：第二輪只該被交付水位之後異動的那 1 筆項目，遠小於第一輪
+    # （全掃整店，含 21 筆 note）。若實作忽略 scanned_through、每次都全掃，
+    # 第二輪會回傳跟第一輪同量級（甚至更多）的 id，這兩條斷言都會抓到。
+    assert second_total < first_total, (
+        f'第二輪（增量）交給 _target_ids 的資料量（{second_total}）應該遠小於'
+        f'第一輪（全掃，{first_total}）；否則代表 scanned_through 沒被拿來過濾，'
+        '每次都在全掃'
+    )
+    assert second_total <= 1, (
+        f'增量掃描應該只被交付「水位之後」異動的那 1 筆項目，實際拿到 '
+        f'{second_total} 筆'
+    )
 
 
 def test_incremental_scan_catches_edited_item(db):
