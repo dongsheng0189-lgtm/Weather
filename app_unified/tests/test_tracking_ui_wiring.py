@@ -324,6 +324,139 @@ def test_super_admin_list_delete_fetch_carries_store(client, db):
     assert db.session.get(TrackedKeyword, kid) is None
 
 
+# ─── Fix 4：詳細頁本身開得進去，但頁面裡發出去的備註／剔除／還原 fetch ───
+# 都沒有一起帶上 store —— 跟 Fix 2 是同一類缺陷（super_admin 沒有 ?store=
+# 就會被 effective_store() 落回 current_user.store，一律 403），只是這次是
+# 「頁面本身進得去，頁面裡的動作進不去」，之前的 Fix 2 只補了列表頁的連結
+# 跟刪除，沒有把詳細頁自己發的三個 fetch 一起補上。
+
+def test_super_admin_detail_memo_fetch_carries_store(client, db):
+    """詳細頁的備註 fetch（`{{ url_for(...) }}` 內嵌整條路徑）要帶上這張表
+    真正的店別，super_admin 才存得進去。"""
+    from flask import url_for
+    kw = _uniq('王小明')
+    _mk_store(db, 'A店')
+    owner = _mk_user(db, store='A店')
+    _login(client, owner)
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    admin = _mk_super_admin(db, store=None)
+    _login(client, admin)
+
+    html = client.get(f'/notes/tracking/{kid}?store=A店').get_data(as_text=True)
+
+    with client.application.test_request_context():
+        expected_url = _short(url_for('notes.set_tracking_memo', kid=kid, store='A店'))
+    assert f"fetch('{expected_url}'" in html, (
+        f'備註存檔的 fetch 路徑沒有帶上這張表的店別：期望片段 '
+        f"fetch('{expected_url}'"
+    )
+
+    # 證明這條 query string 不是裝飾：沒帶 store 一樣 403，帶了才存得進去。
+    assert client.put(f'/notes/api/tracking/{kid}/memo',
+                       json={'text': 'x'}).status_code == 403
+    r = client.put(f'/notes/api/tracking/{kid}/memo?store=A店', json={'text': 'x'})
+    assert r.status_code == 200
+
+
+def test_super_admin_detail_exclude_fetch_carries_store(client, db):
+    """詳細頁『不相關』／『已剔除→還原』的 fetch（JS 拼 data-hit 字串）也要
+    帶上這張表真正的店別，super_admin 才操作得動。"""
+    kw = _uniq('王小明')
+    _mk_store(db, 'A店')
+    owner = _mk_user(db, store='A店')
+    _mk_note(db, store='A店', title=f'{kw} 的交接')
+    _login(client, owner)
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    admin = _mk_super_admin(db, store=None)
+    _login(client, admin)
+
+    html = client.get(f'/notes/tracking/{kid}?store=A店').get_data(as_text=True)
+
+    expected_store_js = 'var SCOPED_STORE = ' + _json.dumps('A店') + ';'
+    assert expected_store_js in html, (
+        f'剔除／還原用的 SCOPED_STORE 沒有等於這張表的 A店：期望片段 '
+        f'{expected_store_js!r}'
+    )
+    assert "?store=' + encodeURIComponent(SCOPED_STORE)" in html, (
+        '剔除／還原的 fetch URL 沒有依 SCOPED_STORE 接上 ?store='
+    )
+
+    from models import TrackedKeywordHit
+    hit = TrackedKeywordHit.query.filter_by(keyword_id=kid).first()
+    assert hit is not None
+
+    # 證明不是裝飾：沒帶 store 就是 403，帶了才剔除得掉。
+    assert client.post(f'/notes/api/tracking/hits/{hit.id}/exclude',
+                        json={'excluded': True}).status_code == 403
+    r = client.post(f'/notes/api/tracking/hits/{hit.id}/exclude?store=A店',
+                     json={'excluded': True})
+    assert r.status_code == 200
+
+
+# ─── Fix 5：『→ 原文』要帶著關鍵字跳轉、且返回要回得到這張表 ───
+#
+# PO 手動測試回饋（兩點）：(1) 按下建檔進去原文，返回卻跑到主畫面，應該回到
+# 上一頁（這張追蹤表）才能繼續看下一筆；(2) 目前點進原文會顯示整篇，應該
+# 跳轉到有關鍵字的地方。這裡驗證『→ 原文』連結本身有沒有把這兩件事該帶的
+# 東西都帶上：q（給 editor.html 的 buildSearchHits 高亮/跳轉）、from（指回
+# 這張表，給 editor.html 的返回鈕）、item 型命中另外帶 #item-<id> 錨點
+# （直接跳到那個項目，不只是整篇文字裡有 mark）。
+
+def test_original_link_note_hit_carries_keyword_and_from(client, db):
+    from flask import url_for
+    kw = _uniq('王小明')
+    n = _mk_note(db, title=f'{kw} 的交接')
+    _login(client, _mk_user(db))
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
+
+    from_url = f'/n/tracking/{kid}?store=B店'
+    with client.application.test_request_context():
+        expected = _short(url_for('notes.edit_note', note_id=n.id, q=kw,
+                                   **{'from': from_url}))
+    # 模板用 {{ url_for(...) }} 輸出、Jinja 會自動 HTML-escape —— 這條連結
+    # 有兩個 query 參數（q 跟 from）要用 & 接起來，跟只有單一參數的
+    # tracking_list.html 那幾條連結不一樣，& 在頁面上會被轉成 &amp;。
+    expected = expected.replace('&', '&amp;')
+    assert expected in html, (
+        f'note 型命中的「→ 原文」連結沒帶對 q/from：期望片段 {expected!r}'
+    )
+
+
+def test_original_link_item_hit_carries_item_anchor(client, db):
+    from flask import url_for
+    from models import Note, ChecklistItem
+    kw = _uniq('王小明')
+    n = Note(store='B店', title='日報', content='', note_type='checklist')
+    db.session.add(n)
+    db.session.commit()
+    item = ChecklistItem(note_id=n.id, text=f'{kw} 遲到')
+    db.session.add(item)
+    db.session.commit()
+    _login(client, _mk_user(db))
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
+
+    from_url = f'/n/tracking/{kid}?store=B店'
+    with client.application.test_request_context():
+        expected = _short(url_for('notes.edit_note', note_id=n.id, q=kw,
+                                   _anchor=f'item-{item.id}',
+                                   **{'from': from_url}))
+    expected = expected.replace('&', '&amp;')   # 理由同上一個測試
+    assert expected in html, (
+        f'item 型命中的「→ 原文」連結沒帶對 q/from/#item 錨點：期望片段 {expected!r}'
+    )
+    # 反向斷言：不能誤用母筆記 id 組錨點（那會跳到不存在的項目、或巧合跳到
+    # 別的項目）。
+    wrong_anchor = f'#item-{n.id}'
+    if n.id != item.id:
+        assert wrong_anchor not in expected
+
+
 def test_detail_page_memo_textarea_has_maxlength_from_server_constant(client, db):
     """maxlength 要跟伺服器端 MEMO_MAX_LEN 引用同一個數字，不能各自寫一份、
     改一邊忘了改另一邊——不一致的話，使用者在前端還打得下去，一送出卻被
@@ -367,8 +500,11 @@ def test_detail_page_memo_fetch_matches_url_for_this_table(client, db):
     html = client.get(f'/notes/tracking/{kid_a}').get_data(as_text=True)
 
     with client.application.test_request_context():
-        expected_url = _short(url_for('notes.set_tracking_memo', kid=kid_a))
-        other_url = _short(url_for('notes.set_tracking_memo', kid=kid_b))
+        # Fix（本次修正）：這張表所在的店別（預設 _mk_user 的 'B店'）一律帶上
+        # ?store=，理由見下面的 Fix 4 測試群組 —— super_admin 看別店的詳細頁時
+        # 若漏帶，備註／剔除都會 403。
+        expected_url = _short(url_for('notes.set_tracking_memo', kid=kid_a, store='B店'))
+        other_url = _short(url_for('notes.set_tracking_memo', kid=kid_b, store='B店'))
     assert f"fetch('{expected_url}'" in html, (
         f'備註存檔的 fetch 路徑跟這一頁（kid={kid_a}）對不上：期望片段 '
         f"fetch('{expected_url}'"

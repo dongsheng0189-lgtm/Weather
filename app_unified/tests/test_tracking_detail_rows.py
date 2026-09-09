@@ -201,6 +201,36 @@ def test_rows_carry_link_target(db):
     assert item.id
 
 
+def test_item_row_carries_own_item_id_for_anchor_link(db):
+    """項目型命中要帶自己的 item id（不是母筆記 id）——前端的『→ 原文』連結
+    要靠這個組出 `#item-<id>` 錨點，直接跳到該項目而不是筆記最上面（PO
+    回饋：目前查看原文會顯示所有原文，應該跳轉到正確有關鍵字的地方）。
+    """
+    from notes.tracking import _detail_rows
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    n = _mk_note(db, title='日報')
+    item = _mk_item(db, n, f'{kw} 遲到')
+    t = _mk_tracked_and_scan(db, kw)
+
+    row = _detail_rows(t)[0]
+    assert row['target_type'] == 'item'
+    assert row['item_id'] == item.id
+    assert row['item_id'] != row['note_id']  # 不能誤用母筆記 id 當項目 id
+
+
+def test_note_row_has_no_item_id(db):
+    """note 型命中沒有項目可跳，item_id 要明確是 None —— 不能誤帶母筆記 id
+    進去，那會讓前端組出一個指向不存在項目的 #item-<note_id> 錨點。"""
+    from notes.tracking import _detail_rows
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    _mk_note(db, title=f'{kw} 的交接')
+    t = _mk_tracked_and_scan(db, kw)
+
+    row = _detail_rows(t)[0]
+    assert row['target_type'] == 'note'
+    assert row['item_id'] is None
+
+
 def test_rows_sorted_newest_first(db):
     from notes.tracking import _detail_rows
     kw = f'王小明{uuid.uuid4().hex[:6]}'

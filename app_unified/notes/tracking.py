@@ -365,6 +365,7 @@ def _detail_rows(tracked, hits=None):
 
     rows = []
     for h in hits:
+        item_id = None
         if h.target_type == 'note':
             n = notes.get(h.target_id)
             if not n:
@@ -382,6 +383,7 @@ def _detail_rows(tracked, hits=None):
             if not n:
                 continue          # 母筆記已軟刪或已硬刪 → 這一列自然消失
             title, text, note_id, when = n.title, i.text, i.note_id, i.updated_at
+            item_id = i.id     # 前端組 #item-<id> 錨點用，直接跳到這個項目
         # 用 (when, dict) tuple 排序，不在 dict 裡塞排序用的暫時欄位再事後
         # pop 掉 —— 一次到位，也不會有「忘記 pop」把內部欄位外洩給呼叫端的
         # 風險。
@@ -389,6 +391,7 @@ def _detail_rows(tracked, hits=None):
             'hit_id': h.id,
             'target_type': h.target_type,
             'note_id': note_id,
+            'item_id': item_id,
             'title': title or '（未命名）',
             'text': text or '',
             'when': tw_str(when, fmt='%m/%d'),
@@ -481,4 +484,15 @@ def tracking_detail_page(kid):
                            # 讓模板的 maxlength／提示字直接引用同一個常數，不在
                            # 模板裡另外寫死一份數字——兩份數字哪天改動不同步，
                            # 使用者會在前端看似還能打，一送出才被伺服器擋下。
-                           memo_max_len=MEMO_MAX_LEN)
+                           memo_max_len=MEMO_MAX_LEN,
+                           # 這張表『真正』所在的店別 —— 用 t.store（已經過
+                           # require_same_store 驗證跟目前有效店別相等）而不是
+                           # 重新讀一次 request.args.get('store')，模板上所有
+                           # 需要帶回 ?store= 的地方（備註／剔除／還原 fetch，
+                           # 以及「→ 原文」返回這張表的 from 連結）都靠這個值，
+                           # 同一份不分裂成兩份可能對不上的來源。比照
+                           # tracking_list.html 的 current_store 同一套慣例，
+                           # 修的是同一類「super_admin 看別店卻漏帶 store 而
+                           # 403」的缺陷（見這支路由 docstring 之外、模板端的
+                           # 對應修正）。
+                           current_store=t.store)

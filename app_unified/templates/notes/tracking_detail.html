@@ -46,6 +46,20 @@
 </style>
 {% endblock %}
 {% block content %}
+{# 「→ 原文」返回這張表用的 URL——直接寫短路徑 /n/tracking/<kid>，不透過
+   url_for('notes.tracking_detail_page', ...) 再讓 app.py 的 _shorten_urls
+   事後改寫。理由：_shorten_urls 只認「緊接在引號後面」的 /notes（例如
+   href="/notes/..."），這裡的值是**嵌在另一個連結的 query string 裡**
+   （...&from=/notes/tracking/5），前面是 = 不是引號，事後改寫抓不到、會
+   把未縮短的 /notes/tracking/5 原封不動送到瀏覽器。editor.html 那邊拿到的
+   `from` 就會是這個長相，白名單 regex 也是照這個長相寫的（見 editor.html
+   對 `from` 的處理）——短路徑在這裡是直接手寫出來，不是事後改寫的結果。
+   store 一律帶上（即使一般使用者不需要也無妨，比照 tracking_list.html 的
+   SCOPED_STORE 同一套慣例）：這張表『真正』的店別用 current_store（route
+   端就是 t.store，已經過同店驗證），不是重讀 request.args，兩邊才不會對
+   不上。 #}
+{% set from_url = '/n/tracking/' ~ tracked.id ~
+                   (('?store=' ~ current_store) if current_store else '') %}
 <div class="toolbar">
   <h2>{{ tracked.keyword }} 建檔追蹤</h2>
   <div style="margin-left:auto;">
@@ -78,7 +92,9 @@
             data-hit="{{ r.hit_id }}"
             style="font-size:.8rem;padding:.3rem .7rem;">不相關</button>
     <a class="btn btn-secondary" style="font-size:.8rem;padding:.3rem .7rem;text-decoration:none;"
-       href="{{ url_for('notes.edit_note', note_id=r.note_id) }}">→ 原文</a>
+       href="{{ url_for('notes.edit_note', note_id=r.note_id, q=tracked.keyword,
+                        _anchor=(('item-' ~ r.item_id) if r.item_id else none),
+                        **{'from': from_url}) }}">→ 原文</a>
   </div>
 </div>
 {% endfor %}
@@ -150,7 +166,7 @@ window.addEventListener('load', applyClampFade);
   }
   ta.addEventListener('blur', function () {
     if (ta.value === initial) return;
-    fetch('{{ url_for("notes.set_tracking_memo", kid=tracked.id) }}', {
+    fetch('{{ url_for("notes.set_tracking_memo", kid=tracked.id, store=current_store or none) }}', {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({text: ta.value})
@@ -165,6 +181,12 @@ window.addEventListener('load', applyClampFade);
     });
   });
 })();
+
+// 這張表『真正』的店別（同一份 current_store，見上面 Jinja 的 from_url
+// 註解）—— 剔除／還原兩個 fetch 都是 JS 端拼字串（不像備註走 url_for
+// 內嵌整條路徑），一樣要帶上，super_admin 看別店的表時才不會 403（跟
+// tracking_list.html 的 SCOPED_STORE 同一套慣例）。
+var SCOPED_STORE = {{ (current_store or '')|tojson }};
 
 document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
   var originalLabel = btn.textContent;
@@ -186,7 +208,9 @@ document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
       }, 4000);
       return;
     }
-    fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
+    var excludeUrl = '/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude';
+    if (SCOPED_STORE) excludeUrl += '?store=' + encodeURIComponent(SCOPED_STORE);
+    fetch(excludeUrl, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({excluded: true})
@@ -217,7 +241,9 @@ document.querySelectorAll('[data-role="restore-exclude"]').forEach(function (btn
     // 後果比較輕（頂多這筆命中重新出現在主清單，不會遺失任何資料），所以
     // 不比照剔除加二次確認 —— 使用者本來就是刻意點開「已剔除」區塊才看得到
     // 這顆按鈕，這一步本身已經是有意的操作。
-    fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
+    var restoreUrl = '/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude';
+    if (SCOPED_STORE) restoreUrl += '?store=' + encodeURIComponent(SCOPED_STORE);
+    fetch(restoreUrl, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({excluded: false})

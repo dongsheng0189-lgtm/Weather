@@ -571,10 +571,18 @@ document.addEventListener('DOMContentLoaded', function() {
       jumpToHit(_currentHit + 1);
     });
   }
-  // 返回上一頁按鈕 — 給 keyword + tag 兩種 jump 共用
+  // 返回上一頁按鈕 — 給 keyword + tag 兩種 jump 共用。
+  // 不再直接 history.back()：那只在「剛好是從上一頁點進來」時碰巧正確，
+  // 換分頁 / 重新整理 / 從別的入口進來都會失效或走錯地方（例如建檔追蹤表的
+  // item 型命中，需要的是回到那張追蹤表，不是瀏覽器歷史記錄裡隨便的上一
+  // 筆）。改成觸發 #btn-back 自己的 click handler——它已經處理好
+  // `?from=` 覆蓋（見上面 DOMContentLoaded 那段）跟導航前釋放編輯鎖，兩顆
+  // 返回鈕從此走同一套邏輯，不是各管各的。
   var backBtn = document.getElementById('search-hit-back');
   if (backBtn) {
     backBtn.addEventListener('click', function() {
+      var bb = document.getElementById('btn-back');
+      if (bb) { bb.click(); return; }
       window.history.back();
     });
   }
@@ -821,20 +829,37 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 
-// `?from=/n/<id>(#b-<n>)?` 從 AI 摘要 link 點過來時：
-// 1. 把「← 返回」鈕重指回那張摘要 (含 bullet 錨點)，讓 review 流程能連續討論
-// 2. 整頁進「review mode」— CSS 鎖住 .editor-wrap 內所有可編輯控制 + 顯示
-//    檢視模式提示 banner，避免 review 時誤改資料
-// Strict whitelist /n/\d+ + optional #b-\d+ anchor 防 XSS。
+// `?from=<url>` 覆蓋「← 返回」鈕（含浮動返回鈕）的目的地，放行兩種已知形狀，
+// 分開處理——關鍵是**只有第一種才鎖 review-mode**：
+//   1. AI 摘要 link `/n/<id>(#b-<n>)?`：把「← 返回」鈕重指回那張摘要
+//      (含 bullet 錨點)，並整頁進「review mode」— CSS 鎖住 .editor-wrap 內
+//      所有可編輯控制 + 顯示檢視模式 banner，避免 review 時誤改資料。這是
+//      既有行為，不可迴歸。
+//   2. 建檔追蹤表 link `/n/tracking/<kid>(?store=<店別>)?`：PO 手動測試回饋
+//      ——從追蹤表點進原文，返回要回到追蹤表才能接著看下一筆，不是掉回主
+//      畫面。但使用者點進追蹤命中的原文，八成就是要編輯它（那正是追蹤存在
+//      的目的），**不可以**套用 review-mode——那是 AI 摘要 review 流程專用
+//      的唯讀鎖，套到這裡會誤鎖住使用者要編輯的筆記。這裡只換返回目的地
+//      跟浮動鈕標籤，完全不碰 body.review-mode。
+// 兩條各自 strict whitelist 防 XSS / open-redirect，互不相通。
 document.addEventListener('DOMContentLoaded', function() {
   var from = new URLSearchParams(location.search).get('from');
-  if (!from || !/^\/n\/\d+(#b-\d+)?$/.test(from)) return;
+  if (!from) return;
+  var isSummary = /^\/n\/\d+(#b-\d+)?$/.test(from);
+  var isTracking = !isSummary && /^\/n\/tracking\/\d+(\?store=[^\/#\s]+)?$/.test(from);
+  if (!isSummary && !isTracking) return;
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.setAttribute('href', from);
-  // 檢視模式：把通用浮動鈕標籤改成「← 返回摘要」（href 鏡像 btn-back，已被改成 from）
   var floatBack = document.getElementById('float-back-widget');
-  if (floatBack) floatBack.textContent = '← 返回摘要';
-  document.body.classList.add('review-mode');
+  if (isSummary) {
+    // 檢視模式：把通用浮動鈕標籤改成「← 返回摘要」（href 鏡像 btn-back，已被改成 from）
+    if (floatBack) floatBack.textContent = '← 返回摘要';
+    document.body.classList.add('review-mode');
+  } else {
+    // 建檔追蹤：只換目的地跟標籤，編輯功能維持開放——絕不能在這個分支對
+    // document.body 加那個 AI 摘要專用的唯讀鎖 CSS class。
+    if (floatBack) floatBack.textContent = '← 返回追蹤表';
+  }
 });
 
 // 通用浮動返回鈕：一般模式捲動出現（IntersectionObserver 監看 #btn-back）、
