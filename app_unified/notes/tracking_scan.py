@@ -11,15 +11,27 @@ EncryptedText，DB 裡是密文、SQL 無法比對，所以比對只能把資料
 會判定阻塞、gunicorn 的 timeout=60 甚至可能 SIGKILL 這個 worker。所以先只撈
 primary key（不觸發解密），再一批一批載入物件，批與批之間讓出 hub。
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import gevent
+from sqlalchemy.exc import IntegrityError
 
 from extensions import db
 from models import Note, ChecklistItem, TrackedKeywordHit
 from notes.tracking_match import find_hits
 
 SCAN_BATCH = 200
+
+# 水位再往回退幾秒，蓋掉「flush 時間 < commit 可見時間」的漏掃窗口：一列在 T1
+# flush（updated_at 已寫成 T1），但要到 T3 commit 才會被別的 session 看到；若
+# 掃描恰好在 T1~T3 之間的 T2 開始，這列對它是不可見的，卻已經帶著
+# updated_at=T1 < T2，下一輪的 `updated_at > watermark` 就會永遠跳過它，除非
+# 它被再次編輯。正常情況下這個窗口只有幾毫秒，但 gevent 底下一個 greenlet可能
+# 在 flush 之後、commit 之前被切出去，窗口會被拉長。多掃幾秒不會造成問題
+# （重複命中被 seen 集合和 Fix 4 的 SAVEPOINT 擋住），但漏掃是這個功能唯一
+# 不能接受的失敗模式，所以寧可用這個 lookback 換保險——這個數字不是隨便給的，
+# 之後不要為了「看起來更精準」把它拿掉。
+WATERMARK_LOOKBACK_SECONDS = 5
 
 
 def _target_ids(tracked, since):
@@ -57,16 +69,26 @@ def scan_tracked_keyword(tracked):
     tracked.scanned_through 是 None 時自動走完整掃描。
     """
     # 水位取「掃描開始」而非結束的時刻：掃描期間被改動的資料下一輪還會再掃到，
-    # 寧可重掃一次（有唯一約束擋著、不會重複），也不要漏。
+    # 寧可重掃一次（有唯一約束擋著、不會重複），也不要漏。再扣掉
+    # WATERMARK_LOOKBACK_SECONDS，蓋掉 flush/commit 之間的可見度窗口（見上方
+    # 模組註解）。
     started = datetime.utcnow()
     note_ids, item_ids = _target_ids(tracked, tracked.scanned_through)
 
     # 已存在的命中（含已被剔除的）—— 剔除的必須留在這個集合裡，否則下一輪會把
     # 使用者判定為「不相關」的資料重新抓回來。
-    seen = {
-        (h.target_type, h.target_id)
-        for h in TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).all()
-    }
+    #
+    # ⚠️ 這裡故意只查 (target_type, target_id) 兩個欄位，不可以改回
+    # `TrackedKeywordHit.query.filter_by(...).all()`。那樣會把每一列都建成完整
+    # ORM 物件，SQLAlchemy 在 result processing 階段就要把 note_text /
+    # excluded_by_name（都是 EncryptedText）逐列解密——這正是本檔案開頭警告的
+    # 「一次 .all() 觸發全量解密、卡住 hub」模式，而且是每次掃描都會發生（就算
+    # 這次掃描的新增數是 0）。目前看起來還好只是因為這兩欄目前全部是 NULL；
+    # note_text 一旦被使用者填了內容，這裡就會變成同步解密全部歷史命中。
+    seen = set(
+        db.session.query(TrackedKeywordHit.target_type, TrackedKeywordHit.target_id)
+        .filter_by(keyword_id=tracked.id)
+    )
 
     added = 0
     for batch in _batches(note_ids):
@@ -81,7 +103,7 @@ def scan_tracked_keyword(tracked):
         added += _persist(tracked, records, seen)
         gevent.sleep(0)
 
-    tracked.scanned_through = started
+    tracked.scanned_through = started - timedelta(seconds=WATERMARK_LOOKBACK_SECONDS)
     db.session.commit()
     return added
 
@@ -91,11 +113,24 @@ def _persist(tracked, records, seen):
     for target_type, target_id in find_hits(tracked.keyword, records):
         if (target_type, target_id) in seen:
             continue
-        db.session.add(TrackedKeywordHit(
-            keyword_id=tracked.id,
-            target_type=target_type,
-            target_id=target_id,
-        ))
+        # 兩個 greenlet／worker 可能同時掃到同一個 keyword（例如兩個人同時開
+        # 追蹤頁），都認為 (keyword_id, target_type, target_id) 還沒被記錄過。
+        # `seen` 只是本 process 的快照，真正擋重複的是 DB 的唯一約束
+        # uq_tracked_hit_target，而它是用「丟例外」擋，不是靜默忽略。若不隔離，
+        # 輸家會在 commit（或 autoflush）時吃到 IntegrityError，整個 session
+        # 連水位都保不住。做法比照 app.py 的 _safe_ddl：用 begin_nested()
+        # （SAVEPOINT）把每一筆插入包起來，該筆失敗只回滾自己的 SAVEPOINT，
+        # 外層 session 照常可用、其他筆繼續處理。輸掉競速的這一筆不算進
+        # added——是別的 process 記錄下來的，不是這次掃描新增的。
+        try:
+            with db.session.begin_nested():
+                db.session.add(TrackedKeywordHit(
+                    keyword_id=tracked.id,
+                    target_type=target_type,
+                    target_id=target_id,
+                ))
+        except IntegrityError:
+            continue
         seen.add((target_type, target_id))
         added += 1
     return added
