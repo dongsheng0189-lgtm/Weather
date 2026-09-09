@@ -104,6 +104,8 @@
     <a href="{{ url_for('notes.announcement_new_page') }}" class="btn btn-primary"
        style="background:#f39c12;text-decoration:none;display:inline-block;">📢 新增公告</a>
     {% endif %}
+    <a href="{{ url_for('notes.tracking_list_page') }}" class="btn btn-secondary"
+       style="text-decoration:none;display:inline-block;">🔎 建檔追蹤</a>
   </div>
 </div>
 
@@ -280,6 +282,61 @@
     {% endif %}
   </div>
 </section>
+
+{# 建檔追蹤入口：只在關鍵字搜尋時出現。搜尋是暫時的、按下這顆才建立持續累積的表 —— #}
+{# 這個分界是刻意的，兩者都是「輸入關鍵字、列出命中」，很容易被混為一談。 #}
+{% if current_keyword %}
+<div style="display:flex;align-items:center;gap:.6rem;margin:.6rem 0;padding:.6rem .8rem;
+            background:#f6f9ff;border:1px solid #d6e4ff;border-radius:8px;">
+  <span style="font-size:.85rem;color:#555;">「{{ current_keyword }}」</span>
+  {% if tracking_existing_id %}
+  <a href="{{ url_for('notes.tracking_detail_page', kid=tracking_existing_id) }}"
+     class="btn btn-primary" style="font-size:.82rem;padding:.3rem .8rem;text-decoration:none;">
+    開啟追蹤表
+  </a>
+  {% else %}
+  <button type="button" class="btn btn-primary" data-role="create-tracking"
+          data-keyword="{{ current_keyword }}"
+          style="font-size:.82rem;padding:.3rem .8rem;">建檔追蹤</button>
+  <span style="font-size:.78rem;color:#888;">建立後會持續累積，可寫備註、剔除不相關的</span>
+  {# 這段 <script> 刻意放在 else 分支裡（跟按鈕同一個條件），不是放在
+     {% if current_keyword %} 外層之後 —— 已追蹤時按鈕根本不存在，若腳本仍
+     整段輸出，document.querySelector 選到的 [data-role="create-tracking"]
+     這串「JS 原始碼字面值」會被誤判成「頁面上真的有這顆按鈕」（純文字比對
+     分不出這是程式碼還是 DOM），讓「已追蹤時不該有建立按鈕」的守門測試偽陽性
+     失效。放進同一個 else 也順便滿足腳本要在它查詢的元素之後才執行的要求 ——
+     兩者本來就在同一段輸出裡，順序自然成立，不必依賴其他 script 區塊的順序。 #}
+  <script>
+  (function () {
+    var btn = document.querySelector('[data-role="create-tracking"]');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.textContent = '建立中…';   // 第一次是完整掃描，會花幾秒
+      fetch('/notes/api/tracking', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({keyword: btn.dataset.keyword})
+      }).then(function (r) {
+        // 失敗必須「看得見」——r.json() 對非 2xx 回應一樣可能安靜地 resolve，
+        // 使用者按下去以為在建立，其實什麼都沒發生。理由與 tracking_detail.html /
+        // tracking_list.html 的 fetch 一致，這裡沿用同一套模式，不用 alert()
+        // （瀏覽器 modal 會卡住自動化工具）。
+        if (!r.ok) throw new Error('create failed: ' + r.status);
+        return r.json();
+      }).then(function (d) {
+        location.href = '/notes/tracking/' + d.id;
+      }).catch(function () {
+        btn.disabled = false;
+        btn.textContent = '建立失敗，再試一次';
+        setTimeout(function () { btn.textContent = '建檔追蹤'; }, 2500);
+      });
+    });
+  })();
+  </script>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if notes %}
 <div class="notes-grid">

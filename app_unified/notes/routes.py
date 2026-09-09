@@ -434,6 +434,7 @@ def index():
     # 三互斥模式：keyword > tag > combined
     keyword_mode = False
     active_filter = None
+    tracking_existing_id = None
     if keyword:
         active_filter = 'keyword'
         keyword_mode = True
@@ -469,6 +470,11 @@ def index():
         kl = keyword.lower()
         filtered = [n for n in all_rows if _note_matches(n, kl)]
         pagination = _PyPagination(filtered, page=page, per_page=per_page)
+        # 本店是否已有這個關鍵字的追蹤表 → 決定按鈕顯示「建檔追蹤」還是「開啟追蹤表」。
+        # 函式內 import：notes.tracking 會 import notes.routes 的 notes_bp，模組層級
+        # import 會形成循環（與本檔其他 deferred import 同一個理由）。
+        from notes.tracking import find_tracking_for_keyword
+        tracking_existing_id = find_tracking_for_keyword(keyword)
     else:
         pagination = query.order_by(sort_order).paginate(page=page, per_page=per_page, error_out=False)
 
@@ -523,6 +529,7 @@ def index():
                            current_category=category_filter,
                            current_shift=shift_filter,
                            current_keyword=keyword,
+                           tracking_existing_id=tracking_existing_id,
                            current_tag=tag_id,
                            current_sort=current_sort,
                            active_filter=active_filter,

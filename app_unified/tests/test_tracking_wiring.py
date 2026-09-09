@@ -17,6 +17,7 @@ from flask import url_for
 
 DETAIL = Path(__file__).parent.parent / 'templates' / 'notes' / 'tracking_detail.html'
 LIST = Path(__file__).parent.parent / 'templates' / 'notes' / 'tracking_list.html'
+INDEX = Path(__file__).parent.parent / 'templates' / 'notes' / 'index.html'
 
 
 def test_data_role_hooks_present():
@@ -83,4 +84,33 @@ def test_delete_path_matches_url_for(app):
     expected_delete_js = _expected_js_concat(delete_prefix, 'btn.dataset.id', delete_suffix)
     assert expected_delete_js in list_src, (
         f'刪除的路徑跟 notes.delete_tracking 的路由對不上：期望片段 {expected_delete_js!r}'
+    )
+
+
+def test_index_create_tracking_fetch_matches_url_for(app):
+    """index.html 搜尋結果按鈕的建立 fetch，路徑要對得上 notes.create_tracking。"""
+    with app.test_request_context():
+        create_url = url_for('notes.create_tracking')
+
+    index_src = INDEX.read_text(encoding='utf-8')
+
+    # create_tracking 沒有路徑參數，不需要 _split_on_placeholder 切前後段，
+    # 直接比對整段 fetch() 呼叫的第一個參數字面值。
+    assert f"fetch('{create_url}'" in index_src, (
+        f'建檔追蹤的建立路徑跟 notes.create_tracking 的路由對不上：期望 {create_url!r}'
+    )
+
+
+def test_index_redirect_path_matches_url_for(app):
+    """index.html 建立成功後的導向路徑，要對得上 notes.tracking_detail_page。"""
+    with app.test_request_context():
+        detail_url = url_for('notes.tracking_detail_page', kid=999999)
+
+    index_src = INDEX.read_text(encoding='utf-8')
+
+    detail_prefix, detail_suffix = _split_on_placeholder(detail_url, 999999)
+    expected_redirect_js = _expected_js_concat(detail_prefix, 'd.id', detail_suffix)
+    assert expected_redirect_js in index_src, (
+        f'建立成功後的導向路徑跟 notes.tracking_detail_page 的路由對不上：'
+        f'期望片段 {expected_redirect_js!r}'
     )
