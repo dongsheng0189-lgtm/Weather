@@ -207,6 +207,42 @@ def test_super_admin_without_store_param_gets_hint_not_button(client, db):
     assert '請先在上方選一間店別' in html, '缺少引導使用者先選店的提示文字'
 
 
+def test_unscoped_super_admin_gets_hint_even_when_own_store_has_a_table(client, db):
+    """未限定店別的 super_admin，即使自己店已有同關鍵字的追蹤表，也只能看到提示。
+
+    這是三分支「先判 tracking_scoped、再判 tracking_existing_id」順序的守門。
+    順序若被調回「先判 existing」，這個狀態就會渲染出「開啟追蹤表」——連到一張
+    只含 B 店資料的表，而畫面上的搜尋結果橫跨 A/B/C 店。那正是本功能兩段式流程
+    要避免的「搜尋結果 ≠ 追蹤表」錯配，而且它還會把提示整個蓋掉，使用者永遠不會
+    知道自己的檢視沒有限定店別。
+
+    這個狀態是唯一能分辨兩種分支順序的狀態，其他測試都沒有同時湊齊
+    「未限定店別」＋「自己店已有表」這兩個條件。
+    """
+    kw = _uniq('王小明')
+    _mk_store(db, 'B店')
+    _mk_note(db, store='C店', title=f'{kw} 的交接')   # 畫面上看到的是 C 店的命中
+    admin = _mk_super_admin(db, store='B店')
+    _login(client, admin)
+
+    # 不帶 ?store= 建表 → effective_store() 落到 admin 自己的 B店
+    r = client.post('/notes/api/tracking', json={'keyword': kw})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    from models import TrackedKeyword
+    assert db.session.get(TrackedKeyword, r.get_json()['id']).store == 'B店'
+
+    html = client.get(f'/notes/?q={kw}').get_data(as_text=True)
+
+    assert '開啟追蹤表' not in html, (
+        '未限定店別時不可以提供「開啟追蹤表」—— 那張表只有 B店 的資料，'
+        '畫面上的結果卻橫跨多店'
+    )
+    assert not CREATE_BUTTON_RE.search(html)
+    assert '請先在上方選一間店別' in html, (
+        '既有表不可以把「請先選店」的提示蓋掉，否則使用者不會知道檢視未限定店別'
+    )
+
+
 def test_plain_user_create_button_unaffected_by_fix1(client, db):
     """一般使用者永遠鎖在自己店（effective_store() 忽略 query string），
     Fix 1(b) 的「未限定店別就隱藏按鈕」規則不該套用到他們身上 —— 按鈕要照
