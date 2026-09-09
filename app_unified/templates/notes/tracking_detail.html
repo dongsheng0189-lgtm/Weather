@@ -8,8 +8,18 @@
   padding:.8rem 1rem; margin-bottom:.6rem; }
 .hit-memo { display:block; width:100%; box-sizing:border-box; border:1px dashed #d7c48a;
   background:#fffdf3; border-radius:6px; padding:.4rem .6rem; font-size:.88rem;
-  margin-bottom:.5rem; resize:vertical; min-height:2.2rem; }
+  margin-bottom:.15rem; resize:vertical; min-height:2.2rem; }
+/* 存檔失敗要「看得見」，不能跟成功長得一模一樣 —— 這欄位加密存放、沒有版本
+   紀錄也沒有 log，一旦誤以為存了、其實沒存，內容就永久遺失（見這支路由的
+   docstring）。 */
+.hit-memo.save-failed { border-color:#d33; background:#fff5f5; }
+.hit-memo-hint { display:none; color:#d33; font-size:.76rem; margin:0 0 .5rem; }
+.hit-memo-hint.show { display:block; }
 .hit-meta { color:#888; font-size:.8rem; margin-bottom:.25rem; }
+.hit-text-wrap { position:relative; max-height:6.5rem; overflow:hidden; }
+.hit-text-wrap.is-clamped::after { content:''; position:absolute; left:0; right:0;
+  bottom:0; height:1.8rem; pointer-events:none;
+  background:linear-gradient(rgba(255,255,255,0), #fff); }
 .hit-text { font-size:.95rem; white-space:pre-wrap; word-break:break-word; }
 .hit-actions { display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem; }
 .tracking-empty { color:#888; padding:1.2rem; text-align:center; }
@@ -31,10 +41,11 @@
 <div class="hit-card" data-hit="{{ r.hit_id }}">
   <textarea class="hit-memo" data-role="memo" data-hit="{{ r.hit_id }}"
             placeholder="備註…">{{ r.memo }}</textarea>
+  <div class="hit-memo-hint" data-role="memo-hint">未儲存，請重試</div>
   <div class="hit-meta">
     {{ r.when }} · {{ r.title }}{% if r.target_type == 'item' %} · 項目{% endif %}
   </div>
-  <div class="hit-text">{{ r.text }}</div>
+  <div class="hit-text-wrap"><div class="hit-text">{{ r.text }}</div></div>
   <div class="hit-actions">
     <button type="button" class="btn btn-secondary" data-role="exclude"
             data-hit="{{ r.hit_id }}"
@@ -49,31 +60,68 @@
 {% endif %}
 
 <script>
-// 備註：失焦才送，避免每打一個字就打一次 API
+// 撐開超長原文超過一定高度時才加淡出遮罩，短文不加（避免短文也被裁到看起來
+// 怪怪的）。
+document.querySelectorAll('.hit-text-wrap').forEach(function (wrap) {
+  if (wrap.scrollHeight > wrap.clientHeight + 1) wrap.classList.add('is-clamped');
+});
+
+// 備註：失焦才送，避免每打一個字就打一次 API。
+//
+// 失敗必須「看得見」，不能什麼都不做 —— r.json() 對非 2xx 回應（403/404，或
+// session 過期被 Flask-Login 導回登入頁的 HTML）一樣會 resolve 或 reject 得
+// 很安靜，.then 要嘛拿到垃圾資料、要嘛整條 promise chain 沒有 .catch 接住，
+// 使用者看著打好的字留在畫面上，以為存了，其實沒有。這欄位加密存放、沒有
+// 版本紀錄也沒有 log，一旦這樣誤判就找不回來。
 document.querySelectorAll('[data-role="memo"]').forEach(function (ta) {
   var initial = ta.value;
+  var card = ta.closest('.hit-card');
+  var hint = card ? card.querySelector('[data-role="memo-hint"]') : null;
+  function markFailed() {
+    ta.classList.add('save-failed');
+    if (hint) hint.classList.add('show');
+  }
+  function markOk() {
+    ta.classList.remove('save-failed');
+    if (hint) hint.classList.remove('show');
+  }
   ta.addEventListener('blur', function () {
     if (ta.value === initial) return;
     fetch('/notes/api/tracking/hits/' + ta.dataset.hit + '/note', {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({text: ta.value})
-    }).then(function (r) { return r.json(); })
-      .then(function (d) { initial = d.note_text; });
+    }).then(function (r) {
+      if (!r.ok) throw new Error('save failed: ' + r.status);
+      return r.json();
+    }).then(function (d) {
+      initial = d.note_text;
+      markOk();
+    }).catch(function () {
+      markFailed();
+    });
   });
 });
 
 document.querySelectorAll('[data-role="exclude"]').forEach(function (btn) {
+  var originalLabel = btn.textContent;
   btn.addEventListener('click', function () {
     fetch('/notes/api/tracking/hits/' + btn.dataset.hit + '/exclude', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({excluded: true})
-    }).then(function (r) { return r.json(); })
-      .then(function () {
-        var card = document.querySelector('.hit-card[data-hit="' + btn.dataset.hit + '"]');
-        if (card) card.remove();
-      });
+    }).then(function (r) {
+      if (!r.ok) throw new Error('exclude failed: ' + r.status);
+      return r.json();
+    }).then(function () {
+      var card = document.querySelector('.hit-card[data-hit="' + btn.dataset.hit + '"]');
+      if (card) card.remove();
+    }).catch(function () {
+      // 這個動作不遺失資料（頂多這一列該消失卻沒消失），輕量提示即可：
+      // 短暫換字提醒使用者再按一次，不做記憶體級的持久標記。
+      btn.textContent = '失敗，再試一次';
+      setTimeout(function () { btn.textContent = originalLabel; }, 2500);
+    });
   });
 });
 </script>

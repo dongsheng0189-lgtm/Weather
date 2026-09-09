@@ -32,7 +32,7 @@
     </div>
   </div>
   <button type="button" class="btn btn-secondary" data-role="del-tracking"
-          data-id="{{ t.id }}" data-keyword="{{ t.keyword }}"
+          data-id="{{ t.id }}"
           style="font-size:.8rem;padding:.3rem .7rem;">刪除</button>
 </div>
 {% endfor %}
@@ -57,8 +57,18 @@ document.querySelectorAll('[data-role="del-tracking"]').forEach(function (btn) {
       return;
     }
     fetch('/notes/api/tracking/' + btn.dataset.id, {method: 'DELETE'})
-      .then(function (r) { return r.json(); })
-      .then(function () { location.reload(); });
+      .then(function (r) {
+        if (!r.ok) throw new Error('delete failed: ' + r.status);
+        return r.json();
+      })
+      .then(function () { location.reload(); })
+      .catch(function () {
+        // 沒有遺失資料（這張表還在），輕量提示即可：解除已按一次的確認狀態、
+        // 換字提醒失敗，不留持久標記。
+        btn.dataset.armed = '0';
+        btn.textContent = '刪除失敗，再試一次';
+        setTimeout(function () { btn.textContent = '刪除'; }, 2500);
+      });
   });
 });
 </script>

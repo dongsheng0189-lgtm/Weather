@@ -226,6 +226,20 @@ def _detail_rows(tracked):
         ChecklistItem.id.in_(item_ids),
         ChecklistItem.deleted_at.is_(None)).all()} if item_ids else {}
 
+    # item 分支需要母筆記的 title/deleted_at，但絕對不能靠 `i.note` 的 lazy
+    # load 逐筆去拿 —— 那是每個「不同的」母筆記各一次 SELECT，且會把整個 Note
+    # 物件（含 content）解密出來，而這裡只用得到 title。一張追蹤表會無上限
+    # 累積命中，命中愈多、這個 N+1 愈嚴重，且是同步跑在 gevent worker 上
+    # （見 notes/tracking_scan.py 開頭對同一種模式的警告）。改成跟上面
+    # note_ids 一樣的批次查詢，一次撈完、合併進同一個 notes 字典。
+    # 用 `- notes.keys()` 排掉已經查過的 id 純粹省一點查詢範圍，不影響正確性
+    # ——就算重疊，兩邊套的都是同一個 deleted_at.is_(None) 過濾條件。
+    parent_note_ids = {i.note_id for i in items.values()} - notes.keys()
+    if parent_note_ids:
+        for n in Note.query.filter(
+                Note.id.in_(parent_note_ids), Note.deleted_at.is_(None)).all():
+            notes[n.id] = n
+
     rows = []
     for h in hits:
         if h.target_type == 'note':
@@ -235,10 +249,16 @@ def _detail_rows(tracked):
             title, text, note_id, when = n.title, n.content, n.id, n.updated_at
         else:
             i = items.get(h.target_id)
-            if not i or not i.note or i.note.deleted_at is not None:
+            if not i:
                 continue
-            title, text, note_id, when = i.note.title, i.text, i.note_id, i.updated_at
-        rows.append({
+            n = notes.get(i.note_id)
+            if not n:
+                continue          # 母筆記已軟刪或已硬刪 → 這一列自然消失
+            title, text, note_id, when = n.title, i.text, i.note_id, i.updated_at
+        # 用 (when, dict) tuple 排序，不在 dict 裡塞排序用的暫時欄位再事後
+        # pop 掉 —— 一次到位，也不會有「忘記 pop」把內部欄位外洩給呼叫端的
+        # 風險。
+        rows.append((when, {
             'hit_id': h.id,
             'target_type': h.target_type,
             'note_id': note_id,
@@ -246,12 +266,9 @@ def _detail_rows(tracked):
             'text': text or '',
             'memo': h.note_text or '',
             'when': tw_str(when, fmt='%m/%d'),
-            'sort_key': when,
-        })
-    rows.sort(key=lambda r: r['sort_key'], reverse=True)
-    for r in rows:
-        r.pop('sort_key')
-    return rows
+        }))
+    rows.sort(key=lambda pair: pair[0], reverse=True)
+    return [row for _, row in rows]
 
 
 @notes_bp.route('/tracking/<int:kid>')

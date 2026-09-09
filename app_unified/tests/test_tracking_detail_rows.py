@@ -68,6 +68,44 @@ def test_rows_hide_soft_deleted_targets(db):
     assert _detail_rows(t) == []
 
 
+def test_rows_hide_soft_deleted_note_target(db):
+    """note 型命中：原始 Note 本身被軟刪後，這一列要消失。
+
+    護的是 _detail_rows 裡 Note 查詢的 `Note.deleted_at.is_(None)` 這道過濾——
+    與 test_rows_hide_soft_deleted_targets（護的是 ChecklistItem 查詢那道）
+    是兩個不同的守門，刪掉任何一個都不該只讓另一個頂上。"""
+    from notes.tracking import _detail_rows
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    n = _mk_note(db, title=f'{kw} 的日報')
+    t = _mk_tracked_and_scan(db, kw)
+    assert len(_detail_rows(t)) == 1
+
+    n.deleted_at = datetime.utcnow()
+    db.session.commit()
+
+    assert _detail_rows(t) == []
+
+
+def test_rows_hide_item_whose_parent_note_soft_deleted(db):
+    """item 型命中：項目本身仍是活的，但它的母筆記被軟刪 —— 這一列也要消失。
+
+    護的是 item 分支裡「母筆記軟刪」的檢查，與上面兩個測試（Note 查詢的過濾、
+    ChecklistItem 查詢的過濾）加起來，_detail_rows 的三道軟刪守門才算全部
+    有測試守著。"""
+    from notes.tracking import _detail_rows
+    kw = f'王小明{uuid.uuid4().hex[:6]}'
+    n = _mk_note(db, title='日報')
+    item = _mk_item(db, n, f'{kw} 遲到')
+    t = _mk_tracked_and_scan(db, kw)
+    assert len(_detail_rows(t)) == 1
+
+    n.deleted_at = datetime.utcnow()
+    db.session.commit()
+
+    assert _detail_rows(t) == []
+    assert item.deleted_at is None   # 項目本身沒被動，只有母筆記被刪
+
+
 def test_rows_hide_excluded(db):
     from notes.tracking import _detail_rows
     from models import TrackedKeywordHit
