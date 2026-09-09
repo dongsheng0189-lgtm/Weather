@@ -630,5 +630,3 @@ class TrackedKeywordMemoLog(db.Model):
     changed_by = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     changed_by_name = db.Column(EncryptedText, nullable=True)  # 快照，帳號被刪也留得住是誰改的
     changed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-
-    changer = db.relationship("User", foreign_keys=[changed_by])

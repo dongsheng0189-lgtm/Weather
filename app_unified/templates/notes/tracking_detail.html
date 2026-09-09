@@ -54,7 +54,8 @@
 {% for r in rows %}
 <div class="hit-card" data-hit="{{ r.hit_id }}">
   <textarea class="hit-memo" data-role="memo" data-hit="{{ r.hit_id }}"
-            placeholder="備註…">{{ r.memo }}</textarea>
+            placeholder="備註…（最多 {{ memo_max_len }} 字）"
+            maxlength="{{ memo_max_len }}">{{ r.memo }}</textarea>
   <div class="hit-memo-hint" data-role="memo-hint">未儲存，請重試</div>
   {% if r.memo_edited_by %}
   <div class="hit-memo-meta">{{ r.memo_edited_by }} 於 {{ r.memo_edited_at }} 最後編輯</div>

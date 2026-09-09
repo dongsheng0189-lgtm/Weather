@@ -97,10 +97,30 @@ def _live_target_ids(hits):
     return live_note_ids, live_item_ids
 
 
-def _visible_hits(tracked):
-    """這張追蹤表目前『看得到』的命中列：未被剔除、且原始資料仍在。"""
-    hits = TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).filter(
-        TrackedKeywordHit.excluded_at.is_(None)).all()
+def _visible_hits(tracked, full=False):
+    """這張追蹤表目前『看得到』的命中列：未被剔除、且原始資料仍在。
+
+    full=False（預設）只載入判斷「算不算數」與計數用得到的欄位（id /
+    target_type / target_id）。TrackedKeywordHit.note_text /
+    excluded_by_name 是 EncryptedText，process_result_value 在**取列
+    當下**就會解密、不是屬性存取當下才解密——清單頁（`_tracked_to_dict`）
+    只要 `len()`，從來不讀 note_text，撈整列一樣會把這張表累積的每一則備註
+    白白解密一次。這裡用 `load_only` 擋掉，理由同 `_detail_rows` 對
+    Note/ChecklistItem 做的事。
+
+    full=True 給 `_detail_rows` 用，因為它真的要讀 h.note_text。
+
+    兩種模式共用同一份「這筆命中還算不算數」判斷（下面這段 filter），不因為
+    要省欄位就分裂成兩份可能日後對不上的邏輯——那正是這個函式最初被拆出來
+    要解決的問題（見上面的說明）。
+    """
+    query = TrackedKeywordHit.query.filter_by(keyword_id=tracked.id).filter(
+        TrackedKeywordHit.excluded_at.is_(None))
+    if not full:
+        query = query.options(load_only(
+            TrackedKeywordHit.id, TrackedKeywordHit.target_type,
+            TrackedKeywordHit.target_id))
+    hits = query.all()
     live_note_ids, live_item_ids = _live_target_ids(hits)
     return [h for h in hits
             if (h.target_type == 'note' and h.target_id in live_note_ids)
@@ -114,13 +134,17 @@ def _excluded_hits(tracked):
         TrackedKeywordHit.excluded_at.desc()).all()
 
 
-def _tracked_to_dict(t):
+def _tracked_to_dict(t, hits=None):
+    """`hits` 可選：detail 頁已經算過一次 `_visible_hits(t, full=True)`，
+    傳進來就不必再算第二次（同一頁面過去曾各自重算一份，見 `_detail_rows`
+    docstring 提到的重複）。清單頁沒有現成的 hits 可傳，維持原本各自算一次
+    ——但走的是 `_visible_hits` 的 count-only 模式，不解密備註。"""
     return {
         'id': t.id,
         'keyword': t.keyword,
         'created_by_name': t.created_by_name,
         'created_at': tw_str(t.created_at),
-        'hit_count': len(_visible_hits(t)),
+        'hit_count': len(hits) if hits is not None else len(_visible_hits(t)),
     }
 
 
@@ -275,8 +299,11 @@ def tracking_list_page():
                            current_store=store)
 
 
-def _detail_rows(tracked):
+def _detail_rows(tracked, hits=None):
     """組出詳細頁的每一列。
+
+    `hits` 可選：呼叫端（`tracking_detail_page`）若已經算過
+    `_visible_hits(tracked, full=True)` 就直接傳進來，這裡不重算第二次。
 
     每一列是**參照**：文字一律即時從原始 Note / ChecklistItem 讀，不是命中當下的
     複本 —— 原文被修正後追蹤表要跟著變，否則會出現「追蹤表寫著遲到 10 分鐘、原始
@@ -292,7 +319,7 @@ def _detail_rows(tracked):
     `deleted_at.is_(None)`，那樣寫等於把同一個規則寫兩份，兩份哪天被改得不一致
     就是這次要修的「清單筆數與詳細頁筆數對不上」重演。
     """
-    hits = _visible_hits(tracked)
+    hits = hits if hits is not None else _visible_hits(tracked, full=True)
     note_ids = [h.target_id for h in hits if h.target_type == 'note']
     item_ids = [h.target_id for h in hits if h.target_type == 'item']
 
@@ -439,8 +466,17 @@ def tracking_detail_page(kid):
     # 系統剛剛有沒有檢查過新命中，「最後更新」就是唯一能證明「這次開頁確實
     # 掃過」的線索。scan_tracked_keyword commit 後這個屬性會過期重讀，這裡讀到
     # 的就是這次掃描寫入的水位，不是掃描前的舊值。
+    #
+    # 這裡的 hits 用 full=True 只算一次（detail 頁真的要顯示 note_text），
+    # 同時餵給 _tracked_to_dict（算 hit_count）跟 _detail_rows（組列），
+    # 兩者過去各自呼叫 _visible_hits() 重算一次，是同一頁面的重複查詢。
+    hits = _visible_hits(t, full=True)
     return render_template('notes/tracking_detail.html',
-                           tracked=_tracked_to_dict(t),
-                           rows=_detail_rows(t),
+                           tracked=_tracked_to_dict(t, hits=hits),
+                           rows=_detail_rows(t, hits=hits),
                            excluded_rows=_excluded_rows(t),
-                           last_updated=tw_str(t.scanned_through, fmt='%m/%d %H:%M'))
+                           last_updated=tw_str(t.scanned_through, fmt='%m/%d %H:%M'),
+                           # 讓模板的 maxlength／提示字直接引用同一個常數，不在
+                           # 模板裡另外寫死一份數字——兩份數字哪天改動不同步，
+                           # 使用者會在前端看似還能打，一送出才被伺服器擋下。
+                           memo_max_len=MEMO_MAX_LEN)

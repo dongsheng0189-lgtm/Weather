@@ -322,3 +322,24 @@ def test_super_admin_list_delete_fetch_carries_store(client, db):
     assert db.session.get(TrackedKeyword, kid) is not None
     assert client.delete(f'/notes/api/tracking/{kid}?store=A店').status_code == 200
     assert db.session.get(TrackedKeyword, kid) is None
+
+
+def test_detail_page_memo_textarea_has_maxlength_from_server_constant(client, db):
+    """maxlength 要跟伺服器端 MEMO_MAX_LEN 引用同一個數字，不能各自寫一份、
+    改一邊忘了改另一邊——不一致的話，使用者在前端還打得下去，一送出卻被
+    伺服器 400 擋下，畫面上只會看到不知道為什麼的「未儲存，請重試」。"""
+    from notes.tracking import MEMO_MAX_LEN
+    kw = _uniq('王小明')
+    _mk_note(db, title=f'{kw} 的交接')
+    _login(client, _mk_user(db))
+    kid = client.post('/notes/api/tracking', json={'keyword': kw}).get_json()['id']
+
+    html = client.get(f'/notes/tracking/{kid}').get_data(as_text=True)
+
+    assert f'maxlength="{MEMO_MAX_LEN}"' in html, (
+        f'備註欄位缺少 maxlength="{MEMO_MAX_LEN}"，或跟伺服器端常數對不上'
+    )
+    # 使用者要在打到超過上限「之前」就看得到限制，不是送出被 400 擋下才知道。
+    assert str(MEMO_MAX_LEN) in html.split('placeholder=')[1][:40], (
+        '提示文字（placeholder）看不到字數上限'
+    )
