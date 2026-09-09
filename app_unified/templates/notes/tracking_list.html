@@ -45,12 +45,16 @@
 
 <script>
 document.querySelectorAll('[data-role="del-tracking"]').forEach(function (btn) {
+  var armTimer = null;
   btn.addEventListener('click', function () {
     // 刻意不用 confirm() —— 瀏覽器 modal 會卡住自動化工具；改用行內二次確認
     if (btn.dataset.armed !== '1') {
       btn.dataset.armed = '1';
       btn.textContent = '再按一次確認刪除';
-      setTimeout(function () {
+      // 計時器 id 存在閉包變數裡，失敗訊息要顯示時得先取消它 —— 否則若
+      // fetch 恰好在這 4 秒內失敗，這個「恢復成『刪除』」的計時器會緊接著
+      // 把失敗訊息蓋掉，使用者幾乎看不到就消失了。
+      armTimer = setTimeout(function () {
         btn.dataset.armed = '0';
         btn.textContent = '刪除';
       }, 4000);
@@ -64,7 +68,9 @@ document.querySelectorAll('[data-role="del-tracking"]').forEach(function (btn) {
       .then(function () { location.reload(); })
       .catch(function () {
         // 沒有遺失資料（這張表還在），輕量提示即可：解除已按一次的確認狀態、
-        // 換字提醒失敗，不留持久標記。
+        // 換字提醒失敗，不留持久標記。先清掉「再按一次確認刪除」那個尚未
+        // 觸發的計時器，不然它幾乎立刻就會把這句失敗訊息蓋回「刪除」。
+        clearTimeout(armTimer);
         btn.dataset.armed = '0';
         btn.textContent = '刪除失敗，再試一次';
         setTimeout(function () { btn.textContent = '刪除'; }, 2500);

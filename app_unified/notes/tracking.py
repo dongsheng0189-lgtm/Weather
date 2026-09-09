@@ -10,6 +10,7 @@ from datetime import datetime
 
 from flask import request, jsonify, abort, render_template
 from flask_login import login_required, current_user
+from sqlalchemy.orm import load_only
 
 from extensions import db
 from models import TrackedKeyword, TrackedKeywordHit, Note, ChecklistItem
@@ -227,18 +228,29 @@ def _detail_rows(tracked):
         ChecklistItem.deleted_at.is_(None)).all()} if item_ids else {}
 
     # item 分支需要母筆記的 title/deleted_at，但絕對不能靠 `i.note` 的 lazy
-    # load 逐筆去拿 —— 那是每個「不同的」母筆記各一次 SELECT，且會把整個 Note
-    # 物件（含 content）解密出來，而這裡只用得到 title。一張追蹤表會無上限
-    # 累積命中，命中愈多、這個 N+1 愈嚴重，且是同步跑在 gevent worker 上
-    # （見 notes/tracking_scan.py 開頭對同一種模式的警告）。改成跟上面
-    # note_ids 一樣的批次查詢，一次撈完、合併進同一個 notes 字典。
+    # load 逐筆去拿 —— 那是每個「不同的」母筆記各一次 SELECT。改成批次查詢，
+    # 一次撈完；但這個 parent_notes 查詢**不能**併進上面的 notes 字典 ——
+    # 兩者故意分開存放，見下方 load_only 的說明。
     # 用 `- notes.keys()` 排掉已經查過的 id 純粹省一點查詢範圍，不影響正確性
     # ——就算重疊，兩邊套的都是同一個 deleted_at.is_(None) 過濾條件。
+    #
+    # ⚠️ 只用 .options(load_only(...)) 限制要撈的欄位，不能只靠批次查詢本身：
+    # EncryptedText 是 TypeDecorator，process_result_value 在**取列（row
+    # fetch）當下**就會跑，不是屬性存取當下才跑——所以就算不碰 n.content，
+    # 只要 Note.query 把整列選出來，content / author_name / ai_summary /
+    # ai_outline 這些 EncryptedText 欄位一樣會被 AES-GCM 解密一次，白白解出
+    # 這裡用不到的欄位。用 load_only 只選 id/title/deleted_at，才真的只解密
+    # title 一欄。也因此結果特意存進獨立的 parent_notes 字典、不合併進
+    # notes —— 合併進去的話，一旦哪天有人改成從 notes 讀 note 型命中的
+    # content，會在不知情下重新對這批欄位受限的物件觸發 lazy load（連帶
+    # 解密），且是靜默發生。
     parent_note_ids = {i.note_id for i in items.values()} - notes.keys()
+    parent_notes = {}
     if parent_note_ids:
-        for n in Note.query.filter(
+        for n in Note.query.options(
+                load_only(Note.id, Note.title, Note.deleted_at)).filter(
                 Note.id.in_(parent_note_ids), Note.deleted_at.is_(None)).all():
-            notes[n.id] = n
+            parent_notes[n.id] = n
 
     rows = []
     for h in hits:
@@ -251,7 +263,11 @@ def _detail_rows(tracked):
             i = items.get(h.target_id)
             if not i:
                 continue
-            n = notes.get(i.note_id)
+            # 先查 notes（同一張追蹤表裡，這個母筆記可能『自己也是』一筆
+            # note 型命中，已經被上面的批次查詢完整載入），沒有才落到
+            # parent_notes——不能反過來：parent_notes 是欄位受限的物件，
+            # notes 才是完整物件，兩者對同一個 id 都命中時要用完整的那份。
+            n = notes.get(i.note_id) or parent_notes.get(i.note_id)
             if not n:
                 continue          # 母筆記已軟刪或已硬刪 → 這一列自然消失
             title, text, note_id, when = n.title, i.text, i.note_id, i.updated_at
