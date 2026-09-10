@@ -151,4 +151,4 @@ set -a; source .env.local; set +a
 # run_local.sh 那個終端機的輸出就是 log
 ```
 
-全部通過的話跟我說一聲，我就把 41 個 commit 推上去。
+全部通過的話跟我說一聲，我就把這批 commit 推上去（數量以 `git log --oneline origin/main..HEAD` 為準）。
