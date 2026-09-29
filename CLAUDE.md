@@ -49,6 +49,41 @@ webapp/
 | `crypto.py` | 欄位級 AES-256-GCM 加解密 |
 | `gunicorn.conf.py` | prod：gevent worker、2 workers |
 
+#### ⚠ 改 schema 的規矩（漏了會是「線上才發現」的 500）
+
+`db.create_all()` **只建缺少的整張表，永遠不動已存在的表** —— 加欄位它一概不管。
+所以規矩是：
+
+1. **在 `models.py` 加欄位** → **同時**去 `app.py` 那串補一行
+   `ALTER TABLE <表> ADD COLUMN IF NOT EXISTS <欄位> <型別>`（目前約 33 行，照抄格式即可）。
+   漏補的話：prod 那張表已經存在 → `create_all()` 跳過 → 少一個欄位 → 一查就 500。
+2. **新增整張表**：第一次部署靠 `create_all()` 建，不用寫 DDL。但**那張表從此就「已存在」了**，
+   往後再加欄位就回到第 1 條。⚠ `tracked_keywords` / `tracked_keyword_hits`（建檔追蹤，
+   2026-09-29 上線）在 `app.py` 裡**一行 DDL 都沒有**，正是這個狀態。
+3. **本機不會幫你擋**：`ADD COLUMN` 那批只在 PG 跑，本機 SQLite 直接跳過；而舊的
+   `instance/dev.db` 同樣不會自己長欄位，症狀是本機畫面莫名 500（已咬過兩次）。
+   拉分支後先比對一次（沒有現成腳本，這段可直接貼；**先 `source .env.local`**，
+   否則會連到 `instance/app.db` 那個空 DB）：
+
+   ```python
+   import sys, sqlite3; sys.path.insert(0, '.')
+   from app import create_app
+   from extensions import db
+   app = create_app(); con = sqlite3.connect('instance/dev.db')
+   have = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
+   with app.app_context():
+       for t in db.metadata.sorted_tables:
+           if t.name not in have:
+               print("缺整張表:", t.name); continue
+           cols = {r[1] for r in con.execute(f"PRAGMA table_info({t.name})")}
+           miss = [c.name for c in t.columns if c.name not in cols]
+           if miss:
+               print(f"{t.name}: 缺 {miss}")
+   ```
+
+   有漂移就把那幾張表 DROP 掉讓 `create_all()` 重建（本機資料是拋棄式的）。
+4. `migrations/`（Alembic）未接線、不會被執行，**不要**把它當成 migration 管道。
+
 ### 模組（藍圖）
 
 | 藍圖 | URL | 功能 |
