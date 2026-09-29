@@ -104,7 +104,12 @@
     <a href="{{ url_for('notes.announcement_new_page') }}" class="btn btn-primary"
        style="background:#f39c12;text-decoration:none;display:inline-block;">📢 新增公告</a>
     {% endif %}
-    <a href="{{ url_for('notes.tracking_list_page') }}" class="btn btn-secondary"
+    {# store 一定要跟著目前的檢視走：清單頁用 effective_store() 解店別，沒帶
+       ?store= 的 super_admin 會落到 current_user.store —— 沒店別的帳號直接
+       撞「找不到店別」400（2026-09-29 prod 實錄），有店別的則靜默看到自己
+       那一店的追蹤表。一般使用者 current_store 為空、url_for 會略過這個參
+       數，連結形狀不變。 #}
+    <a href="{{ url_for('notes.tracking_list_page', store=current_store or None) }}" class="btn btn-secondary"
        style="text-decoration:none;display:inline-block;">🔎 建檔追蹤</a>
   </div>
 </div>

@@ -593,3 +593,62 @@ def test_detail_page_memo_fetch_matches_url_for_this_table(client, db):
     assert other_url not in html, (
         f'不該出現在另一張表（kid={kid_b}）的路徑，卻出現在這一頁'
     )
+
+
+# ---------------------------------------------------------------------------
+# 入口連結要帶著「目前正在看的店別」
+#
+# 2026-09-29 prod 實錄：super_admin（帳號本身沒有店別）在筆記列表選了店，按
+# toolbar 的「🔎 建檔追蹤」仍然得到「找不到店別」。原因不在店別選擇，而在這顆
+# 連結寫死成 url_for(...) 不帶任何參數 —— 清單頁的 effective_store() 因此落到
+# current_user.store（None）而回 400，選哪一店都一樣。
+#
+# 同一個缺陷對「有自己店別的 super_admin」不會報錯，而是更難發現的靜默版本：
+# 人在看 C店，點進去看到的是自己 B店 的追蹤表。兩種都由下面的測試守著。
+# ---------------------------------------------------------------------------
+
+def _tracking_entry_href(html):
+    m = re.search(r'<a[^>]*href="([^"]*tracking[^"]*)"[^>]*>[^<]*建檔追蹤', html)
+    assert m, 'toolbar 上找不到「建檔追蹤」連結'
+    return m.group(1)
+
+
+def test_toolbar_tracking_link_carries_selected_store(client, db):
+    """super_admin 選了店 → toolbar 連結要帶著那一店（否則清單頁解不出店別）。"""
+    _mk_store(db, 'C店')
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get('/notes/?store=C店').get_data(as_text=True)
+    assert 'store=C%E5%BA%97' in _tracking_entry_href(html) or \
+           'store=C店' in _tracking_entry_href(html), \
+        'toolbar 連結沒帶上目前選的店別 → 清單頁會回「找不到店別」'
+
+
+def test_toolbar_tracking_link_follows_view_not_own_store(client, db):
+    """有自己店別的 super_admin 在看別店時，連結要跟著「畫面上的店」，不是他自己的店。"""
+    _mk_store(db, 'B店'); _mk_store(db, 'C店')
+    _login(client, _mk_super_admin(db, store='B店'))
+    href = _tracking_entry_href(client.get('/notes/?store=C店').get_data(as_text=True))
+    assert 'C' in href and 'B%E5%BA%97' not in href, \
+        f'連結落到自己的店而不是正在看的店：{href!r}（靜默看到別店的追蹤表）'
+
+
+def test_toolbar_tracking_link_plain_without_store(client, db):
+    """一般使用者（鎖在自己店）不需要也不該在連結上帶 store。"""
+    _login(client, _mk_user(db))
+    assert '?' not in _tracking_entry_href(client.get('/notes/').get_data(as_text=True))
+
+
+def test_detail_back_to_list_link_carries_store(client, db):
+    """詳細頁的「← 所有追蹤表」同理——不帶 store 的話 super_admin 一按就 400。"""
+    from models import TrackedKeyword
+    _mk_store(db, 'C店')
+    t = TrackedKeyword(store='C店', keyword=_uniq('K'), created_by_name='tester')
+    db.session.add(t); db.session.commit()
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get(f'/notes/tracking/{t.id}?store=C店').get_data(as_text=True)
+    # href 這裡刻意收整串（含查詢字串）—— 寫成「以 tracking/ 結尾」會在加上
+    # ?store= 之後反而比對不到，把修好的狀態誤判成壞掉。
+    m = re.search(r'<a[^>]*href="([^"]*)"[^>]*>[^<]*所有追蹤表', html)
+    assert m, '詳細頁找不到「← 所有追蹤表」連結'
+    assert 'store=' in m.group(1), \
+        f'「← 所有追蹤表」沒帶 store：{m.group(1)!r} → super_admin 按了會 400'

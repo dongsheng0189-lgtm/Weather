@@ -71,7 +71,8 @@
 <div class="toolbar">
   <h2>{{ tracked.keyword }} 建檔追蹤</h2>
   <div style="margin-left:auto;">
-    <a href="{{ url_for('notes.tracking_list_page') }}" class="btn btn-secondary"
+    {# 同 index.html 的 toolbar：不帶 store 的話 super_admin 一按就 400 #}
+    <a href="{{ url_for('notes.tracking_list_page', store=current_store or None) }}" class="btn btn-secondary"
        style="text-decoration:none;">← 所有追蹤表</a>
   </div>
 </div>
