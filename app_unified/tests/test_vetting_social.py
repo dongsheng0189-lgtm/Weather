@@ -98,6 +98,10 @@ def test_google_search_url_with_negative_bucket():
     q = _decode_q(url)
     assert '"王小明"' in q
     assert "警察" in q and "詐欺" in q and "判決" in q
+    # 警職稱謂（現職＋退休）與檢方，使用者指定要跟其他負面詞放同一顆按鈕
+    assert "警員" in q and "員警" in q
+    assert "退休警察" in q and "退休警員" in q and "退休員警" in q
+    assert "檢察官" in q
 
 
 def test_google_search_url_with_disambiguators():
