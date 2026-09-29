@@ -14,7 +14,7 @@ from sqlalchemy.orm import load_only
 
 from extensions import db
 from models import TrackedKeyword, TrackedKeywordHit, TrackedKeywordMemoLog, Note, ChecklistItem
-from notes.routes import notes_bp
+from notes.routes import notes_bp, _PyPagination
 from notes.store_scope import effective_store, require_same_store
 from notes.tracking_match import normalize
 from notes.tracking_scan import scan_tracked_keyword
@@ -149,6 +149,9 @@ def _tracked_to_dict(t, hits=None):
         'created_at': tw_str(t.created_at),
         'hit_count': len(hits) if hits is not None else len(_visible_hits(t)),
     }
+
+
+HITS_PER_PAGE = 20     # 詳細頁每頁幾張命中卡
 
 
 @notes_bp.route('/api/tracking', methods=['POST'])
@@ -497,9 +500,23 @@ def tracking_detail_page(kid):
     # 同一頁面的重複查詢。
     hits = _visible_hits(t)
     memo_edited_by, memo_edited_at = _memo_edit_info(t)
+    # 分頁（2026-09-29）：命中內容改成全文攤開之後，長文一多整頁會拉得很長，
+    # 改用分頁控制頁長——原本「詳細頁不分頁」的決定在此被使用者推翻。
+    #
+    # 用 _PyPagination 而不是 SQL 的 .paginate()：列是 _detail_rows() 在
+    # Python 端組出來的（文字要即時解密、還要過濾軟刪與已剔除），資料庫那層
+    # 拿不到最終列數，跟筆記列表的關鍵字搜尋是同一個限制、共用同一個 shim。
+    page = request.args.get('page', 1, type=int) or 1
+    rows = _detail_rows(t, hits=hits)
+    pagination = _PyPagination(rows, page=page, per_page=HITS_PER_PAGE)
+    if pagination.page > pagination.pages:
+        # 越界頁夾到最後一頁。給空白頁的話，使用者看到的是「這張表沒有東西」，
+        # 跟「你翻過頭了」完全分不出來——而前者正是這個功能最不該誤導的訊息。
+        pagination = _PyPagination(rows, page=pagination.pages, per_page=HITS_PER_PAGE)
     return render_template('notes/tracking_detail.html',
                            tracked=_tracked_to_dict(t, hits=hits),
-                           rows=_detail_rows(t, hits=hits),
+                           rows=pagination.items,
+                           pagination=pagination,
                            excluded_rows=_excluded_rows(t),
                            # 整張表共用的一欄備註（2026-09-09 改版），放在
                            # 頁面最上面，不是每一列各自一份。

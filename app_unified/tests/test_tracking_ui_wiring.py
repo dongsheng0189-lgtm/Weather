@@ -652,3 +652,113 @@ def test_detail_back_to_list_link_carries_store(client, db):
     assert m, '詳細頁找不到「← 所有追蹤表」連結'
     assert 'store=' in m.group(1), \
         f'「← 所有追蹤表」沒帶 store：{m.group(1)!r} → super_admin 按了會 400'
+
+
+# ---------------------------------------------------------------------------
+# 詳細頁：全文攤開 + 每頁 20 張卡
+#
+# 使用者（PO）2026-09-29 回饋：命中內容被固定高度截斷，統整過的長文要點進原文
+# 才看得完；而他在追蹤表上「幾乎每一筆都要讀完」。因此：截斷拿掉、改用分頁
+# 控制頁長。詳細頁一直是刻意不分頁的（舊決定），這條決定在此被推翻。
+# ---------------------------------------------------------------------------
+
+DETAIL_TPL = 'templates/notes/tracking_detail.html'
+
+
+def _detail_template_src():
+    import pathlib
+    return (pathlib.Path(__file__).parent.parent / DETAIL_TPL).read_text(encoding='utf-8')
+
+
+def test_hit_text_is_not_height_clamped():
+    """命中內容不可以再被固定高度截斷（含底部漸層遮罩那層偽裝）。"""
+    src = _detail_template_src()
+    m = re.search(r'\.hit-text-wrap\s*\{([^}]*)\}', src)
+    assert m, '找不到 .hit-text-wrap 樣式'
+    body = m.group(1)
+    assert 'max-height' not in body, '.hit-text-wrap 又被加上高度截斷了'
+    assert 'overflow:hidden' not in body.replace(' ', ''), \
+        '.hit-text-wrap 又被加上 overflow:hidden（內容會被切掉）'
+    assert 'is-clamped' not in src, '截斷用的漸層遮罩／偵測邏輯應該整套移除'
+
+
+def _mk_hits(db, n, store='C店', keyword=None):
+    """建 n 篇含關鍵字的筆記並掃描，回傳 TrackedKeyword。"""
+    from models import Note, TrackedKeyword
+    from notes.tracking_scan import scan_tracked_keyword
+    kw = keyword or _uniq('K')
+    for i in range(n):
+        db.session.add(Note(store=store, title=f'{kw} 第{i}篇',
+                            content='x' * 50, note_type='note'))
+    db.session.commit()
+    t = TrackedKeyword(store=store, keyword=kw, created_by_name='tester')
+    db.session.add(t); db.session.commit()
+    scan_tracked_keyword(t)
+    return t
+
+
+def _cards(html):
+    return re.findall(r'<div class="hit-card"', html)
+
+
+def test_detail_page_shows_at_most_20_cards(client, db):
+    _mk_store(db, 'C店')
+    t = _mk_hits(db, 21)
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get(f'/notes/tracking/{t.id}?store=C店').get_data(as_text=True)
+    assert len(_cards(html)) == 20, '第一頁應該剛好 20 張卡'
+    html2 = client.get(f'/notes/tracking/{t.id}?store=C店&page=2').get_data(as_text=True)
+    assert len(_cards(html2)) == 1, '第二頁應該剩 1 張卡'
+
+
+def test_detail_pagination_links_keep_store(client, db):
+    """分頁連結要帶著 store——不帶的話 super_admin 翻頁就掉回「找不到店別」。"""
+    _mk_store(db, 'C店')
+    t = _mk_hits(db, 21)
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get(f'/notes/tracking/{t.id}?store=C店').get_data(as_text=True)
+    nxt = re.search(r'<a[^>]*href="([^"]*)"[^>]*>\s*下一頁', html)
+    assert nxt, '找不到「下一頁」連結'
+    assert 'store=' in nxt.group(1) and 'page=2' in nxt.group(1), \
+        f'下一頁連結沒帶齊 store/page：{nxt.group(1)!r}'
+
+
+def test_detail_page_out_of_range_clamps_to_last_page(client, db):
+    """?page=99 要夾到最後一頁，不能給一個空白頁（看起來像資料不見了）。"""
+    _mk_store(db, 'C店')
+    t = _mk_hits(db, 21)
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get(f'/notes/tracking/{t.id}?store=C店&page=99').get_data(as_text=True)
+    assert len(_cards(html)) == 1, '越界頁應該顯示最後一頁的內容'
+
+
+def test_no_pagination_bar_when_single_page(client, db):
+    _mk_store(db, 'C店')
+    t = _mk_hits(db, 3)
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get(f'/notes/tracking/{t.id}?store=C店').get_data(as_text=True)
+    assert '下一頁' not in html, '只有一頁時不該出現分頁列'
+
+
+def test_back_to_note_from_url_carries_page(client, db):
+    """『→ 原文』的 from 要記住頁碼，否則從第 2 頁點進去、返回會掉回第 1 頁。"""
+    _mk_store(db, 'C店')
+    t = _mk_hits(db, 21)
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get(f'/notes/tracking/{t.id}?store=C店&page=2').get_data(as_text=True)
+    m = re.search(r'from=([^"&]*)', html)
+    assert m, '找不到 → 原文 連結的 from 參數'
+    from urllib.parse import unquote
+    assert 'page=2' in unquote(m.group(1)), \
+        f'from 沒帶頁碼：{unquote(m.group(1))!r}'
+
+
+def test_first_page_from_url_has_no_page_param(client, db):
+    """第 1 頁不要多塞 page=1——URL 形狀保持跟以前一致。"""
+    _mk_store(db, 'C店')
+    t = _mk_hits(db, 3)
+    _login(client, _mk_super_admin(db, store=None))
+    html = client.get(f'/notes/tracking/{t.id}?store=C店').get_data(as_text=True)
+    m = re.search(r'from=([^"&]*)', html)
+    from urllib.parse import unquote
+    assert m and 'page=' not in unquote(m.group(1))

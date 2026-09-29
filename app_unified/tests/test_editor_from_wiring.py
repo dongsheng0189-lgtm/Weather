@@ -137,6 +137,13 @@ def test_tracking_from_whitelist_rejects_hostile_candidates():
         # 「近似命中」：/nx/... 不是 /n/tracking/...，前綴比對若不夠嚴謹
         # （例如漏了 \b 或用錯 startsWith 語意）可能誤放行。
         '/nx/tracking/1',
+        # 放寬成允許 &page= 之後最容易被順手放進來的東西：任意第三個參數。
+        # 白名單只認 store / page 兩個鍵，其他一律擋。
+        '/n/tracking/1?store=B店&evil=1',
+        '/n/tracking/1?store=B店&page=2&evil=1',
+        # page 只收數字——非數字值代表這個 from 不是我們產的
+        '/n/tracking/1?page=../../etc/passwd',
+        '/n/tracking/1?page=2#/evil',
     ]
     for candidate in hostile:
         assert not pattern.match(candidate), f'不該放行的值卻通過了白名單：{candidate!r}'
@@ -149,6 +156,10 @@ def test_tracking_from_whitelist_rejects_hostile_candidates():
         # strip()＋非空檢查，空格放得進去，這裡必須放行（否則 A1 的
         # 迴歸就在這裡發生，不需要真的去渲染整頁才看得到）。
         '/n/tracking/1?store=台北 信義',
+        # 分頁（2026-09-29）：詳細頁改成每頁 20 張卡之後，from 要記住頁碼，
+        # 否則從第 2 頁點進原文、返回會掉回第 1 頁。兩種形狀都要放行。
+        '/n/tracking/1?store=B店&page=2',
+        '/n/tracking/1?page=2',
     ]
     for candidate in legit:
         assert pattern.match(candidate), f'合法的值卻被白名單擋下：{candidate!r}'

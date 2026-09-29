@@ -842,7 +842,10 @@ document.addEventListener('DOMContentLoaded', function() {
 //      (含 bullet 錨點)，並整頁進「review mode」— CSS 鎖住 .editor-wrap 內
 //      所有可編輯控制 + 顯示檢視模式 banner，避免 review 時誤改資料。這是
 //      既有行為，不可迴歸。
-//   2. 建檔追蹤表 link `/n/tracking/<kid>(?store=<店別>)?`：PO 手動測試回饋
+//   2. 建檔追蹤表 link `/n/tracking/<kid>(?store=<店別>(&page=<n>)?|?page=<n>)?`：
+//      （2026-09-29 詳細頁改分頁後，from 要一併記住頁碼，否則從第 2 頁點進
+//      原文、返回會掉回第 1 頁。白名單只認 store / page 這兩個鍵，且 page
+//      只收數字——任何第三個參數都擋掉，放寬到此為止。）PO 手動測試回饋
 //      ——從追蹤表點進原文，返回要回到追蹤表才能接著看下一筆，不是掉回主
 //      畫面。但使用者點進追蹤命中的原文，八成就是要編輯它（那正是追蹤存在
 //      的目的），**不可以**套用 review-mode——那是 AI 摘要 review 流程專用
@@ -853,7 +856,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var from = new URLSearchParams(location.search).get('from');
   if (!from) return;
   var isSummary = /^\/n\/\d+(#b-\d+)?$/.test(from);
-  var isTracking = !isSummary && /^\/n\/tracking\/\d+(\?store=[^\/#]+)?$/.test(from);
+  var isTracking = !isSummary && /^\/n\/tracking\/\d+(\?(store=[^\/#&]+(&page=\d+)?|page=\d+))?$/.test(from);
   if (!isSummary && !isTracking) return;
   var backBtn = document.getElementById('btn-back');
   if (backBtn) backBtn.setAttribute('href', from);

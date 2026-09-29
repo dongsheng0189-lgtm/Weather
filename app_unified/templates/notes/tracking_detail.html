@@ -26,10 +26,9 @@
 .hit-card { background:#fff; border:1px solid #e4e4e4; border-radius:8px;
   padding:.8rem 1rem; margin-bottom:.6rem; }
 .hit-meta { color:#888; font-size:.8rem; margin-bottom:.25rem; }
-.hit-text-wrap { position:relative; max-height:6.5rem; overflow:hidden; }
-.hit-text-wrap.is-clamped::after { content:''; position:absolute; left:0; right:0;
-  bottom:0; height:1.8rem; pointer-events:none;
-  background:linear-gradient(rgba(255,255,255,0), #fff); }
+/* 不截斷：使用者在追蹤表上「幾乎每一筆都要讀完」，統整過的長文被切掉就得
+   點進原文才看得完。頁面長度改由分頁控制（每頁 HITS_PER_PAGE 張卡）。 */
+.hit-text-wrap { position:relative; }
 .hit-text { font-size:.95rem; white-space:pre-wrap; word-break:break-word; }
 .hit-actions { display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem; }
 .tracking-empty { color:#888; padding:1.2rem; text-align:center; }
@@ -66,8 +65,14 @@
    from_url 上多加一個參數，這條 regex 也要跟著放寬，不然新參數會讓整個
    `from` 值被那個白名單擋下、靜默 fallback 回 notes 首頁（症狀跟 A1 那個
    店名帶空格的迴歸一樣不張揚）。 #}
+{# from 要記住「使用者現在在第幾頁」——不記的話從第 2 頁點進原文、返回會掉
+   回第 1 頁，等於每看一筆就要重新翻頁。第 1 頁刻意不帶 page=1，URL 形狀跟
+   分頁之前一致。⚠ 這個值的形狀有 editor.html 的白名單 regex 守著（防轉址），
+   這裡加參數就要同步放寬那條 regex，否則整個 from 會被靜默丟掉。 #}
 {% set from_url = '/n/tracking/' ~ tracked.id ~
-                   (('?store=' ~ current_store) if current_store else '') %}
+                   (('?store=' ~ current_store) if current_store else '') ~
+                   (('&' if current_store else '?') ~ 'page=' ~ pagination.page
+                    if pagination.page > 1 else '') %}
 <div class="toolbar">
   <h2>{{ tracked.keyword }} 建檔追蹤</h2>
   <div style="margin-left:auto;">
@@ -107,6 +112,42 @@
   </div>
 </div>
 {% endfor %}
+
+{# 分頁列：沿用筆記列表同一套外觀與行為（‹ 上一頁 / 頁碼 / 下一頁 › / 共 N 筆），
+   每個連結都要帶 store —— 少了它，super_admin 一翻頁就掉進「找不到店別」。 #}
+{% if pagination.pages > 1 %}
+<div style="display:flex;justify-content:center;align-items:center;gap:.4rem;
+            flex-wrap:wrap;margin:1rem 0;">
+  {% if pagination.has_prev %}
+  <a href="{{ url_for('notes.tracking_detail_page', kid=tracked.id,
+                      store=current_store or None, page=pagination.prev_num) }}"
+     style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;
+            text-decoration:none;font-size:.9rem;">‹ 上一頁</a>
+  {% endif %}
+  {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+    {% if p %}
+      {% if p == pagination.page %}
+      <span style="padding:.4rem .7rem;border-radius:6px;background:#3498db;
+                   color:#fff;font-size:.9rem;">{{ p }}</span>
+      {% else %}
+      <a href="{{ url_for('notes.tracking_detail_page', kid=tracked.id,
+                          store=current_store or None, page=p) }}"
+         style="padding:.4rem .7rem;border-radius:6px;background:#f0f0f0;color:#333;
+                text-decoration:none;font-size:.9rem;">{{ p }}</a>
+      {% endif %}
+    {% else %}
+      <span style="color:#999;">…</span>
+    {% endif %}
+  {% endfor %}
+  {% if pagination.has_next %}
+  <a href="{{ url_for('notes.tracking_detail_page', kid=tracked.id,
+                      store=current_store or None, page=pagination.next_num) }}"
+     style="padding:.4rem .8rem;border-radius:6px;background:#f0f0f0;color:#333;
+            text-decoration:none;font-size:.9rem;">下一頁 ›</a>
+  {% endif %}
+  <span style="font-size:.82rem;color:#999;margin-left:.5rem;">共 {{ pagination.total }} 筆</span>
+</div>
+{% endif %}
 {% else %}
 <div class="tracking-empty">目前沒有命中的資料。</div>
 {% endif %}
@@ -133,23 +174,6 @@
 {% endif %}
 
 <script>
-// 撐開超長原文超過一定高度時才加淡出遮罩，短文不加（避免短文也被裁到看起來
-// 怪怪的）。
-//
-// 量兩次：inline（parse 當下）跟 window 的 load 事件都跑一次。網頁字型在
-// parse 當下多半還沒套用完成，用系統預設字型量出來的 scrollHeight 可能比
-// 字型套用後還矮——原文因此被 CSS 裁切、卻沒被判定成 is-clamped，看起來
-// 像文字就是恰好在那裡結束，而不是被裁掉。load 事件保證字型已經套用完成，
-// 在那時候補量一次可以抓到這種因 reflow 而變高的情形。已經是 is-clamped
-// 的不會被拿掉——這裡只加不減，字型套用後變矮的極端情形不值得為此拆分。
-function applyClampFade() {
-  document.querySelectorAll('.hit-text-wrap').forEach(function (wrap) {
-    if (wrap.scrollHeight > wrap.clientHeight + 1) wrap.classList.add('is-clamped');
-  });
-}
-applyClampFade();
-window.addEventListener('load', applyClampFade);
-
 // 備註：整張表共用一欄，放在頁面最上面（2026-09-09 改版，原本是每一列各自
 // 一份）。失焦才送，避免每打一個字就打一次 API。
 //
