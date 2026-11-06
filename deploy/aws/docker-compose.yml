@@ -33,7 +33,16 @@ services:
       # DATABASE_URL 在這裡組，不在 .env 裡寫死 —— 密碼只有 POSTGRES_PASSWORD 一個來源，
       # 不會發生「改了一邊忘了另一邊」。environment 的優先序高於 env_file，
       # 所以就算 .env 裡殘留舊的 DATABASE_URL 也會被這行蓋掉。
-      DATABASE_URL: "postgresql://weather:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/weather"
+      #
+      # ⚠️ 連的是 root@zeabur，不是容器啟動時建的 weather@weather。
+      # Zeabur 給的是 pg_dumpall 的「整個叢集」備份，裡面寫死了
+      # `CREATE ROLE root` + `CREATE DATABASE zeabur` + 28 張表 `OWNER TO root`。
+      # 照原樣還原最安全 —— 改寫擁有權等於在搬遷當下引入新變數，
+      # 出問題時分不清是搬錯還是改錯。
+      # 還原後 root 的密碼會被改成與 POSTGRES_PASSWORD 相同（dump 內含的是
+      # Zeabur 那組已外洩的密碼雜湊，不能留）。
+      # 容器 bootstrap 建的 weather 超級使用者保留，用於維運操作與 healthcheck。
+      DATABASE_URL: "postgresql://root:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/zeabur"
     depends_on:
       redis:
         condition: service_healthy
