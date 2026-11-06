@@ -1,0 +1,122 @@
+# app-unified on AWS EC2
+#
+# 與 Zeabur 的差異：
+#   - PostgreSQL 跑在同一台（2026-11-06 決定：RDS 每月 $42，試架階段不划算）。
+#     資料放在獨立 EBS 磁碟 /mnt/pgdata，不在根磁碟裡 —— 根磁碟設了
+#     DeleteOnTermination=true，資料放那裡等於機器一砍就沒。
+#     代價：自動備份要自己做，見 pg-backup.sh 與 RUNBOOK 的「備份」一節。
+#   - Redis 跑在同一台：它只存 socketio 廣播，掉了不會掉資料，不值得多開 ElastiCache
+#   - Caddy 負責 TLS（Let's Encrypt 自動申請續簽），對應 Zeabur 時期由平台處理的那層
+#
+# 記憶體預算（t3.large 8GB）：app 3G + postgres 1G + redis 0.32G + caddy/OS 0.6G ≈ 5G。
+# ⚠️ 因為多了 postgres，機型不能降到 t3.medium（4GB）—— 塞不下。
+#
+# 啟動：docker compose up -d --build
+# 看 log：docker compose logs -f app
+
+services:
+  app:
+    build:
+      # build context 必須是 repo 根目錄 —— Dockerfile 內的路徑都帶 app_unified/ 前綴
+      context: ../..
+      dockerfile: app_unified/Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "8080"
+      # 內網 Redis。程式依序讀 REDIS_URI → REDIS_CONNECTION_STRING → REDIS_URL，
+      # 設 REDIS_URI 即可；另外兩個千萬不要同時設，會互相蓋掉。
+      REDIS_URI: "redis://redis:6379/0"
+      SESSION_COOKIE_SECURE: "true"
+      # DATABASE_URL 在這裡組，不在 .env 裡寫死 —— 密碼只有 POSTGRES_PASSWORD 一個來源，
+      # 不會發生「改了一邊忘了另一邊」。environment 的優先序高於 env_file，
+      # 所以就算 .env 裡殘留舊的 DATABASE_URL 也會被這行蓋掉。
+      DATABASE_URL: "postgresql://weather:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/weather"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    # 每個 worker 常駐約 700MB，載入模型後約 1.2GB；2 workers 封頂 3G 留安全邊界
+    mem_limit: 3g
+    healthcheck:
+      # /healthz 由 wsgi_lazy 走快速路徑，不等模型載入
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      # worker 開機要預載 torch，數十秒跑不掉；start_period 太短會被判定不健康而重啟
+      start_period: 300s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  postgres:
+    # 版本必須與 Zeabur 相同（18），否則 pg_restore 灌不進去
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: weather
+      POSTGRES_USER: weather
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # 指到子目錄，不要直接用掛載點 —— EBS 格式化後根目錄有 lost+found，
+      # postgres 會判定「目錄非空」而拒絕初始化
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - /mnt/pgdata/data:/var/lib/postgresql/data
+      - /mnt/pgdata/backups:/backups
+    # 不發布 ports —— 只有同一個 compose 網路裡的 app 連得到，主機和外網都碰不到
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weather -d weather"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    mem_limit: 1g
+    # 預設 /dev/shm 只有 64MB，平行查詢或較大的排序會噴
+    # "could not resize shared memory segment"
+    shm_size: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # 只是 socketio 的 pubsub，不需要持久化；省掉 RDB 寫檔
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb",
+              "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    mem_limit: 320m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "2" }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"     # Let's Encrypt HTTP-01 驗證 + 轉址到 443
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # 憑證放這裡，一定要持久化否則每次重啟都重新申請會撞到速率限制
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+    depends_on:
+      - app
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy_data:
+  caddy_config:

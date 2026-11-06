@@ -69,3 +69,8 @@ app_unified/scripts/seed_visible_stores.py
 generate_manual.py
 generate_manuals.py
 *.pdf
+
+# 部署文件：含 AWS 帳號 ID、Elastic IP、執行個體 ID 與尚未修補的漏洞說明。
+# repo 目前是 public，這兩份不進版控；改成 private 後再把這三行刪掉。
+deploy/aws/RUNBOOK.md
+deploy/aws/HANDOVER.md

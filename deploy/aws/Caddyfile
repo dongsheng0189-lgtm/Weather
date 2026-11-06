@@ -1,0 +1,32 @@
+# Caddy 自動向 Let's Encrypt 申請並續簽憑證。
+#
+# 前提：DNS 已指向這台 EC2 的 Elastic IP，且 Cloudflare 維持灰雲（DNS only）。
+# 橘雲會讓 Let's Encrypt 的 HTTP-01 驗證打到 Cloudflare 而不是這台機器。
+# 要開橘雲請先走 Weather 的 Phase F 閘門（HiNet 路由實測）。
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# WebSocket（flask-socketio）要原樣轉發；reverse_proxy 預設就會處理 Upgrade，
+	# 但明確寫出來比較不會在日後改設定時被誤刪。
+	reverse_proxy app:8080 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+
+		# 預設 streaming 關閉會緩衝回應，socketio 長連線會卡住
+		flush_interval -1
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
