@@ -101,6 +101,38 @@
                   font-size: inherit; font-weight: inherit; }
     #tap-target:active, #tap-target:focus { outline: none; background: none; opacity: 1; }
 
+    /* 隱藏登入視窗（2026-11-06 由 app2_weather 移植回來）。
+       face_capture.js 本來就在找 #m-video / #m-canvas / #m-cam-indicator /
+       #modal-close，只是這段 HTML 不在 repo 裡。 */
+    #auth-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+                  z-index: 1000; align-items: center; justify-content: center; }
+    #auth-modal.open { display: flex; }
+    .modal-box { background: #fff; color: #333; border-radius: 12px; padding: 2rem;
+                 width: 380px; max-width: 95vw; position: relative; }
+    .modal-box h2 { margin-bottom: 1.25rem; color: #2c3e50; font-size: 1.3rem; }
+    .modal-close { position: absolute; top: .75rem; right: 1rem; font-size: 1.5rem;
+                   background: none; border: none; cursor: pointer; color: #888; line-height: 1; }
+    .modal-box .form-group { margin-bottom: .9rem; }
+    .modal-box .form-group label { display: flex; align-items: center; gap: .5rem;
+                                   margin-bottom: .3rem; font-size: .85rem; font-weight: 600; color: #555; }
+    .modal-box .form-group input { width: 100%; padding: .55rem .75rem; border: 1px solid #ddd;
+                                   border-radius: 6px; font-size: .95rem; }
+    .modal-box .form-group input:focus { outline: none; border-color: #3498db; }
+    .modal-box .btn { display: block; width: 100%; padding: .6rem; border-radius: 6px;
+                      border: none; cursor: pointer; font-size: .95rem; margin-top: .5rem; font-weight: 600; }
+    .modal-box .btn-primary { background: #3498db; color: #fff; }
+    #modal-msg { text-align: center; font-size: .9rem; min-height: 1.3em; margin-top: .5rem; }
+    #modal-msg.ok { color: #27ae60; }
+    #modal-msg.err { color: #e74c3c; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+    /* 連點計數提示：點下去才出現，不構成入口提示 */
+    #tap-indicator { display: none; position: fixed; bottom: 1.5rem; right: 1.5rem;
+                     width: 2rem; height: 2rem; border-radius: 50%;
+                     background: rgba(255,255,255,.18); color: #fff;
+                     align-items: center; justify-content: center;
+                     font-size: .9rem; z-index: 999; pointer-events: none; }
+
     /* 主要天氣區：城市 + 溫度 + 描述 */
     .hero-section { text-align: center; margin-bottom: 2rem; width: 100%; }
     .city-name { font-size: 2.4rem; font-weight: 500; letter-spacing: .05em; margin-bottom: .25rem; }
@@ -196,7 +228,34 @@
   </div>
 </div>
 
+<div id="tap-indicator"></div>
+
+<div id="auth-modal">
+  <div class="modal-box">
+    <button class="modal-close" id="modal-close" aria-label="關閉">&times;</button>
+    <h2>🔓 進入系統</h2>
+    <video id="m-video" autoplay playsinline muted style="display:none;"></video>
+    <canvas id="m-canvas" width="320" height="240" style="display:none;"></canvas>
+    <div class="form-group">
+      <label>
+        PIN 碼
+        <!-- 紅點 = 相機已啟動，由 face_capture.js 控制 -->
+        <span id="m-cam-indicator" style="display:none;width:10px;height:10px;border-radius:50%;background:#e74c3c;animation:blink 1s infinite;"></span>
+      </label>
+      <!-- 提示文字刻意寫「8 位數」，實際是 4 位數。與正式站現況一致；
+           跟 face_mismatch 回「密碼錯了喔」是同一個路數：不洩漏真實長度。 -->
+      <input type="password" id="m-pin" maxlength="8" inputmode="numeric"
+             autocomplete="off" placeholder="8 位數">
+    </div>
+    <button class="btn btn-primary" id="m-submit">驗證登入</button>
+    <div id="modal-msg"></div>
+  </div>
+</div>
+
 <script src="/static/js/fingerprint.js"></script>
+<script src="/static/js/tap_detector.js"></script>
+<script src="/static/js/face_capture.js"></script>
+<script src="/static/js/modal_auth.js"></script>
 <script>
 (function() {
   var heroSection = document.getElementById('hero-section');
