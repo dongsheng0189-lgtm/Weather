@@ -10,6 +10,15 @@
 	# WebSocket（flask-socketio）要原樣轉發；reverse_proxy 預設就會處理 Upgrade，
 	# 但明確寫出來比較不會在日後改設定時被誤刪。
 	reverse_proxy app:8080 {
+		# 改版時 app 容器會被換掉，中間約 15–25 秒連不上（停舊的 + 新的預載 torch）。
+		# 沒有這兩行，那段時間的請求會直接拿到 502；有了之後 Caddy 會把連不上的請求
+		# 留著、每 500ms 重試一次，後端一起來就送過去 —— 使用者看到的是「卡一下」
+		# 而不是錯誤畫面。60 秒是上限，超過才放棄回 502。
+		# 只對「還沒送到後端」的請求有效（連線被拒 / 找不到主機）；已經送出去、
+		# 處理到一半被中斷的請求不會重送，否則 POST 可能被執行兩次。
+		lb_try_duration 60s
+		lb_try_interval 500ms
+
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-Proto {scheme}
 
