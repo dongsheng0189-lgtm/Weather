@@ -27,10 +27,6 @@ step() {
 
 set -a; . ./.env; set +a
 PSQL=(docker compose exec -T postgres psql -U weather)
-case "$DOMAIN" in
-  :*) URL="http://localhost/weather/" ;;
-  *)  URL="https://${DOMAIN}/weather/" ;;
-esac
 
 # ── 1. 下載 ─────────────────────────────────────────────────────────
 docker run --rm \
@@ -111,15 +107,21 @@ fi
 step "6 改密碼並比對筆數"
 
 # ── 7. 啟動 app，等到真的能回應頁面 ─────────────────────────────────
-docker compose start app
-code=000
+# 用 up -d 而不是 start：start 只會把原容器叫起來、沿用舊的環境變數；
+# 切換當天會先改 .env（新的 SECRET_KEY、正式網域），要 up -d 才會以新設定重建。
+# 只指定 app，不動 caddy —— caddy 要等 DNS 改完才換成正式網域。
+docker compose up -d app
+# 直接在容器內打 8080，不經過 Caddy 和 DNS：切換當下 DNS 還沒改，
+# 用網域檢查會打到別的地方去。
+ok=no
 for _ in $(seq 1 120); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$URL" || true)
-  [ "$code" = "200" ] && break
+  if docker compose exec -T app python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/weather/', timeout=5).status == 200 else 1)" >/dev/null 2>&1; then
+    ok=yes; break
+  fi
   sleep 1
 done
-if [ "$code" != "200" ]; then
-  echo "app 在 120 秒內沒有恢復（最後狀態碼 $code），請看 docker compose logs app"
+if [ "$ok" != "yes" ]; then
+  echo "app 在 120 秒內沒有恢復，請看 docker compose logs app"
   exit 1
 fi
 step "7 啟動 app 到可服務"
