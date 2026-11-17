@@ -56,10 +56,15 @@ PY
 # COPY 的文字格式一列資料就是一行（換行會被跳脫），所以數行數就是筆數。
 # 這份數字來自備份檔本身，不依賴 Zeabur，拿來對還原後的資料庫。
 LC_ALL=C awk '
-  !inb && /^COPY public\./ { t = $2; sub(/^public\./, "", t); n = 0; inb = 1; next }
-  inb && $0 == "\."       { print t "|" n; inb = 0; next }
-  inb                      { n++ }
+  # COPY 區塊以單獨一行「反斜線加句點」結束。用 sprintf 組出這個字串，
+  # 不在程式裡寫反斜線 —— 2026-11-17 第一次演練就是栽在跳脫字元少一層，
+  # 結束行永遠比對不到，算出來的預期筆數是空的。
+  BEGIN { END_MARK = sprintf("%c", 92) "." }
+  !inb && index($0, "COPY public.") == 1 { t = $2; sub(/^public[.]/, "", t); n = 0; inb = 1; next }
+  inb && $0 == END_MARK                  { print t "|" n; inb = 0; next }
+  inb                                    { n++ }
 ' "$WORK/data/data.sql" | LC_ALL=C sort > "$WORK/expected.txt"
+[ "$(wc -l < "$WORK/expected.txt")" -ge 20 ] || { echo "從備份檔解析不出各表筆數（expected.txt 幾乎是空的），停止，尚未動到資料庫"; exit 1; }
 step "2 解壓並檢查"
 
 # ── 3. 停 app：從這裡開始算停機 ─────────────────────────────────────
