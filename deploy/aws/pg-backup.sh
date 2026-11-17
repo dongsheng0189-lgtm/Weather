@@ -18,12 +18,16 @@ mkdir -p "$BACKUP_DIR"
 
 # -Fc = custom format，pg_restore 才能選擇性還原、也比純 SQL 小
 # 先寫 .part 再改名：中途失敗不會留下一個看起來正常的半截檔
+# 資料在 zeabur 這個資料庫（Zeabur 的整叢集備份還原出來的名字），不是容器
+# bootstrap 建的 weather —— 那個是空的。2026-11-17 之前這裡寫成 weather，
+# 照原樣排程會每天備份出一個幾 KB 的空檔而不自知。
 docker compose exec -T postgres \
-  pg_dump -U weather -d weather -Fc > "${OUT}.part"
+  pg_dump -U weather -d zeabur -Fc > "${OUT}.part"
 mv "${OUT}.part" "$OUT"
 
 SIZE=$(stat -c %s "$OUT")
-if [ "$SIZE" -lt 1024 ]; then
+# 真實資料的 dump 有數十 MB；小於 1MB 幾乎可以確定備份到空的或錯的資料庫
+if [ "$SIZE" -lt 1048576 ]; then
   echo "ERROR: ${NAME} 只有 ${SIZE} bytes，備份不正常" >&2
   exit 1
 fi
